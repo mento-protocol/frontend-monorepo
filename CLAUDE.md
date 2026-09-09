@@ -107,8 +107,9 @@ exit 0 or the session fails to start. Keep it to VM provisioning, such as
 Foundry and the Trunk launcher. Install tools into a shared path such as
 `/opt`, then symlink them into `/usr/local/bin`: the environment cache keeps
 files but not an exported `PATH`, and the session user cannot read `/root`.
-Fork tests additionally need the RPC hosts (`forno.celo.org`, `rpc.monad.xyz`)
-on a Custom network allowlist.
+The session's Custom network allowlist is configured in the same place and is
+just as invisible from the tree; the entries this repository needs are
+tabulated under the Trunk runtimes below.
 
 Cloud sessions gate GitHub by _repository_, not by host, and the gate is far
 wider than a tarball path: the proxy fronts `github.com` as if it were the
@@ -208,15 +209,41 @@ takes about 1m30s including every runtime and linter download, `trunk fmt
 --no-fix --all` about 30s over 1172 files, and `trunk check --all` about 2m45s
 cold or about 2m15s warm over 1235 files.
 
+The allowlist itself lives with the environment at claude.ai/code, not in this
+repository, so a fresh environment starts with none of it and nothing in the
+tree will tell you what is missing. The entries this repository needs:
+
+| Entry                                                   | Needed by                                                                |
+| ------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `dl.google.com`                                         | Trunk's `go` runtime                                                     |
+| `forno.celo.org`, `rpc.monad.xyz`, `monad.drpc.org`     | the anvil fork suites                                                    |
+| `turborepo.dev`                                         | the `turbo.build` and `turborepo.com` links in the docs                  |
+| `getfoundry.sh`                                         | the `book.getfoundry.sh` link — the apex, which `*.getfoundry.sh` misses |
+| `notion.com`                                            | the `www.notion.so` link — Notion rebranded onto another TLD             |
+| `www.typescriptlang.org`, `www.conventionalcommits.org` | the remaining documentation links                                        |
+
+The last four rows exist only to keep `markdown-link-check` honest. Two of them
+are the plain hosts the links name, but `turborepo.dev`, `getfoundry.sh`, and
+`notion.com` are not written in any document: each is where a documented URL
+_redirects_ to, and the linter follows the redirect. So **allowlist the final
+host in the chain, not the one written in the markdown** — it may be a different
+subdomain, the bare apex (a wildcard does not cover the apex it sits under), or
+an entirely different domain.
+
+Editing the allowlist takes effect in sessions that are already running; there
+is no need to start a new one to pick up an entry.
+
 `trunk check --all` is therefore fast enough to be practical, but it **cannot
 pass in a cloud session** — not because of anything in the repo, but because two
 of the enabled linters depend on network the session does not have:
 
-- **`markdown-link-check`** reports every external link as a 403. About a quarter
-  are `github.com` links killed by the API gateway described above; the rest are
-  hosts that are simply not on the allowlist, among them `nextjs.org`,
-  `vercel.com`, `pnpm.io`, and `docs.trunk.io` — the allowlist carries `trunk.io`
-  and `api.trunk.io`, not `*.trunk.io`. None of it is evidence of a broken link.
+- **`markdown-link-check`** cannot verify a `github.com` link, and 15 of this
+  repository's markdown links are GitHub links. Each returns the repository-gate
+  403 described above, whether or not the link is good, so none of it is
+  evidence of a broken link. That 15 is the floor: with the allowlist entries
+  above in place, every _non_-GitHub external link passes. So a failure on any
+  other host is a missing allowlist entry rather than a broken link — check the
+  final host in its redirect chain before concluding otherwise.
 - **`trufflehog`** reports pinned GitHub Action SHAs and placeholder commit SHAs
   in test fixtures as verified secrets. Trunk runs it with `--only-verified`, and
   verification is precisely what should rule these out — but the proxy
