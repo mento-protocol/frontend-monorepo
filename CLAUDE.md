@@ -83,8 +83,11 @@ Always use `--filter` to avoid building/running everything unnecessarily.
 
 Cloud sessions start from a fresh clone with no `node_modules`. The
 `SessionStart` hook in [.claude/settings.json](.claude/settings.json) runs
-[scripts/cloud-session-setup.sh](scripts/cloud-session-setup.sh), which runs
-`pnpm install --frozen-lockfile` when `CLAUDE_CODE_REMOTE=true` and the
+[scripts/cloud-session-setup.sh](scripts/cloud-session-setup.sh), which does
+three things when `CLAUDE_CODE_REMOTE=true` and exits immediately otherwise:
+points Trunk at a plugin checkout it can actually reach, installs dependencies,
+and aliases the Playwright browsers. The last two are covered below; the install
+runs `pnpm install --frozen-lockfile` when the
 `node_modules/.cloud-session-setup-complete` stamp does not match the current
 install inputs: the `pnpm-lock.yaml` digest, the configuration that shapes the
 tree (`.npmrc`'s `public-hoist-pattern` entries and `pnpm-workspace.yaml`'s
@@ -336,21 +339,21 @@ knowing:
   only difference is the warning. Such a test sets `NODE_NO_WARNINGS: "1"` on
   the child (see `scripts/vercel-main-release-cli.test.mjs`); prefer that over
   running the shard with the variable unset, which only hides the problem.
-- **Playwright needs the browser it was pinned against.** The image ships
-  chromium 1194 under `PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers`, and the
-  workspace's pinned Playwright wants a newer revision, so `launch()` fails with
-  `Executable doesn't exist`. Do **not** run `playwright install`. The two
-  numbers drift apart on every Playwright bump, so read them rather than trusting
-  a figure written here: `ls /opt/pw-browsers` for what exists, and the
-  `revision` fields of
-  `node_modules/.pnpm/playwright-core@*/node_modules/playwright-core/browsers.json`
-  for what is wanted. (At the 1.62.1 pin: 1194 shipped, 1234 wanted.) For an
-  ad-hoc script, pass `executablePath: '/opt/pw-browsers/chromium'`. To run a
-  suite that does not set that option, point `PLAYWRIGHT_BROWSERS_PATH` at a
-  directory of symlinks aliasing the shipped builds under the wanted revision's
-  names — note the shipped headless shell keeps the older
-  `chrome-linux/headless_shell` layout, not
-  `chrome-headless-shell-linux64/chrome-headless-shell`.
+- **Playwright browsers are aliased for you.** The image ships one chromium
+  build under `PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers`, and the Playwright the
+  workspace installs wants a newer revision, so `launch()` used to fail with
+  `Executable doesn't exist`.
+  [scripts/cloud-session-setup.sh](scripts/cloud-session-setup.sh) now symlinks
+  every wanted revision onto the shipped build, so suites run unmodified and need
+  no `executablePath` and no `PLAYWRIGHT_BROWSERS_PATH` override. Do **not** run
+  `playwright install`. Two things to know if it ever stops working: more than one
+  revision can be wanted at once, because workspaces pin different Playwright
+  versions (the apps are on 1.62.1, wanting 1234, while the root catalog resolves
+  1.61.1, wanting 1228, and both get aliased); and a real browser directory is
+  never shadowed, so an actual install always wins. `launch()` naming a path under
+  a revision that does not exist means the alias was not built — check
+  `ls /opt/pw-browsers` against the `revision` fields in
+  `node_modules/.pnpm/playwright-core@*/node_modules/playwright-core/browsers.json`.
 - **The anvil fork suites do run here.** Foundry is installed and
   `forno.celo.org`, `rpc.monad.xyz`, and `monad.drpc.org` are all reachable, so
   `pnpm fork:mainnet` + `pnpm fork:seed` +

@@ -99,6 +99,84 @@ configure_trunk_for_cloud_session() {
 
 configure_trunk_for_cloud_session
 
+# The image ships one chromium build under PLAYWRIGHT_BROWSERS_PATH, and the
+# Playwright the workspace installs wants a specific, usually newer revision, so
+# `launch()` fails with `Executable doesn't exist`. Running `playwright install`
+# is not the answer: it re-downloads a browser on every session.
+#
+# Alias each wanted revision onto the shipped build instead. More than one can be
+# wanted at a time, because workspaces pin different Playwright versions, so this
+# walks every installed copy rather than assuming a single revision. It only ever
+# creates a revision directory that does not already exist, so a real browser
+# install is never shadowed.
+#
+# If a future Playwright changes the path it looks for, the alias is simply not
+# where it looks and `launch()` reports the path it wanted, which names the fix.
+configure_playwright_browser_aliases() {
+	local browsers_root="${PLAYWRIGHT_BROWSERS_PATH-}"
+	[[ -n ${browsers_root} ]] || return 0
+	[[ -d ${browsers_root} ]] && [[ -w ${browsers_root} ]] || return 0
+
+	# Find the shipped builds by their binaries rather than by assuming a layout:
+	# the directory names differ between the revision the image ships and the ones
+	# Playwright asks for now (`chrome-linux` became `chrome-linux64`, and
+	# `headless_shell` became `chrome-headless-shell`).
+	local shipped_chrome shipped_shell
+	shipped_chrome="$(find "${browsers_root}" -maxdepth 3 -type f -name chrome -path '*chromium-*' 2>/dev/null | head -1)"
+	shipped_shell="$(find "${browsers_root}" -maxdepth 3 -type f \
+		\( -name headless_shell -o -name chrome-headless-shell \) 2>/dev/null | head -1)"
+	[[ -n ${shipped_chrome} ]] || [[ -n ${shipped_shell} ]] || return 0
+
+	local created="" manifest revisions name revision alias_directory
+	for manifest in node_modules/.pnpm/playwright-core@*/node_modules/playwright-core/browsers.json; do
+		[[ -f ${manifest} ]] || continue
+		revisions="$(node -e '
+			const fs = require("fs");
+			const manifest = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+			for (const browser of manifest.browsers) {
+				if (browser.name === "chromium" || browser.name === "chromium-headless-shell") {
+					console.log(browser.name, browser.revision);
+				}
+			}
+		' "${manifest}" 2>/dev/null)"
+		[[ -n ${revisions} ]] || continue
+		while read -r name revision; do
+			case ${name} in
+			chromium)
+				[[ -n ${shipped_chrome} ]] || continue
+				alias_directory="${browsers_root}/chromium-${revision}"
+				[[ -e ${alias_directory} ]] && continue
+				mkdir -p "${alias_directory}"
+				ln -s "$(dirname "${shipped_chrome}")" "${alias_directory}/chrome-linux64"
+				;;
+			chromium-headless-shell)
+				[[ -n ${shipped_shell} ]] || continue
+				alias_directory="${browsers_root}/chromium_headless_shell-${revision}"
+				[[ -e ${alias_directory} ]] && continue
+				mkdir -p "${alias_directory}/chrome-headless-shell-linux64"
+				ln -s "${shipped_shell}" "${alias_directory}/chrome-headless-shell-linux64/chrome-headless-shell"
+				;;
+			*)
+				continue
+				;;
+			esac
+			created="${created} ${name}@${revision}"
+		done <<<"${revisions}"
+	done
+
+	if [[ -n ${created} ]]; then
+		echo "cloud-session-setup: aliased playwright browsers onto the shipped build:${created}"
+	fi
+}
+
+# Every exit below runs the browser aliasing first: it reads the Playwright
+# revisions out of node_modules, so it has to follow the install rather than sit
+# beside the trunk setup above.
+finish() {
+	configure_playwright_browser_aliases
+	exit 0
+}
+
 # The environment provides its own pnpm; package.json pins the one this
 # workspace expects. Read both before the fast path below, so a revision that
 # moves only the pin is still reported and still reinstalls.
@@ -140,7 +218,7 @@ if [[ -f ${stamp_file} ]]; then
 fi
 if [[ -n ${lockfile_digest} ]] && [[ ${stamp_actual} == "${stamp_expected}" ]]; then
 	echo "cloud-session-setup: dependencies already installed"
-	exit 0
+	finish
 fi
 
 # Drop the stamp before pnpm touches node_modules. An install that fails partway
@@ -156,7 +234,7 @@ echo "cloud-session-setup: running pnpm install --frozen-lockfile (log: ${log_fi
 if pnpm install --frozen-lockfile >"${log_file}" 2>&1; then
 	printf '%s\n' "${stamp_expected}" >"${stamp_file}"
 	echo "cloud-session-setup: dependencies installed"
-	exit 0
+	finish
 fi
 
 # Report the failure on stdout as well: only stdout reaches the session context,
@@ -166,4 +244,4 @@ echo "cloud-session-setup: pnpm install FAILED; node_modules is incomplete."
 echo "cloud-session-setup: builds, type checks and tests will not run until it succeeds."
 echo "cloud-session-setup: last lines of ${log_file}:"
 tail -20 "${log_file}"
-exit 0
+finish
