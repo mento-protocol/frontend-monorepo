@@ -218,6 +218,10 @@ test("dependency repairs remain executable without granting security or final PR
     "research-and-repair-with-documented-validation",
   );
   assert.equal(policy.changes.needsDecisionPublication, false);
+  assert.deepEqual(policy.changes.needsDecisionPathExceptions, {
+    ".github/workflows/**":
+      "version-only-ci-coupling-for-package-patch-or-minor",
+  });
   for (const path of [
     ".github/workflows/**",
     ".github/actions/**",
