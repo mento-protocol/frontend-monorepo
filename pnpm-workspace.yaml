@@ -34,7 +34,7 @@ catalog:
   typescript: ^5.9.3
   typescript-eslint: ^8.65.0
   viem: ^2.55.10
-  wagmi: ^2.16.9
+  wagmi: ^3.7.6
   zod: ^4.5.4
   vitest: 4.1.10
   "@vitest/coverage-v8": 4.1.10
