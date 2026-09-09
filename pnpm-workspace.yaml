@@ -36,7 +36,7 @@ catalog:
   viem: ^2.55.10
   wagmi: ^2.16.9
   zod: ^4.5.4
-  vitest: 4.1.10
+  vitest: 5.0.0
   "@vitest/coverage-v8": 4.1.10
 
 # Dependabot maps its seven-day npm cooldown to pnpm minimumReleaseAge.
