@@ -236,6 +236,13 @@ pnpm --dir "$mainCheckout" dependabot:claim -- claims guard --pr 872 \
 the child without a held claim, and kills it if the claim is lost mid-flight.
 `--gate wait` is advisory: guard runs the child either way and renews while the
 claim is held. Run any operation expected to exceed ten minutes under guard.
+Guard also reserves one host-local slot per run with an exclusive create, and it
+never takes a slot over. A slot left by a crashed guard refuses every later
+guard of that run with exit 3 and prints the recovery command,
+`claims slot clear --pr <n> --run-id <r>`, which removes the slot only once its
+recorded process is dead. Run one guard per run at a time. Clear a slot only
+after confirming that no guard of that run is alive; a clear that runs beside a
+live guard of the same run can displace it.
 Summary comments and inline replies are advisory; check the claim, but do not
 block on it.
 
