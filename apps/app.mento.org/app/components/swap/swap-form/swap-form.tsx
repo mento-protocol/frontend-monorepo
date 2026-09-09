@@ -1,6 +1,5 @@
 "use client";
 
-import { env } from "@/env.mjs";
 import { Button, Form } from "@mento-protocol/ui";
 import { chainIdToChain, type ChainId } from "@repo/web3";
 import { useChainId } from "@repo/web3/wagmi";
@@ -80,9 +79,7 @@ export default function SwapForm({
         />
 
         {swap.hasInsufficientLiquidityError && (
-          <SwapInsufficientLiquidityNotice
-            fallbackUrl={env.NEXT_PUBLIC_BANNER_LINK}
-          />
+          <SwapInsufficientLiquidityNotice />
         )}
 
         <SwapSubmitButton

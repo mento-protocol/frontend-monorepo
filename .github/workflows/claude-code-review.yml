@@ -15,9 +15,8 @@ permissions: read-all
 jobs:
   claude-review-human:
     name: claude-review-human
-    # Dependabot reviews run from the separate authenticated workflow_run
-    # workflow. Keeping this job human-only prevents its skipped result from
-    # shadowing the exact-head `claude-review` evidence used by the processor.
+    # Keep repository review credentials unavailable to bot-authored and fork
+    # pull requests.
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.event.pull_request.user.type == 'User'
@@ -68,7 +67,7 @@ jobs:
 
       - name: Run Claude Code Review
         id: claude-review-human
-        uses: anthropics/claude-code-action@e5ad3c7725bc2459721893f88879fef9dbcf97b0 # v1.0.202
+        uses: anthropics/claude-code-action@8251c103ac8c1d761882c86aba1412c7f583c844 # v1.0.213
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           claude_args: --plugin-dir ./.claude-code-plugin-marketplace/plugins/code-review

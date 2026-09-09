@@ -17,7 +17,7 @@ function CommunityCard({
   title = "Join our community",
   description = "If you're interested in learning more about Mento, finding out what the team is working on now, or would like to contribute, please join our discord server.",
   buttonText = "Join our community",
-  buttonHref = "http://discord.mento.org",
+  buttonHref = "https://discord.mento.org",
   ...props
 }: CommunityCardProps) {
   return (

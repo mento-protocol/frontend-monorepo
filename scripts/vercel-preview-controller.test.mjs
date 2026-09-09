@@ -22,6 +22,7 @@ import {
   normalizePlannerResult,
   parseWorkerRunName,
   previewObservationArtifactName,
+  previewOwnerAtSha,
   previewOwnerForVercelConfiguration,
   publishDependabotUnsupported,
   postWorkerRecoveryError,
@@ -102,23 +103,14 @@ test("preview owner classification accepts both exact main states independently"
   }
 });
 
-test("only App carries a bounded transitional GitHub-owned configuration", () => {
-  assert.deepEqual(
-    PREVIEW_TARGET_CONFIG.app.transitionalGithubVercelConfigurations,
-    [
-      {
-        $schema: "https://openapi.vercel.sh/vercel.json",
-        git: { deploymentEnabled: { "**": false, v2: true } },
-      },
-    ],
-  );
-  assert.equal(
-    previewOwnerForVercelConfiguration("app", {
-      $schema: "https://openapi.vercel.sh/vercel.json",
-      git: { deploymentEnabled: { "**": false, v2: true } },
-    }),
-    "github-actions",
-  );
+// The transitional recognition mechanism stays available for a future
+// migration, but no target declares an entry today, and the retired
+// pre-MGP-18 App shape can no longer be recognized for any target.
+test("no target carries a transitional GitHub-owned configuration", () => {
+  const retiredAppShape = {
+    $schema: "https://openapi.vercel.sh/vercel.json",
+    git: { deploymentEnabled: { "**": false, v2: true } },
+  };
   assert.equal(
     previewOwnerForVercelConfiguration("app", {
       $schema: "https://openapi.vercel.sh/vercel.json",
@@ -126,7 +118,7 @@ test("only App carries a bounded transitional GitHub-owned configuration", () =>
     }),
     "github-actions",
   );
-  for (const target of PREVIEW_TARGETS.filter((value) => value !== "app")) {
+  for (const target of PREVIEW_TARGETS) {
     assert.deepEqual(
       PREVIEW_TARGET_CONFIG[target].transitionalGithubVercelConfigurations,
       [],
@@ -135,9 +127,7 @@ test("only App carries a bounded transitional GitHub-owned configuration", () =>
       () =>
         previewOwnerForVercelConfiguration(
           target,
-          structuredClone(
-            PREVIEW_TARGET_CONFIG.app.transitionalGithubVercelConfigurations[0],
-          ),
+          structuredClone(retiredAppShape),
         ),
       new RegExp(`Candidate ${target} Vercel configuration is not recognized`),
     );
@@ -150,6 +140,297 @@ test("only App carries a bounded transitional GitHub-owned configuration", () =>
       }),
     /Candidate app Vercel configuration is not recognized/,
   );
+});
+
+function octokitBodyResponse(body) {
+  return {
+    status: 200,
+    url: "https://api.github.com/repos/mento-protocol/frontend-monorepo/contents/path",
+    headers: { "content-type": "application/json; charset=utf-8" },
+    data: body,
+  };
+}
+
+function octokitTextResponse(text) {
+  return octokitBodyResponse(
+    new Response(text, {
+      headers: { "content-type": "application/json; charset=utf-8" },
+    }).body,
+  );
+}
+
+function octokitJsonResponse(value) {
+  return octokitTextResponse(JSON.stringify(value));
+}
+
+function vercelContentDocument(
+  target,
+  configuration = PREVIEW_TARGET_CONFIG[target].trackedVercelConfiguration,
+) {
+  const path = PREVIEW_TARGET_CONFIG[target].vercelConfigurationPath;
+  const text =
+    typeof configuration === "string"
+      ? configuration
+      : `${JSON.stringify(configuration, null, 2)}\n`;
+  const content = Buffer.from(text, "utf8");
+  return {
+    type: "file",
+    path,
+    encoding: "base64",
+    size: content.length,
+    content: content.toString("base64"),
+  };
+}
+
+function vercelContentResponse(target, configuration) {
+  return octokitJsonResponse(vercelContentDocument(target, configuration));
+}
+
+function repositoryContentError({
+  status,
+  code,
+  cause,
+  httpResponse = status !== undefined,
+  message = "read failed",
+}) {
+  const error = new Error(`fixture repository content ${message}`);
+  if (status !== undefined) {
+    error.name = "RequestError";
+    error.status = status;
+  }
+  if (code !== undefined) error.code = code;
+  if (cause !== undefined) error.cause = cause;
+  if (httpResponse) {
+    error.response = {
+      status,
+      url: "https://api.github.com/repos/mento-protocol/frontend-monorepo/contents/path",
+      headers: { "content-type": "application/json; charset=utf-8" },
+      data: { message: `fixture HTTP ${status}` },
+    };
+  }
+  return error;
+}
+
+function octokitTransportError(code) {
+  return repositoryContentError({
+    status: 500,
+    cause: undiciTransportFailure(code),
+    httpResponse: false,
+    message: "Octokit request failed",
+  });
+}
+
+function undiciTransportFailure(code) {
+  const transportError = new Error("fixture Undici transport failure");
+  transportError.code = code;
+  const fetchError = new TypeError("fetch failed");
+  fetchError.cause = transportError;
+  return fetchError;
+}
+
+function contentReadFixture(outcomes) {
+  const requests = [];
+  let outcomeIndex = 0;
+  return {
+    requests,
+    github: {
+      rest: {
+        repos: {
+          async getContent(request) {
+            requests.push(request);
+            const outcome = outcomes[outcomeIndex];
+            outcomeIndex += 1;
+            assert.notEqual(outcome, undefined, "content outcome must exist");
+            if (outcome instanceof Error) throw outcome;
+            return outcome;
+          },
+        },
+      },
+    },
+  };
+}
+
+test("immutable Vercel configuration reads retry allowlisted HTTP responses", async () => {
+  for (const status of [500, 502, 503, 504]) {
+    const retryDelays = [];
+    const fixture = contentReadFixture([
+      repositoryContentError({ status }),
+      vercelContentResponse("ui"),
+    ]);
+
+    assert.equal(
+      await previewOwnerAtSha(fixture.github, fakeContext(), "ui", SHA.A, {
+        waitForRetry: async (milliseconds) => retryDelays.push(milliseconds),
+      }),
+      "github-actions",
+    );
+    assert.equal(fixture.requests.length, 2, String(status));
+    assert.deepEqual(retryDelays, [250], String(status));
+    assert.strictEqual(fixture.requests[0], fixture.requests[1]);
+    assert.equal(Object.isFrozen(fixture.requests[0]), true);
+    assert.equal(Object.isFrozen(fixture.requests[0].request), true);
+    assert.deepEqual(fixture.requests[0], {
+      owner: "mento-protocol",
+      repo: "frontend-monorepo",
+      path: UI_VERCEL_CONFIGURATION_PATH,
+      ref: SHA.A,
+      request: { parseSuccessResponseBody: false },
+    });
+  }
+});
+
+test("immutable Vercel configuration reads fail closed after three 504s", async () => {
+  const retryDelays = [];
+  const failures = Array.from({ length: 3 }, () =>
+    repositoryContentError({ status: 504 }),
+  );
+  const fixture = contentReadFixture(failures);
+
+  await assert.rejects(
+    previewOwnerAtSha(fixture.github, fakeContext(), "ui", SHA.A, {
+      waitForRetry: async (milliseconds) => retryDelays.push(milliseconds),
+    }),
+    (error) => error === failures.at(-1),
+  );
+  assert.equal(fixture.requests.length, 3);
+  assert.ok(
+    fixture.requests.every((request) => request === fixture.requests[0]),
+  );
+  assert.deepEqual(retryDelays, [250, 500]);
+});
+
+test("immutable Vercel configuration reads never retry non-allowlisted HTTP responses", async () => {
+  for (const status of [400, 403, 404, 409, 422, 429, 501, 505]) {
+    const retryDelays = [];
+    const fixture = contentReadFixture([
+      repositoryContentError({ status, message: `failed with ${status}` }),
+    ]);
+
+    await assert.rejects(
+      previewOwnerAtSha(fixture.github, fakeContext(), "ui", SHA.A, {
+        waitForRetry: async (milliseconds) => retryDelays.push(milliseconds),
+      }),
+      (error) => error.status === status,
+    );
+    assert.equal(fixture.requests.length, 1, String(status));
+    assert.deepEqual(retryDelays, [], String(status));
+  }
+});
+
+test("immutable Vercel configuration validation failures never retry", async () => {
+  const validDocument = vercelContentDocument("ui");
+  const malformedResponses = [
+    {
+      name: "content schema",
+      response: octokitJsonResponse([]),
+      pattern: /must be a plain object/,
+    },
+    {
+      name: "encoding metadata",
+      response: octokitJsonResponse({
+        ...validDocument,
+        encoding: "utf-8",
+      }),
+      pattern: /metadata is invalid/,
+    },
+    {
+      name: "ownership",
+      response: vercelContentResponse("ui", {}),
+      pattern: /configuration is not recognized/,
+    },
+  ];
+
+  for (const scenario of malformedResponses) {
+    const retryDelays = [];
+    const fixture = contentReadFixture([scenario.response]);
+
+    await assert.rejects(
+      previewOwnerAtSha(fixture.github, fakeContext(), "ui", SHA.A, {
+        waitForRetry: async (milliseconds) => retryDelays.push(milliseconds),
+      }),
+      scenario.pattern,
+      scenario.name,
+    );
+    assert.equal(fixture.requests.length, 1, scenario.name);
+    assert.deepEqual(retryDelays, [], scenario.name);
+  }
+});
+
+test("immutable Vercel configuration reads retry a failed response body stream", async () => {
+  const retryDelays = [];
+  const fixture = contentReadFixture([
+    octokitBodyResponse(
+      new ReadableStream({
+        start(controller) {
+          controller.error(undiciTransportFailure("UND_ERR_BODY_TIMEOUT"));
+        },
+      }),
+    ),
+    vercelContentResponse("ui"),
+  ]);
+
+  assert.equal(
+    await previewOwnerAtSha(fixture.github, fakeContext(), "ui", SHA.A, {
+      waitForRetry: async (milliseconds) => retryDelays.push(milliseconds),
+    }),
+    "github-actions",
+  );
+  assert.equal(fixture.requests.length, 2);
+  assert.strictEqual(fixture.requests[0], fixture.requests[1]);
+  assert.equal(Object.isFrozen(fixture.requests[0]), true);
+  assert.equal(Object.isFrozen(fixture.requests[0].request), true);
+  assert.deepEqual(retryDelays, [250]);
+});
+
+test("immutable Vercel configuration reads never retry malformed response JSON", async () => {
+  const retryDelays = [];
+  const fixture = contentReadFixture([octokitTextResponse("{")]);
+  await assert.rejects(
+    previewOwnerAtSha(fixture.github, fakeContext(), "ui", SHA.A, {
+      waitForRetry: async (milliseconds) => retryDelays.push(milliseconds),
+    }),
+    SyntaxError,
+  );
+  assert.equal(fixture.requests.length, 1);
+  assert.deepEqual(retryDelays, []);
+});
+
+test("immutable Vercel configuration reads retry nested Octokit transport failures", async () => {
+  const retryDelays = [];
+  const fixture = contentReadFixture([
+    octokitTransportError("UND_ERR_CONNECT_TIMEOUT"),
+    vercelContentResponse("ui"),
+  ]);
+  assert.equal(
+    await previewOwnerAtSha(fixture.github, fakeContext(), "ui", SHA.A, {
+      waitForRetry: async (milliseconds) => retryDelays.push(milliseconds),
+    }),
+    "github-actions",
+  );
+  assert.equal(fixture.requests.length, 2);
+  assert.deepEqual(retryDelays, [250]);
+});
+
+test("immutable Vercel configuration reads never retry TLS or abort wrappers", async () => {
+  const tlsFailure = octokitTransportError("CERT_HAS_EXPIRED");
+  const abortFailure = new DOMException(
+    "fixture request aborted",
+    "AbortError",
+  );
+  abortFailure.status = 500;
+
+  for (const failure of [tlsFailure, abortFailure]) {
+    const retryDelays = [];
+    const fixture = contentReadFixture([failure]);
+    await assert.rejects(
+      previewOwnerAtSha(fixture.github, fakeContext(), "ui", SHA.A, {
+        waitForRetry: async (milliseconds) => retryDelays.push(milliseconds),
+      }),
+      (error) => error === failure,
+    );
+    assert.equal(fixture.requests.length, 1);
+    assert.deepEqual(retryDelays, []);
+  }
 });
 
 function reconcilePreview(options) {
@@ -3697,6 +3978,415 @@ test("capacity checkpoints preserve the newest queued runtime before reconciliat
   );
 });
 
+test("a checkpoint-folded coalesced receipt still reconciles its verified result", () => {
+  const opened = event({
+    run: 2_400,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const events = [
+    opened,
+    event({
+      run: 2_401,
+      action: "synchronize",
+      before: SHA.A,
+      head: SHA.B,
+      updated: timestamp(2),
+    }),
+    event({
+      run: 2_402,
+      action: "synchronize",
+      before: SHA.B,
+      head: SHA.C,
+      updated: timestamp(3),
+    }),
+    event({
+      run: 2_403,
+      action: "synchronize",
+      before: SHA.C,
+      head: SHA.D,
+      updated: timestamp(4),
+    }),
+  ];
+  const currentPull = pull({ head: SHA.D, updated: timestamp(4) });
+  const first = reconcile({
+    events: [opened],
+    pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+  });
+  const activeA = persistDispatch(first, 42_400);
+  const selectionA = selectionReceiptFromDispatch(activeA.targets.ui.active);
+  let journal = compactPreviewJournal(
+    createPreviewJournal({
+      pr: 519,
+      events,
+      selections: [selectionA],
+      state: activeA,
+    }),
+    { throughEventRunId: 2_400 },
+  );
+  const resultA = result(first.nextDispatch, { runId: 42_400 });
+  const jumped = reconcile({
+    events: journal.receipts.events,
+    results: [resultA],
+    selections: journal.receipts.selections,
+    pullRequest: currentPull,
+    existingState: journal.state,
+    checkpoint: journal.checkpoint,
+  });
+  assert.equal(jumped.nextDispatch.sha, SHA.D);
+  assert.deepEqual(
+    jumped.nextDispatch.coalesced_receipt_run_ids,
+    [2_401, 2_402],
+  );
+
+  const activeD = persistDispatch(jumped, 42_403);
+  const selectionD = selectionReceiptFromDispatch(activeD.targets.ui.active);
+  journal = compactPreviewJournal(
+    createPreviewJournal({
+      pr: 519,
+      checkpoint: journal.checkpoint,
+      events: journal.receipts.events,
+      selections: [...journal.receipts.selections, selectionD],
+      workerEvidence: journal.receipts.worker_evidence,
+      results: [resultA],
+      state: activeD,
+    }),
+    { throughEventRunId: 2_402 },
+  );
+  assert.deepEqual(
+    journal.receipts.events.map((entry) => entry.event_run_id),
+    [2_403],
+  );
+  assert.deepEqual(
+    journal.receipts.selections.map(
+      (selection) => selection.coalesced_receipt_run_ids,
+    ),
+    [[2_401, 2_402]],
+  );
+
+  const settled = reconcile({
+    events: journal.receipts.events,
+    results: [
+      ...journal.receipts.results,
+      result(jumped.nextDispatch, { runId: 42_403 }),
+    ],
+    selections: journal.receipts.selections,
+    pullRequest: currentPull,
+    existingState: journal.state,
+    checkpoint: journal.checkpoint,
+  });
+  assert.equal(settled.state.status_decisions.at(-1).state, "success");
+  assert.equal(settled.state.status_decisions.at(-1).targets.ui, "deployed");
+  assert.equal(settled.state.targets.ui.active, null);
+  assert.equal(settled.nextDispatch, null);
+});
+
+test("an unresolvable coalesced receipt outside the checkpoint fails closed", () => {
+  const opened = event({
+    run: 2_500,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const events = [
+    opened,
+    event({
+      run: 2_501,
+      action: "synchronize",
+      before: SHA.A,
+      head: SHA.B,
+      targets: ["app"],
+      updated: timestamp(2),
+    }),
+    event({
+      run: 2_502,
+      action: "synchronize",
+      before: SHA.B,
+      head: SHA.C,
+      updated: timestamp(3),
+    }),
+  ];
+  const currentPull = pull({ head: SHA.C, updated: timestamp(3) });
+  const first = reconcile({
+    events: [opened],
+    pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+  });
+  const activeA = persistDispatch(first, 42_500);
+  const selectionA = selectionReceiptFromDispatch(activeA.targets.ui.active);
+  const journal = compactPreviewJournal(
+    createPreviewJournal({
+      pr: 519,
+      events,
+      selections: [selectionA],
+      state: activeA,
+    }),
+    { throughEventRunId: 2_500 },
+  );
+  const resultA = result(first.nextDispatch, { runId: 42_500 });
+  const jumped = reconcile({
+    events: journal.receipts.events,
+    results: [resultA],
+    selections: journal.receipts.selections,
+    pullRequest: currentPull,
+    existingState: journal.state,
+    checkpoint: journal.checkpoint,
+  });
+  assert.equal(jumped.nextDispatch.sha, SHA.C);
+  assert.deepEqual(jumped.nextDispatch.coalesced_receipt_run_ids, []);
+  const activeC = persistDispatch(jumped, 42_502);
+  for (const coalesced of [2_501, 9_999]) {
+    const contradictory = selectionReceiptFromDispatch({
+      ...activeC.targets.ui.active,
+      coalesced_receipt_run_ids: [coalesced],
+    });
+    assert.throws(
+      () =>
+        reconcile({
+          events: journal.receipts.events,
+          results: [resultA],
+          selections: [...journal.receipts.selections, contradictory],
+          pullRequest: currentPull,
+          existingState: activeC,
+          checkpoint: journal.checkpoint,
+        }),
+      /ui coalescing evidence contradicts durable ownership/,
+    );
+  }
+});
+
+test("a later dispatch does not re-coalesce a receipt a retained selection claims", () => {
+  const laterHead = (0x71).toString(16).padStart(40, "0");
+  const opened = event({
+    run: 2_600,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const events = [
+    opened,
+    event({
+      run: 2_601,
+      action: "synchronize",
+      before: SHA.A,
+      head: SHA.B,
+      updated: timestamp(2),
+    }),
+    event({
+      run: 2_602,
+      action: "synchronize",
+      before: SHA.B,
+      head: SHA.C,
+      updated: timestamp(3),
+    }),
+    event({
+      run: 2_603,
+      action: "synchronize",
+      before: SHA.C,
+      head: SHA.D,
+      updated: timestamp(4),
+    }),
+  ];
+  const laterEvent = event({
+    run: 2_604,
+    action: "synchronize",
+    before: SHA.D,
+    head: laterHead,
+    updated: timestamp(5),
+  });
+  const first = reconcile({
+    events: [opened],
+    pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+  });
+  const activeA = persistDispatch(first, 42_600);
+  const selectionA = selectionReceiptFromDispatch(activeA.targets.ui.active);
+  let journal = compactPreviewJournal(
+    createPreviewJournal({
+      pr: 519,
+      events,
+      selections: [selectionA],
+      state: activeA,
+    }),
+    { throughEventRunId: 2_600 },
+  );
+  const resultA = result(first.nextDispatch, { runId: 42_600 });
+  const jumped = reconcile({
+    events: journal.receipts.events,
+    results: [resultA],
+    selections: journal.receipts.selections,
+    pullRequest: pull({ head: SHA.D, updated: timestamp(4) }),
+    existingState: journal.state,
+    checkpoint: journal.checkpoint,
+  });
+  assert.equal(jumped.nextDispatch.sha, SHA.D);
+  assert.deepEqual(
+    jumped.nextDispatch.coalesced_receipt_run_ids,
+    [2_601, 2_602],
+  );
+
+  const activeD = persistDispatch(jumped, 42_603);
+  const selectionD = selectionReceiptFromDispatch(activeD.targets.ui.active);
+  journal = compactPreviewJournal(
+    createPreviewJournal({
+      pr: 519,
+      checkpoint: journal.checkpoint,
+      events: journal.receipts.events,
+      selections: [...journal.receipts.selections, selectionD],
+      workerEvidence: journal.receipts.worker_evidence,
+      results: [resultA],
+      state: activeD,
+    }),
+    { throughEventRunId: 2_602 },
+  );
+  // The checkpoint folded through C, so C survives only as the checkpoint
+  // anchor while the retained D selection still claims it as coalesced.
+  assert.equal(journal.checkpoint.through_event_run_id, 2_602);
+  assert.deepEqual(
+    journal.receipts.events.map((entry) => entry.event_run_id),
+    [2_603],
+  );
+  assert.deepEqual(
+    journal.receipts.selections.map(
+      (selection) => selection.coalesced_receipt_run_ids,
+    ),
+    [[2_601, 2_602]],
+  );
+
+  const resultD = result(jumped.nextDispatch, { runId: 42_603 });
+  const laterPull = pull({ head: laterHead, updated: timestamp(5) });
+  const dispatched = reconcile({
+    events: [...journal.receipts.events, laterEvent],
+    results: [...journal.receipts.results, resultD],
+    selections: journal.receipts.selections,
+    pullRequest: laterPull,
+    existingState: journal.state,
+    checkpoint: journal.checkpoint,
+  });
+  assert.equal(dispatched.nextDispatch.sha, laterHead);
+  // C is already claimed by the retained D selection. Claiming it again makes
+  // the two selections contradict each other on the next reconciliation.
+  assert.deepEqual(dispatched.nextDispatch.coalesced_receipt_run_ids, []);
+
+  const activeLater = persistDispatch(dispatched, 42_604);
+  const selectionLater = selectionReceiptFromDispatch(
+    activeLater.targets.ui.active,
+  );
+  const settled = reconcile({
+    events: [...journal.receipts.events, laterEvent],
+    results: [...journal.receipts.results, resultD],
+    selections: [...journal.receipts.selections, selectionLater],
+    pullRequest: laterPull,
+    existingState: activeLater,
+    checkpoint: journal.checkpoint,
+  });
+  assert.equal(settled.state.targets.ui.active.sha, laterHead);
+});
+
+test("a folded coalesced receipt settles when receipts are not run-ID ordered", () => {
+  const opened = event({
+    run: 2_700,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  // Lifecycle receipts arrive out of run-ID order: the later D event holds a
+  // lower run ID than the B and C events it follows in the lineage.
+  const events = [
+    opened,
+    event({
+      run: 2_710,
+      action: "synchronize",
+      before: SHA.A,
+      head: SHA.B,
+      updated: timestamp(2),
+    }),
+    event({
+      run: 2_720,
+      action: "synchronize",
+      before: SHA.B,
+      head: SHA.C,
+      updated: timestamp(3),
+    }),
+    event({
+      run: 2_705,
+      action: "synchronize",
+      before: SHA.C,
+      head: SHA.D,
+      updated: timestamp(4),
+    }),
+  ];
+  const currentPull = pull({ head: SHA.D, updated: timestamp(4) });
+  const first = reconcile({
+    events: [opened],
+    pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+  });
+  const activeA = persistDispatch(first, 42_700);
+  const selectionA = selectionReceiptFromDispatch(activeA.targets.ui.active);
+  let journal = compactPreviewJournal(
+    createPreviewJournal({
+      pr: 519,
+      events,
+      selections: [selectionA],
+      state: activeA,
+    }),
+    { throughEventRunId: 2_700 },
+  );
+  const resultA = result(first.nextDispatch, { runId: 42_700 });
+  const jumped = reconcile({
+    events: journal.receipts.events,
+    results: [resultA],
+    selections: journal.receipts.selections,
+    pullRequest: currentPull,
+    existingState: journal.state,
+    checkpoint: journal.checkpoint,
+  });
+  // The selection is accepted before folding: B and C precede D in the
+  // reconstructed lineage even though their run IDs are higher.
+  assert.equal(jumped.nextDispatch.sha, SHA.D);
+  assert.equal(jumped.nextDispatch.selection_receipt_run_id, 2_705);
+  assert.deepEqual(
+    jumped.nextDispatch.coalesced_receipt_run_ids,
+    [2_710, 2_720],
+  );
+
+  const activeD = persistDispatch(jumped, 42_705);
+  const selectionD = selectionReceiptFromDispatch(activeD.targets.ui.active);
+  journal = compactPreviewJournal(
+    createPreviewJournal({
+      pr: 519,
+      checkpoint: journal.checkpoint,
+      events: journal.receipts.events,
+      selections: [...journal.receipts.selections, selectionD],
+      workerEvidence: journal.receipts.worker_evidence,
+      results: [resultA],
+      state: activeD,
+    }),
+    { throughEventRunId: 2_720 },
+  );
+  assert.deepEqual(
+    journal.receipts.events.map((entry) => entry.event_run_id),
+    [2_705],
+  );
+
+  // The same durable selection must stay acceptable: folding B away changed
+  // no ordering evidence.
+  const settled = reconcile({
+    events: journal.receipts.events,
+    results: [
+      ...journal.receipts.results,
+      result(jumped.nextDispatch, { runId: 42_705 }),
+    ],
+    selections: journal.receipts.selections,
+    pullRequest: currentPull,
+    existingState: journal.state,
+    checkpoint: journal.checkpoint,
+  });
+  assert.equal(settled.state.status_decisions.at(-1).state, "success");
+  assert.equal(settled.state.status_decisions.at(-1).targets.ui, "deployed");
+  assert.equal(settled.state.targets.ui.active, null);
+  assert.equal(settled.nextDispatch, null);
+});
+
 test("capacity checkpointing uses the latest represented receipt when the live PR is ahead", () => {
   const openedHead = (260).toString(16).padStart(40, "0");
   const opened = event({
@@ -5314,25 +6004,15 @@ function fakeGitHub({
               allCandidateTargetsNative && request.ref !== SHA.E
                 ? targetConfiguration.previewShadowVercelConfiguration
                 : targetConfiguration.trackedVercelConfiguration;
-            const text = `${JSON.stringify(configuration, null, 2)}\n`;
-            const content = Buffer.from(text, "utf8");
-            return {
-              data: {
-                type: "file",
-                path: request.path,
-                encoding: "base64",
-                size: content.length,
-                content: content.toString("base64"),
-              },
-            };
+            return vercelContentResponse(target, configuration);
           }
           if (uiVercelContentErrorStatus) {
-            const error = new Error("fixture repository content read failed");
-            error.status = uiVercelContentErrorStatus;
-            throw error;
+            throw repositoryContentError({
+              status: uiVercelContentErrorStatus,
+            });
           }
           if (uiVercelContentResponse !== undefined) {
-            return { data: structuredClone(uiVercelContentResponse) };
+            return octokitJsonResponse(uiVercelContentResponse);
           }
           const configuration =
             (configurationsByRef.has(request.ref)
@@ -5342,20 +6022,7 @@ function fakeGitHub({
                 : transientUiVercelConfigurations.length > 0
                   ? transientUiVercelConfigurations.shift()
                   : uiVercelConfiguration) ?? uiVercelConfiguration;
-          const text =
-            typeof configuration === "string"
-              ? configuration
-              : `${JSON.stringify(configuration, null, 2)}\n`;
-          const content = Buffer.from(text, "utf8");
-          return {
-            data: {
-              type: "file",
-              path: request.path,
-              encoding: "base64",
-              size: content.length,
-              content: content.toString("base64"),
-            },
-          };
+          return vercelContentResponse(target, configuration);
         },
         listDeployments,
         listCommitStatusesForRef,
@@ -7466,6 +8133,223 @@ for (const status of ["queued", "completed"]) {
     assert.equal(fixture.commentUpdates.length, 0);
   });
 }
+
+test("receipt repair breaks the cancelled-checkout and mirror-failure cycle without advancing an incomplete cursor", async () => {
+  const opened = event({
+    run: 70_001,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const receipts = [
+    event({
+      run: 70_002,
+      runNumber: 2,
+      action: "synchronize",
+      before: SHA.A,
+      head: SHA.B,
+      updated: timestamp(2),
+    }),
+    event({
+      run: 70_003,
+      runNumber: 3,
+      action: "synchronize",
+      before: SHA.B,
+      head: SHA.C,
+      updated: timestamp(3),
+    }),
+    event({
+      run: 70_004,
+      runNumber: 4,
+      action: "synchronize",
+      before: SHA.C,
+      head: SHA.D,
+      updated: timestamp(4),
+    }),
+  ];
+  const fixture = fakeGitHub({
+    pullRequest: pull({ head: SHA.D, updated: timestamp(4) }),
+    comments: [
+      journalComment({
+        events: [opened],
+        state: reconcile({
+          events: [opened],
+          pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+        }).state,
+      }),
+    ],
+    runs: receipts.map((receipt, index) =>
+      controllerEventRun({
+        id: receipt.event_run_id,
+        runNumber: receipt.event_run_number,
+        action: "synchronize",
+        before: receipt.before_sha,
+        sha: receipt.head_sha,
+        conclusion: index === 0 ? "cancelled" : "failure",
+        createdAt: receipt.pr_updated_at,
+      }),
+    ),
+  });
+  const initial = journalFromComment(fixture.comments[0]);
+  const record = (receipt, runAttempt = 2) =>
+    recordEventReceipt({
+      github: fixture.github,
+      context: fakeContext({
+        runId: receipt.event_run_id,
+        runNumber: receipt.event_run_number,
+        runAttempt,
+      }),
+      core: fakeCore(),
+      ...eventRecordInputs(receipt),
+    });
+
+  await assert.rejects(
+    reconcileControllerFixture(fixture),
+    /has no durable receipt/,
+  );
+  // A newer event preserves its own receipt despite the original interruption.
+  await assert.rejects(
+    record(receipts[2], 1),
+    /is durably recorded.*7000[23].*cursor has not advanced/,
+  );
+  let persisted = journalFromComment(fixture.comments[0]);
+  assert.deepEqual(persisted.admission, initial.admission);
+  assert.deepEqual(persisted.state, initial.state);
+  assert.deepEqual(persisted.receipts.events, [opened, receipts[2]]);
+  const afterFirstRepair = fixture.comments[0].body;
+  await assert.rejects(record(receipts[2]), /is durably recorded/);
+  assert.equal(fixture.comments[0].body, afterFirstRepair);
+  await assert.rejects(record(receipts[0]), /is durably recorded.*70003/);
+  persisted = journalFromComment(fixture.comments[0]);
+  assert.deepEqual(persisted.admission, initial.admission);
+  assert.deepEqual(persisted.state, initial.state);
+  const beforeReconcile = fixture.comments[0].body;
+  await assert.rejects(
+    reconcileControllerFixture(fixture),
+    /has no durable receipt/,
+  );
+  assert.equal(fixture.comments[0].body, beforeReconcile);
+  assert.equal(fixture.dispatches.length, 0);
+  assert.equal(fixture.deployments.length, 0);
+
+  await record(receipts[1]);
+  persisted = journalFromComment(fixture.comments[0]);
+  assert.equal(persisted.admission.through_run_number, 4);
+  assert.equal(persisted.receipts.events.length, 4);
+  const reconciled = await reconcileControllerFixture(fixture);
+  assert.ok(reconciled);
+});
+
+test("receipt repair rejects a different run identity and contradictory event before writing", async () => {
+  const opened = event({
+    run: 70_001,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const receipt = event({
+    run: 70_003,
+    runNumber: 3,
+    action: "synchronize",
+    before: SHA.B,
+    head: SHA.C,
+    updated: timestamp(3),
+  });
+  for (const scenario of ["run identity", "event identity"]) {
+    const fixture = fakeGitHub({
+      pullRequest: pull({ head: SHA.C, updated: timestamp(3) }),
+      comments: [journalComment({ events: [opened] })],
+      runs: [
+        controllerEventRun({
+          id: 70_002,
+          runNumber: 2,
+          action: "synchronize",
+          before: SHA.A,
+          sha: SHA.B,
+          conclusion: "cancelled",
+        }),
+        controllerEventRun({
+          id: 70_003,
+          runNumber: 3,
+          action: "synchronize",
+          before: scenario === "event identity" ? SHA.A : SHA.B,
+          sha: SHA.C,
+        }),
+      ],
+    });
+    const before = fixture.comments[0].body;
+    await assert.rejects(
+      recordEventReceipt({
+        github: fixture.github,
+        context: fakeContext({
+          runId: scenario === "run identity" ? 70_004 : 70_003,
+          runNumber: 3,
+        }),
+        core: fakeCore(),
+        ...eventRecordInputs(receipt),
+      }),
+      /does not match/,
+    );
+    assert.equal(fixture.comments[0].body, before);
+    assert.equal(fixture.commentUpdates.length, 0);
+    assert.equal(fixture.commitStatuses.length, 0);
+    assert.equal(fixture.dispatches.length, 0);
+    assert.equal(fixture.deployments.length, 0);
+  }
+});
+
+test("an open-PR bootstrap resets legacy missing receipts after preview ownership is drained", async () => {
+  const opened = event({
+    run: 70_001,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const bootstrap = bootstrapEvent({
+    run: 70_004,
+    runNumber: 4,
+    head: SHA.C,
+    updated: timestamp(3),
+  });
+  const fixture = fakeGitHub({
+    pullRequest: pull({ head: SHA.C, updated: timestamp(3) }),
+    comments: [journalComment({ events: [opened] })],
+    runs: [
+      controllerEventRun({
+        id: 70_002,
+        runNumber: 2,
+        action: "synchronize",
+        before: SHA.A,
+        sha: SHA.B,
+        conclusion: "cancelled",
+      }),
+      controllerEventRun({
+        id: 70_003,
+        runNumber: 3,
+        action: "synchronize",
+        before: SHA.B,
+        sha: SHA.C,
+        conclusion: "failure",
+      }),
+      controllerInertRun({ id: 70_004, runNumber: 4 }),
+    ],
+  });
+  await assert.rejects(
+    reconcileControllerFixture(fixture),
+    /has no durable receipt/,
+  );
+  await recordEventReceipt({
+    github: fixture.github,
+    context: fakeContext({ runId: 70_004, runNumber: 4 }),
+    core: fakeCore(),
+    ...eventRecordInputs(bootstrap),
+  });
+  const persisted = journalFromComment(fixture.comments[0]);
+  assert.equal(persisted.admission.through_run_id, 70_004);
+  assert.deepEqual(persisted.receipts.events, [opened, bootstrap]);
+  const state = await reconcileControllerFixture(fixture);
+  assert.equal(state.epoch.anchor_run_id, 70_004);
+});
 
 test("exact close then reopen receipts discharge the entire global interval", async () => {
   const opened = event({
@@ -15534,4 +16418,727 @@ test("terminalized recovered failure after an older checkpoint reopens once", ()
     }).nextDispatch,
     null,
   );
+});
+
+test("a full checkpoint fold settles coalescing on out-of-order lineage", () => {
+  // A(4000) -> B(4010) -> C(4005): the selected C receipt carries a lower run
+  // ID than the B receipt it follows.
+  const opened = event({
+    run: 4_000,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const events = [
+    opened,
+    event({
+      run: 4_010,
+      action: "synchronize",
+      before: SHA.A,
+      head: SHA.B,
+      updated: timestamp(2),
+    }),
+    event({
+      run: 4_005,
+      action: "synchronize",
+      before: SHA.B,
+      head: SHA.C,
+      updated: timestamp(3),
+    }),
+  ];
+  const currentPull = pull({ head: SHA.C, updated: timestamp(3) });
+  const first = reconcile({
+    events: [opened],
+    pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+  });
+  const activeA = persistDispatch(first, 44_000);
+  const selectionA = selectionReceiptFromDispatch(activeA.targets.ui.active);
+  let journal = compactPreviewJournal(
+    createPreviewJournal({
+      pr: 519,
+      events,
+      selections: [selectionA],
+      state: activeA,
+    }),
+    { throughEventRunId: 4_000 },
+  );
+  const resultA = result(first.nextDispatch, { runId: 44_000 });
+  const jumped = reconcile({
+    events: journal.receipts.events,
+    results: [resultA],
+    selections: journal.receipts.selections,
+    pullRequest: currentPull,
+    existingState: journal.state,
+    checkpoint: journal.checkpoint,
+  });
+  assert.equal(jumped.nextDispatch.sha, SHA.C);
+  assert.equal(jumped.nextDispatch.selection_receipt_run_id, 4_005);
+  assert.deepEqual(jumped.nextDispatch.coalesced_receipt_run_ids, [4_010]);
+
+  const activeC = persistDispatch(jumped, 44_005);
+  const selectionC = selectionReceiptFromDispatch(activeC.targets.ui.active);
+  // Folding through the tail removes every live receipt, including the C
+  // receipt the selection names, while in-flight ownership keeps that
+  // selection retained. Only the checkpoint anchor survives.
+  journal = compactPreviewJournal(
+    createPreviewJournal({
+      pr: 519,
+      checkpoint: journal.checkpoint,
+      events: journal.receipts.events,
+      selections: [...journal.receipts.selections, selectionC],
+      workerEvidence: journal.receipts.worker_evidence,
+      results: [resultA],
+      state: activeC,
+    }),
+    { throughEventRunId: 4_005 },
+  );
+  assert.equal(journal.checkpoint.through_event_run_id, 4_005);
+  assert.deepEqual(journal.receipts.events, []);
+  assert.deepEqual(
+    journal.receipts.selections.map(
+      (selection) => selection.coalesced_receipt_run_ids,
+    ),
+    [[4_010]],
+  );
+
+  const settled = reconcile({
+    events: journal.receipts.events,
+    results: [
+      ...journal.receipts.results,
+      result(jumped.nextDispatch, { runId: 44_005 }),
+    ],
+    selections: journal.receipts.selections,
+    pullRequest: currentPull,
+    existingState: journal.state,
+    checkpoint: journal.checkpoint,
+  });
+  assert.equal(settled.state.status_decisions.at(-1).state, "success");
+  assert.equal(settled.state.status_decisions.at(-1).targets.ui, "deployed");
+  assert.equal(settled.state.targets.ui.active, null);
+});
+
+test("a coalesced identity the checkpoint never folded fails closed", () => {
+  const opened = event({
+    run: 2_800,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const events = [
+    opened,
+    event({
+      run: 2_801,
+      action: "synchronize",
+      before: SHA.A,
+      head: SHA.B,
+      updated: timestamp(2),
+    }),
+  ];
+  const currentPull = pull({ head: SHA.B, updated: timestamp(2) });
+  const first = reconcile({
+    events: [opened],
+    pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+  });
+  const activeA = persistDispatch(first, 42_800);
+  const selectionA = selectionReceiptFromDispatch(activeA.targets.ui.active);
+  const journal = compactPreviewJournal(
+    createPreviewJournal({
+      pr: 519,
+      events,
+      selections: [selectionA],
+      state: activeA,
+    }),
+    { throughEventRunId: 2_800 },
+  );
+  const resultA = result(first.nextDispatch, { runId: 42_800 });
+  const jumped = reconcile({
+    events: journal.receipts.events,
+    results: [resultA],
+    selections: journal.receipts.selections,
+    pullRequest: currentPull,
+    existingState: journal.state,
+    checkpoint: journal.checkpoint,
+  });
+  const activeB = persistDispatch(jumped, 42_801);
+  // Run ID 1 is lower than the selection receipt but the checkpoint never
+  // folded it. A lower run ID is not membership evidence.
+  const contradictory = selectionReceiptFromDispatch({
+    ...activeB.targets.ui.active,
+    coalesced_receipt_run_ids: [1],
+  });
+  assert.throws(
+    () =>
+      reconcile({
+        events: journal.receipts.events,
+        results: [resultA],
+        selections: [...journal.receipts.selections, contradictory],
+        pullRequest: currentPull,
+        existingState: activeB,
+        checkpoint: journal.checkpoint,
+      }),
+    /ui coalescing evidence contradicts durable ownership/,
+  );
+});
+
+test("two retained selections cannot both own one folded identity", () => {
+  const laterHead = (0x72).toString(16).padStart(40, "0");
+  const opened = event({
+    run: 2_900,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const events = [
+    opened,
+    event({
+      run: 2_901,
+      action: "synchronize",
+      before: SHA.A,
+      head: SHA.B,
+      updated: timestamp(2),
+    }),
+    event({
+      run: 2_902,
+      action: "synchronize",
+      before: SHA.B,
+      head: SHA.C,
+      updated: timestamp(3),
+    }),
+    event({
+      run: 2_903,
+      action: "synchronize",
+      before: SHA.C,
+      head: SHA.D,
+      updated: timestamp(4),
+    }),
+  ];
+  const laterEvent = event({
+    run: 2_904,
+    action: "synchronize",
+    before: SHA.D,
+    head: laterHead,
+    updated: timestamp(5),
+  });
+  const first = reconcile({
+    events: [opened],
+    pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+  });
+  const activeA = persistDispatch(first, 42_900);
+  const selectionA = selectionReceiptFromDispatch(activeA.targets.ui.active);
+  let journal = compactPreviewJournal(
+    createPreviewJournal({
+      pr: 519,
+      events,
+      selections: [selectionA],
+      state: activeA,
+    }),
+    { throughEventRunId: 2_900 },
+  );
+  const resultA = result(first.nextDispatch, { runId: 42_900 });
+  const jumped = reconcile({
+    events: journal.receipts.events,
+    results: [resultA],
+    selections: journal.receipts.selections,
+    pullRequest: pull({ head: SHA.D, updated: timestamp(4) }),
+    existingState: journal.state,
+    checkpoint: journal.checkpoint,
+  });
+  const activeD = persistDispatch(jumped, 42_903);
+  const selectionD = selectionReceiptFromDispatch(activeD.targets.ui.active);
+  journal = compactPreviewJournal(
+    createPreviewJournal({
+      pr: 519,
+      checkpoint: journal.checkpoint,
+      events: journal.receipts.events,
+      selections: [...journal.receipts.selections, selectionD],
+      workerEvidence: journal.receipts.worker_evidence,
+      results: [resultA],
+      state: activeD,
+    }),
+    { throughEventRunId: 2_902 },
+  );
+  const resultD = result(jumped.nextDispatch, { runId: 42_903 });
+  const laterPull = pull({ head: laterHead, updated: timestamp(5) });
+  const dispatched = reconcile({
+    events: [...journal.receipts.events, laterEvent],
+    results: [...journal.receipts.results, resultD],
+    selections: journal.receipts.selections,
+    pullRequest: laterPull,
+    existingState: journal.state,
+    checkpoint: journal.checkpoint,
+  });
+  const activeLater = persistDispatch(dispatched, 42_904);
+  // A journal written before the dispatch exclusion landed can hold a later
+  // selection that re-coalesced 2_901, which the checkpoint folded away
+  // entirely: it is not the retained anchor, so nothing resolves it.
+  const legacyLater = selectionReceiptFromDispatch({
+    ...activeLater.targets.ui.active,
+    coalesced_receipt_run_ids: [2_901],
+  });
+  assert.throws(
+    () =>
+      reconcile({
+        events: [...journal.receipts.events, laterEvent],
+        results: [...journal.receipts.results, resultD],
+        selections: [...journal.receipts.selections, legacyLater],
+        pullRequest: laterPull,
+        existingState: activeLater,
+        checkpoint: journal.checkpoint,
+      }),
+    /ui event has conflicting coalescing evidence/,
+  );
+});
+
+test("a checkpoint without folded membership evidence fails closed", () => {
+  const opened = event({
+    run: 3_000,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const events = [
+    opened,
+    event({
+      run: 3_001,
+      action: "synchronize",
+      before: SHA.A,
+      head: SHA.B,
+      updated: timestamp(2),
+    }),
+    event({
+      run: 3_002,
+      action: "synchronize",
+      before: SHA.B,
+      head: SHA.C,
+      updated: timestamp(3),
+    }),
+    event({
+      run: 3_003,
+      action: "synchronize",
+      before: SHA.C,
+      head: SHA.D,
+      updated: timestamp(4),
+    }),
+  ];
+  const currentPull = pull({ head: SHA.D, updated: timestamp(4) });
+  const first = reconcile({
+    events: [opened],
+    pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+  });
+  const activeA = persistDispatch(first, 43_000);
+  const selectionA = selectionReceiptFromDispatch(activeA.targets.ui.active);
+  let journal = compactPreviewJournal(
+    createPreviewJournal({
+      pr: 519,
+      events,
+      selections: [selectionA],
+      state: activeA,
+    }),
+    { throughEventRunId: 3_000 },
+  );
+  const resultA = result(first.nextDispatch, { runId: 43_000 });
+  const jumped = reconcile({
+    events: journal.receipts.events,
+    results: [resultA],
+    selections: journal.receipts.selections,
+    pullRequest: currentPull,
+    existingState: journal.state,
+    checkpoint: journal.checkpoint,
+  });
+  const activeD = persistDispatch(jumped, 43_003);
+  const selectionD = selectionReceiptFromDispatch(activeD.targets.ui.active);
+  journal = compactPreviewJournal(
+    createPreviewJournal({
+      pr: 519,
+      checkpoint: journal.checkpoint,
+      events: journal.receipts.events,
+      selections: [...journal.receipts.selections, selectionD],
+      workerEvidence: journal.receipts.worker_evidence,
+      results: [resultA],
+      state: activeD,
+    }),
+    { throughEventRunId: 3_002 },
+  );
+  const settledArguments = {
+    events: journal.receipts.events,
+    results: [
+      ...journal.receipts.results,
+      result(jumped.nextDispatch, { runId: 43_003 }),
+    ],
+    selections: journal.receipts.selections,
+    pullRequest: currentPull,
+    existingState: journal.state,
+    checkpoint: journal.checkpoint,
+  };
+  assert.equal(reconcile(settledArguments).nextDispatch, null);
+
+  // A checkpoint written before this evidence existed proves no membership,
+  // so the same folded identity fails closed instead of being assumed settled.
+  const legacyCheckpoint = structuredClone(journal.checkpoint);
+  for (const target of PREVIEW_TARGETS) {
+    delete legacyCheckpoint.targets[target].folded_event_run_ids;
+  }
+  assert.throws(
+    () => reconcile({ ...settledArguments, checkpoint: legacyCheckpoint }),
+    /ui coalescing evidence contradicts durable ownership/,
+  );
+});
+
+// Drives `epochs` complete preview epochs. Each one opens a fresh anchor, runs
+// `SYNCS` pushes, resolves the anchor selection, lets the next selection
+// coalesce every intermediate receipt, then folds the whole epoch away with
+// that coalescing owner still unresolved. The unresolved owner retires into the
+// next epoch, so its coalesced identities stay named across epoch boundaries.
+function driveCoalescingEpochs(epochs, { syncs = 16 } = {}) {
+  const epochTimestamp = (index) =>
+    new Date(Date.UTC(2026, 6, 15, 10, 0, 0) + index * 1000).toISOString();
+  const epochSha = (index) => index.toString(16).padStart(40, "0");
+  let clock = 0;
+  let eventRunId = 5_000;
+  let headIndex = 0;
+  let workerRunId = 60_000;
+  let liveEvents = [];
+  let liveSelections = [];
+  let liveResults = [];
+  let state = null;
+  let checkpoint = null;
+  let journal = null;
+  const perEpoch = [];
+
+  for (let epoch = 0; epoch < epochs; epoch += 1) {
+    headIndex += 1;
+    const anchorHead = epochSha(headIndex);
+    const anchorRunId = eventRunId++;
+    const anchorClock = clock++;
+    const epochEvents = [
+      event({
+        run: anchorRunId,
+        action: epoch === 0 ? "opened" : "reopened",
+        head: anchorHead,
+        updated: epochTimestamp(anchorClock),
+      }),
+    ];
+    let tailHead = anchorHead;
+    for (let push = 0; push < syncs; push += 1) {
+      headIndex += 1;
+      const head = epochSha(headIndex);
+      epochEvents.push(
+        event({
+          run: eventRunId++,
+          action: "synchronize",
+          before: tailHead,
+          head,
+          updated: epochTimestamp(clock++),
+        }),
+      );
+      tailHead = head;
+    }
+    const tailClock = clock - 1;
+
+    // The pull sits at the anchor, so only the anchor is in lineage yet.
+    const anchorReconciled = reconcile({
+      events: [...liveEvents, ...epochEvents],
+      results: liveResults,
+      selections: liveSelections,
+      pullRequest: pull({
+        head: anchorHead,
+        updated: epochTimestamp(anchorClock),
+      }),
+      existingState: state,
+      checkpoint,
+    });
+    const anchorState = persistDispatch(anchorReconciled, workerRunId);
+    const anchorSelection = selectionReceiptFromDispatch(
+      anchorState.targets.ui.active,
+    );
+    const anchorResult = result(anchorReconciled.nextDispatch, {
+      runId: workerRunId,
+    });
+    workerRunId += 1;
+    journal = compactPreviewJournal(
+      createPreviewJournal({
+        pr: 519,
+        checkpoint,
+        events: [...liveEvents, ...epochEvents],
+        selections: [...liveSelections, anchorSelection],
+        results: liveResults,
+        state: anchorState,
+      }),
+      { throughEventRunId: anchorRunId },
+    );
+
+    // The pull moves to the tail. The checkpoint's pending owner now holds a
+    // result, so the next selection coalesces every intermediate receipt.
+    const tailPull = pull({
+      head: tailHead,
+      updated: epochTimestamp(tailClock),
+    });
+    const jumped = reconcile({
+      events: journal.receipts.events,
+      results: [...journal.receipts.results, anchorResult],
+      selections: journal.receipts.selections,
+      pullRequest: tailPull,
+      existingState: journal.state,
+      checkpoint: journal.checkpoint,
+    });
+    assert.equal(jumped.nextDispatch.sha, tailHead);
+    assert.equal(
+      jumped.nextDispatch.coalesced_receipt_run_ids.length,
+      syncs - 1,
+    );
+    const tailState = persistDispatch(jumped, workerRunId);
+    workerRunId += 1;
+    const tailSelection = selectionReceiptFromDispatch(
+      tailState.targets.ui.active,
+    );
+
+    // Fold the epoch away with that coalescing owner still unresolved.
+    journal = compactPreviewJournal(
+      createPreviewJournal({
+        pr: 519,
+        checkpoint: journal.checkpoint,
+        events: journal.receipts.events,
+        selections: [...journal.receipts.selections, tailSelection],
+        results: [...journal.receipts.results, anchorResult],
+        state: tailState,
+      }),
+      { throughEventRunId: epochEvents.at(-1).event_run_id },
+    );
+    perEpoch.push({
+      journal,
+      tailSelection,
+      tailHead,
+      nextClock: clock,
+      nextEventRunId: eventRunId,
+    });
+    liveEvents = journal.receipts.events;
+    liveSelections = journal.receipts.selections;
+    liveResults = journal.receipts.results;
+    state = journal.state;
+    checkpoint = journal.checkpoint;
+  }
+  return perEpoch;
+}
+
+test("folded coalescing membership stays bounded across many epochs", () => {
+  const syncs = 16;
+  const perEpoch = driveCoalescingEpochs(13, { syncs });
+  assert.equal(perEpoch.length, 13);
+  for (const [epoch, { journal, tailSelection }] of perEpoch.entries()) {
+    // Every epoch retires one more unresolved owner, so the pressure that
+    // grew the list is still present.
+    assert.equal(journal.state.targets.ui.retired_active.length, epoch);
+    assert.equal(journal.receipts.selections.length, epoch + 1);
+    // Membership never carries a retired epoch's identities forward.
+    assert.deepEqual(journal.checkpoint.targets.ui.folded_event_run_ids, [
+      ...tailSelection.coalesced_receipt_run_ids,
+      tailSelection.selection_receipt_run_id,
+    ]);
+    assert.equal(
+      journal.checkpoint.targets.ui.folded_event_run_ids.length,
+      syncs,
+    );
+  }
+});
+
+test("folded coalescing membership names only current-epoch receipts", () => {
+  const perEpoch = driveCoalescingEpochs(2);
+  const [previous, current] = perEpoch;
+  const retiredRunIds = new Set([
+    ...previous.tailSelection.coalesced_receipt_run_ids,
+    previous.tailSelection.selection_receipt_run_id,
+  ]);
+  const membership = current.journal.checkpoint.targets.ui.folded_event_run_ids;
+  // The retired epoch's owner is still retained and still names its own
+  // coalesced identities, but the checkpoint no longer vouches for them.
+  assert.equal(current.journal.state.targets.ui.retired_active.length, 1);
+  assert.equal(
+    current.journal.receipts.selections.some(
+      (selection) =>
+        selection.selection_receipt_run_id ===
+        previous.tailSelection.selection_receipt_run_id,
+    ),
+    true,
+  );
+  assert.equal(
+    membership.some((runId) => retiredRunIds.has(runId)),
+    false,
+  );
+  assert.deepEqual(membership, [
+    ...current.tailSelection.coalesced_receipt_run_ids,
+    current.tailSelection.selection_receipt_run_id,
+  ]);
+});
+
+test("a reopened anchor before reconciliation keeps its persisted epoch membership", () => {
+  const perEpoch = driveCoalescingEpochs(20);
+  const last = perEpoch.at(-1);
+  const journal = last.journal;
+  const persistedEpochAnchorRunId = journal.state.epoch.anchor_run_id;
+  // A near-capacity journal: a full checkpoint only folds above this size
+  // while ownership is in flight, which is what makes the transition reachable.
+  assert.equal(
+    Buffer.byteLength(renderPreviewJournalBody(journal), "utf8") >= 40_000,
+    true,
+  );
+  assert.equal(journal.state.targets.ui.retired_active.length, 19);
+  assert.equal(
+    journal.receipts.selections.some(
+      (selection) =>
+        selection.epoch_anchor_run_id === persistedEpochAnchorRunId &&
+        selection.selection_receipt_run_id ===
+          last.tailSelection.selection_receipt_run_id,
+    ),
+    true,
+  );
+
+  // A reopened anchor lands before state reconciliation runs, so the journal
+  // still carries the previous epoch while the lineage already reads as a new
+  // one.
+  const reopened = event({
+    run: last.nextEventRunId,
+    action: "reopened",
+    head: (0x900).toString(16).padStart(40, "0"),
+    updated: new Date(
+      Date.UTC(2026, 6, 15, 10, 0, 0) + last.nextClock * 1000,
+    ).toISOString(),
+  });
+  const compacted = compactPreviewJournal(
+    createPreviewJournal({
+      pr: 519,
+      checkpoint: journal.checkpoint,
+      events: [...journal.receipts.events, reopened],
+      selections: journal.receipts.selections,
+      results: journal.receipts.results,
+      state: journal.state,
+    }),
+  );
+  assert.equal(compacted.checkpoint.event.event_run_id, reopened.event_run_id);
+  assert.equal(compacted.state.epoch.anchor_run_id, persistedEpochAnchorRunId);
+  assert.notEqual(reopened.event_run_id, persistedEpochAnchorRunId);
+
+  // Reconciliation resolves the epoch from persisted state, so membership must
+  // have been built for that epoch and not for the newly computed anchor.
+  const reconciled = reconcile({
+    events: compacted.receipts.events,
+    results: compacted.receipts.results,
+    selections: compacted.receipts.selections,
+    pullRequest: pull({
+      head: reopened.head_sha,
+      updated: reopened.pr_updated_at,
+    }),
+    existingState: compacted.state,
+    checkpoint: compacted.checkpoint,
+  });
+  assert.equal(reconciled.state.epoch.anchor_run_id, persistedEpochAnchorRunId);
+  assert.deepEqual(compacted.checkpoint.targets.ui.folded_event_run_ids, [
+    ...last.tailSelection.coalesced_receipt_run_ids,
+    last.tailSelection.selection_receipt_run_id,
+  ]);
+});
+
+test("a recovery bootstrap only escapes a contradictory epoch when PR metadata changed", () => {
+  const opened = event({
+    run: 7_000,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  const openedPull = pull({ head: SHA.A, updated: timestamp(1) });
+  const first = reconcile({ events: [opened], pullRequest: openedPull });
+  const activeA = persistDispatch(first, 47_000);
+  // A journal whose persisted receipts contradict the reconciler, created at
+  // the current lifecycle anchor.
+  const contradictory = selectionReceiptFromDispatch({
+    ...activeA.targets.ui.active,
+    coalesced_receipt_run_ids: [9_999],
+  });
+  const broken = {
+    selections: [contradictory],
+    existingState: activeA,
+  };
+  assert.throws(
+    () =>
+      reconcile({
+        ...broken,
+        events: [opened],
+        pullRequest: openedPull,
+      }),
+    /ui coalescing evidence contradicts durable ownership/,
+  );
+
+  // Dispatched with no PR metadata change, the bootstrap snapshots the same
+  // head and updated_at, so its anchor alias key equals the opened anchor's
+  // and selectCurrentEpoch discards it. The broken epoch stays current and
+  // reconciliation repeats the same failure.
+  const aliasing = bootstrapEvent({
+    run: 7_001,
+    head: SHA.A,
+    updated: timestamp(1),
+  });
+  assert.throws(
+    () =>
+      reconcile({
+        ...broken,
+        events: [opened, aliasing],
+        pullRequest: openedPull,
+      }),
+    /ui coalescing evidence contradicts durable ownership/,
+  );
+
+  // Changing any PR metadata the alias key covers — here updated_at, as an
+  // edited title or body would — lets the bootstrap anchor a fresh epoch. The
+  // contradicting selection stays bound to the old anchor and is no longer
+  // read.
+  const distinct = bootstrapEvent({
+    run: 7_002,
+    head: SHA.A,
+    updated: timestamp(2),
+  });
+  const recovered = reconcile({
+    ...broken,
+    events: [opened, distinct],
+    pullRequest: pull({ head: SHA.A, updated: timestamp(2) }),
+  });
+  assert.equal(recovered.state.epoch.anchor_run_id, 7_002);
+  assert.equal(recovered.state.epoch.anchor_action, "bootstrap");
+  assert.equal(recovered.nextDispatch.sha, SHA.A);
+  assert.equal(recovered.nextDispatch.selection_receipt_run_id, 7_002);
+});
+
+test("preview receipts retain distinct planner failure reasons", () => {
+  const receipt = event({
+    run: 10,
+    action: "opened",
+    head: SHA.A,
+    updated: timestamp(1),
+    targets: [],
+  });
+  const snapshot = structuredClone(receipt);
+  delete snapshot.plan;
+  for (const reason of [
+    "turbo-planning-failed",
+    "turbo-spawn-failed",
+    "turbo-exit-failed",
+    "turbo-output-invalid",
+    "turbo-plan-malformed",
+    "turbo-task-malformed",
+    "turbo-no-deployable-task",
+  ]) {
+    const plan = normalizePlannerResult(
+      {
+        deployments: PREVIEW_TARGETS,
+        reason,
+        base: snapshot.change_base_sha,
+        head: snapshot.head_sha,
+      },
+      snapshot,
+    );
+    assert.equal(plan.reason, reason);
+    assert.deepEqual(plan.targets, PREVIEW_TARGETS);
+    assert.equal(
+      validateEventReceipt({ ...snapshot, plan }).plan.reason,
+      reason,
+    );
+  }
 });

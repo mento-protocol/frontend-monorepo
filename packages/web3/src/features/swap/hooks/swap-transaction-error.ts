@@ -22,21 +22,17 @@ export function getSwapTransactionErrorMessage(
     toTokenSymbol?: string;
     chainId?: number;
   } = {},
-  insufficientLiquidityFallbackUrl?: string,
 ): string | JSX.Element {
   const errorMessage = extractFullErrorString(error);
 
   if (isInsufficientLiquidityError(errorMessage)) {
-    return getInsufficientLiquidityNoticeContent({
-      insufficientLiquidityFallbackUrl,
-    });
+    return getInsufficientLiquidityNoticeContent();
   }
 
   const sharedMessage = getToastErrorMessage(errorMessage, {
     fromTokenSymbol,
     toTokenSymbol,
     chainId,
-    insufficientLiquidityFallbackUrl,
   });
 
   if (sharedMessage !== "Unable to fetch swap amount") {

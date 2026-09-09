@@ -41,17 +41,14 @@ pnpm exec turbo run build --filter <app-name>  # Build one app
 pnpm check-types                     # TypeScript type checking; builds workspace package types first
 pnpm ci:action-pins                  # Verify third-party GitHub Actions use documented SHA pins
 pnpm ci:action-pins:test             # Test the action-pin scanner and REST materializer
+pnpm dependency:policy:test          # Test Dependabot schedule, grouping, and dependency policy
 pnpm ci:change-plan:test             # Test PR scoping, full main pushes, mandatory Trunk, and fail-closed behavior
-pnpm dependabot:process -- evaluate --input path/to/snapshot.json --mode observe  # Evaluate a saved Dependabot snapshot
-pnpm dependabot:process:test         # Test Dependabot policy, CLI, and trusted-workflow contracts
-pnpm dependabot:soak                # Render and validate the production soak evidence
-NEXT_CATALOG_SYNC_INTEGRATION=1 pnpm exec node --test scripts/dependabot-protected-runtime-sync.test.mjs  # Run the networked source-preserving Next sync proof
 pnpm adr:check                       # Advisory reminder for new architecture-significant workflows/workspaces
 pnpm adr:check:test                  # Test the offline ADR trigger and repository wiring
 trunk check --fix                     # Lint with autofix
 trunk fmt                             # Format
 pnpm test                            # Run tests (both CI unit shards, serially)
-pnpm test:ci:workspaces              # CI unit shard 1: ADR/Dependabot/lockfile suites + turbo workspace tests
+pnpm test:ci:workspaces              # CI unit shard 1: ADR/dependency-policy/lockfile suites + turbo workspace tests
 pnpm test:ci:vercel                  # CI unit shard 2: Vercel deployment contract suites
 pnpm quality:budgets:test            # Unit/structural tests for quality gates + notifier
 pnpm quality:coverage                # Enforce measured coverage floors in tested workspaces
@@ -65,8 +62,7 @@ pnpm vercel:deployment-state:test    # Test canonical read-only Vercel state and
 pnpm vercel:primitives:test          # Test affected planning, custom deployment IDs, and build-env contracts
 pnpm vercel:workflow:test            # Test Vercel preview and main workflows, exact-main gating, transactions, and smoke
 pnpm vercel:preview:test             # Test preview state plus reusable smoke trust, native-adapter, and Git-ownership boundaries
-pnpm vercel:production-shadow:test   # Test state allowlisting, shadow helpers, and workflow invariants
-pnpm --filter app.mento.org test:production-shadow:routing  # Prove bypass headers do not cross Chromium redirects
+pnpm vercel:production-shadow:test   # Test the staged-candidate toolkit and shared candidate-build actions
 pnpm vercel:versions:check           # Verify pinned Next.js/Vercel CLI custom-ID prerequisites
 pnpm vercel:plan --base <sha> --head <sha>  # Emit the fail-closed Vercel target plan
 gh pr view --json body --jq .body | pnpm pr:description:check  # Validate the current PR body
@@ -83,6 +79,255 @@ Always use `--filter` to avoid building/running everything unnecessarily.
 2. Run `trunk check --fix` — confirm linting passes
 3. Verify changes visually on localhost (check the app's package.json `dev` script for the port)
 
+## Cloud Sessions (Claude Code on the Web)
+
+Cloud sessions start from a fresh clone with no `node_modules`. The
+`SessionStart` hook in [.claude/settings.json](.claude/settings.json) runs
+[scripts/cloud-session-setup.sh](scripts/cloud-session-setup.sh), which runs
+`pnpm install --frozen-lockfile` when `CLAUDE_CODE_REMOTE=true` and the
+`node_modules/.cloud-session-setup-complete` stamp does not match the current
+install inputs: the `pnpm-lock.yaml` digest, the configuration that shapes the
+tree (`.npmrc`'s `public-hoist-pattern` entries and `pnpm-workspace.yaml`'s
+`onlyBuiltDependencies`, either of which can move without the lockfile moving),
+the pnpm that actually ran the install, and the `packageManager` pin. Recording
+the running pnpm rather than the pin keeps the stamp honest when the two differ,
+so correcting a drifted environment reinstalls instead of certifying a tree the
+pinned version never built. A partial tree from a failed install and a resumed
+session whose lockfile, install configuration, pnpm, or pin moved are all
+reinstalled rather than mistaken for a finished install. The stamp is cleared
+before pnpm runs and rewritten only on success, so an install that dies partway
+through cannot leave an older revision's stamp standing over the tree it
+changed. A failed install prints its last log lines to stdout, where the session
+can see them. Local sessions exit the script immediately.
+
+The cloud environment's setup script is a separate file. It is configured per
+environment at claude.ai/code, not in this repository. It runs as root before
+the repository is cloned, so it must not read repository files, and it must
+exit 0 or the session fails to start. Keep it to VM provisioning, such as
+Foundry and the Trunk launcher. Install tools into a shared path such as
+`/opt`, then symlink them into `/usr/local/bin`: the environment cache keeps
+files but not an exported `PATH`, and the session user cannot read `/root`.
+The session's Custom network allowlist is configured in the same place and is
+just as invisible from the tree; the entries this repository needs are
+tabulated under the Trunk runtimes below.
+
+Cloud sessions gate GitHub by _repository_, not by host, and the gate is far
+wider than a tarball path: the proxy fronts `github.com` as if it were the
+GitHub _API_, so ordinary web URLs are intercepted too. A request for a
+repository outside the session's scope is answered by the proxy itself with HTTP
+403 and the body `GitHub access to this repository is not enabled for this
+session`. That covers `codeload.github.com` tarballs, but equally
+`github.com/vercel/next.js`, `github.com/pnpm/pnpm/issues/13567`, and even
+`github.com/features/actions`, which the gateway parses as an owner/repo pair. An
+in-scope repository is not exempt either: a request for
+`github.com/mento-protocol/frontend-monorepo/actions/runs/<id>` returns a
+_different_ 403 — `This GitHub API path is not available: sessions are bound to
+their configured repositories` — because it is not a repository-scoped API
+endpoint. The network allowlist cannot lift any of this: `github.com` is on the
+allowlist and is still intercepted.
+
+Exactly two paths pass through, and every workaround below rests on them. The
+git protocol is not intercepted, so anonymous `git clone` and `git ls-remote` of
+any public repository succeed. And GitHub **release assets** under
+`releases/download/` are served normally, which several hermetic runtimes rely
+on.
+
+This used to break `pnpm install` outright. The catalog pinned
+`@metamask/jazzicon` to `github:jmrossy/jazzicon#<sha>`, which pnpm resolves to
+a `codeload.github.com` tarball, so every cloud session died mid-install and
+left an unusable `node_modules`. That fork is now vendored at
+`packages/jazzicon` and consumed as a `workspace:*` dependency, so the install
+needs no GitHub fetch at all. See
+[packages/jazzicon/README.md](packages/jazzicon/README.md) for provenance and
+the rejected alternatives. Its upstream `.js` files are kept byte-for-byte and
+are excluded from Trunk in `.trunk/trunk.yaml`; do not reformat them.
+
+One consequence of the same gating affects Trunk: **`trunk check` and `trunk fmt`
+do not work out of the box in a cloud session,** because Trunk fetches its plugin
+bundle from `https://github.com/trunk-io/plugins/archive/<ref>.zip` and that is
+refused with the repository-scope 403, so the CLI exits before linting anything.
+
+Adding `trunk-io/plugins` to the session's GitHub repository scope is **not** the
+way out, despite being the obvious one: `add_repo` refuses it with `cross-tier
+adds are not supported in v1`, because a session may hold repositories from only
+one owner and `trunk-io` is not `mento-protocol`. No allowlist entry or admin
+setting lifts that.
+
+What works is the git protocol, which the gateway passes through. So clone the
+bundle and point the source at the local checkout:
+
+```bash
+git clone --depth 1 --branch v1.7.3 \
+  https://github.com/trunk-io/plugins /tmp/trunk-plugins
+# then, temporarily, in .trunk/trunk.yaml, replace the source's `uri` and `ref`:
+#   local: /tmp/trunk-plugins
+```
+
+`local` is Trunk's field for an on-disk plugin repository, and it takes
+precedence over `uri` and `ref`. Two consequences are worth knowing. The pinned
+`ref` is ignored once `local` is set, so the checkout alone decides which plugin
+version you get — match `--branch` to the `ref` that `.trunk/trunk.yaml` pins, or
+you will lint against a different bundle than CI does. And `local` reads
+`plugin.yaml` from the working tree, so the clone must be an ordinary checkout: a
+`--bare` one fails with `plugin load failed; expected plugin.yaml to be present`.
+
+Keep the edit local and never commit it.
+
+Once the workaround makes Trunk run, it arms a push-blocker, and this is the
+fastest way to wedge a cloud session. The repository enables
+`trunk-check-all-pre-push`, so `git push` runs `trunk check --all` — which
+cannot pass here (see below). The trap is that Trunk does not write into
+`.git/hooks`, so an empty `.git/hooks` proves nothing: it sets `core.hooksPath`
+in `.git/config` to a directory under `~/.cache/trunk` holding `pre-push`,
+`pre-commit`, and `commit-msg`. **Any** successful `trunk` invocation arms it,
+including a single-file `trunk check README.md`, and it is re-armed by every
+later invocation, so unsetting it once is not enough. A wedged push spends
+several minutes running every linter and then fails with `✖ Push blocked by git
+hook 'trunk-check-all-pre-push'`. Clear it immediately before pushing:
+
+```bash
+git config --unset core.hooksPath
+```
+
+The hermetic runtimes in `.trunk/trunk.yaml` then need to be downloadable, which
+is a _network allowlist_ question rather than a repository-scope one. The two
+failures look different and should not be confused: an allowlist refusal appears
+as `CONNECT tunnel failed, response 403` with no HTTP body, whereas the
+repository gate returns a real body naming the session's scope. Of the three
+enabled runtimes, only `go` ever needed an allowlist entry:
+
+| Runtime         | Downloads from                                            | Notes                                                                                                                                                       |
+| --------------- | --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `node@22.16.0`  | `nodejs.org`                                              | Reachable by default.                                                                                                                                       |
+| `go@1.21.0`     | `golang.org/dl` → `go.dev/dl` → `dl.google.com`           | Two redirects, not one. **`dl.google.com` must be on the allowlist**; it is the final target, so allowlisting `golang.org` or `go.dev` alone is not enough. |
+| `python@3.10.8` | `github.com/…/python-build-standalone/releases/download/` | Reachable by default — a release asset, so the GitHub gateway does not apply. `www.python.org` is on the allowlist but Trunk never uses it.                 |
+
+With `dl.google.com` allowlisted and the local clone in place, `trunk check` runs
+and passes in a cloud session; both the `go` and `python` runtimes install
+normally. Measured from cold caches: a mixed markdown/yaml/shell/mjs/json check
+takes about 1m30s including every runtime and linter download, `trunk fmt
+--no-fix --all` about 30s over 1172 files, and `trunk check --all` about 2m45s
+cold or about 2m15s warm over 1235 files.
+
+The allowlist itself lives with the environment at claude.ai/code, not in this
+repository, so a fresh environment starts with none of it and nothing in the
+tree will tell you what is missing. The entries this repository needs:
+
+| Entry                                                   | Needed by                                                                |
+| ------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `dl.google.com`                                         | Trunk's `go` runtime                                                     |
+| `forno.celo.org`, `rpc.monad.xyz`, `monad.drpc.org`     | the anvil fork suites                                                    |
+| `turborepo.dev`                                         | the `turbo.build` and `turborepo.com` links in the docs                  |
+| `getfoundry.sh`                                         | the `book.getfoundry.sh` link — the apex, which `*.getfoundry.sh` misses |
+| `notion.com`                                            | the `www.notion.so` link — Notion rebranded onto another TLD             |
+| `www.typescriptlang.org`, `www.conventionalcommits.org` | the remaining documentation links                                        |
+
+The last four rows exist only to keep `markdown-link-check` honest. Two of them
+are the plain hosts the links name, but `turborepo.dev`, `getfoundry.sh`, and
+`notion.com` are not written in any document: each is where a documented URL
+_redirects_ to, and the linter follows the redirect. So **allowlist the final
+host in the chain, not the one written in the markdown** — it may be a different
+subdomain, the bare apex (a wildcard does not cover the apex it sits under), or
+an entirely different domain.
+
+Editing the allowlist takes effect in sessions that are already running; there
+is no need to start a new one to pick up an entry.
+
+`trunk check --all` is therefore fast enough to be practical, but it **cannot
+pass in a cloud session** — not because of anything in the repo, but because two
+of the enabled linters depend on network the session does not have:
+
+- **`markdown-link-check`** cannot verify a `github.com` link, and 15 of this
+  repository's markdown links are GitHub links. Each returns the repository-gate
+  403 described above, whether or not the link is good, so none of it is
+  evidence of a broken link. That 15 is the floor: with the allowlist entries
+  above in place, every _non_-GitHub external link passes. On any other host,
+  read the status before concluding: a 403 is the proxy answering — an allowlist
+  refusal or the repository gate — and usually means a missing entry for the
+  final host in a redirect chain. Any other status came from the origin, so a
+  404 on a link this change adds is a real broken link, not an artifact.
+- **`trufflehog`** reports pinned GitHub Action SHAs and placeholder commit SHAs
+  in test fixtures as verified secrets. Trunk runs it with `--only-verified`, and
+  verification is precisely what should rule these out — but the proxy
+  authenticates GitHub API calls on the session's behalf (`api.github.com/user`
+  returns 200 with no `Authorization` header at all), so every 40-hex candidate
+  verifies.
+
+Skip exactly those two and the repository is clean — 1235 files, no issues:
+
+```bash
+trunk check --all --filter=-markdown-link-check,-trufflehog
+```
+
+That command is an iteration loop, not a substitute for the real gate: it
+disables both linters wholesale, including the parts of them that work fine here
+and that do catch real problems. Use it while iterating, then triage an
+unfiltered run before pushing. The cloud-session artifacts are distinguishable
+from genuine findings by their signature:
+
+- A `markdown-link-check/403` means the request never reached the origin, so on
+  its own it proves nothing: either the host is off the allowlist, or the GitHub
+  gateway answered first. On a link that was already in the tree, treat it as a
+  known-baseline artifact. On a link this change **adds or edits**, it is simply
+  unverified — a typo under an out-of-scope repository returns exactly the same
+  403 as a working URL — so confirm that link outside the cloud session, or let
+  CI's full-network run confirm it for you.
+- A **`markdown-link-check/400` is a broken relative link**: the file it points
+  at does not exist. Relative links need no network and are validated correctly
+  in a cloud session, so a 400 is always real and must be fixed.
+- `trufflehog/Github` verification fails in one direction only here: the proxy
+  makes candidates verify that should not, and never the reverse. So a hit is
+  never cleared by the tool and every one is triaged by reading the flagged line.
+  A 40-hex string that is a pinned action SHA, a placeholder SHA in a fixture, or
+  an upstream commit referenced by a documentation link is a known non-secret.
+  Anything you cannot account for that way is treated as a real credential until
+  it is checked outside the session. Never dismiss a secret-scanner finding you
+  have not looked at, and never disable a scanner to obtain a green run —
+  `.trunk/trunk.yaml` holds that same rule for the vendored files.
+
+Absent that setup, use the underlying tools directly, scoped to the files you
+changed — `pnpm exec prettier --check <files>` and `pnpm exec eslint <files>` —
+and rely on CI for the full Trunk run. Repo-wide invocations are not equivalent
+to Trunk: Trunk applies the ignore list in `.trunk/trunk.yaml` and pins its own
+prettier (3.7.4, against the workspace's 3.9.6), so a bare `pnpm exec prettier
+--check .` reports pre-existing differences in generated and unrelated files.
+`pnpm exec eslint .` is clean repo-wide.
+
+Everything else in the ordinary dev loop works unmodified: `pnpm check-types`,
+`pnpm knip`, `pnpm adr:check`, `pnpm test:ci:workspaces`, every `*:test`
+script, every `*:check` script except `format:check` (which runs
+`@trunkio/launcher` and so needs the plugin workaround above), and a real
+`pnpm exec turbo run build --filter app.mento.org`
+(create `apps/app.mento.org/.env.local` from `.env.example` first; the values
+need only be syntactically valid). Three cloud-specific gotchas are worth
+knowing:
+
+- **`pnpm test:ci:vercel` and Node's own warnings.** The environment sets
+  `NODE_USE_ENV_PROXY=1`, so every Node process prints an experimental
+  `EnvHttpProxyAgent` warning to stderr. Any test that asserts a spawned
+  process's stderr exactly will fail on that warning alone, with a diff whose
+  only difference is the warning. Such a test sets `NODE_NO_WARNINGS: "1"` on
+  the child (see `scripts/vercel-main-release-cli.test.mjs`); prefer that over
+  running the shard with the variable unset, which only hides the problem.
+- **Playwright needs the browser it was pinned against.** The workspace pins
+  `@playwright/test` 1.61.1, which wants chromium revision 1228, and the image
+  ships 1194 under `PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers`, so `launch()`
+  fails with `Executable doesn't exist`. Do **not** run `playwright install`.
+  For an ad-hoc script, pass `executablePath: '/opt/pw-browsers/chromium'`. To
+  run a suite that does not set that option, point
+  `PLAYWRIGHT_BROWSERS_PATH` at a directory of symlinks that also aliases the
+  1194 builds under the 1228 names — note the 1194 headless shell keeps the
+  older `chrome-linux/headless_shell` layout, not
+  `chrome-headless-shell-linux64/chrome-headless-shell`.
+- **The anvil fork suites do run here.** Foundry is installed and
+  `forno.celo.org`, `rpc.monad.xyz`, and `monad.drpc.org` are all reachable, so
+  `pnpm fork:mainnet` + `pnpm fork:seed` +
+  `pnpm --filter app.mento.org test:connected` completes green, given the
+  Playwright shim above and a build carrying `NEXT_PUBLIC_E2E_TEST=true
+NEXT_PUBLIC_USE_FORK=true`. The first seed takes several minutes; later ones
+  are quick, and oracle reports go stale in 360s, so re-seed immediately before
+  the suite rather than before the build.
+
 ## Visual Regression Testing
 
 Two layers guard against unintended UI changes:
@@ -92,7 +337,8 @@ Two layers guard against unintended UI changes:
   On pull requests, the workflow plans from changed files and only runs the app
   checks whose rendered surfaces can be affected: `apps/ui.mento.org/**` and
   `packages/ui/**` run the showcase; `apps/app.mento.org/**`,
-  `packages/ui/**`, and `packages/web3/**` run the app shells; and root package,
+  `packages/ui/**`, `packages/web3/**`, and `packages/jazzicon/**` run the app
+  shells; and root package,
   workflow, `.npmrc`, `turbo.json`, `patches/**`, and
   `scripts/security-headers.mjs` changes run both. On `main`, the push trigger
   uses that union of visual-impact paths and every started run executes both
@@ -133,7 +379,7 @@ Functional connected-wallet Playwright specs (not VRT) that run against a seeded
 
 See [docs/wallet-testing.md](docs/wallet-testing.md) for the full runbook.
 
-In CI, `.github/workflows/e2e.yml` triggers on every PR (plus the nightly schedule and manual `workflow_dispatch`) and always reports both check runs. An `e2e-plan` job computes `run_app`/`run_gov`/`run_monad` from changed files (`apps/app.mento.org/**` -> `run_app` + `run_monad`; `apps/governance.mento.org/**` -> `run_gov`; `packages/web3/**`, `packages/ui/**`, and `scripts/fork-test-clock.*` -> all three; `scripts/fork-seed-monad.*` -> `run_monad`; root-level files like `package.json`/`turbo.json`/the workflow itself -> all three) and fast-no-ops the fork jobs to a green skip when their surface didn't change — that "always reports" property is the prerequisite for eventually adding these checks to the required-checks ruleset (`strict_required_status_checks_policy` would otherwise deadlock non-matching PRs). Scheduled and manually-dispatched runs force both outputs true (no "changed files" concept for a cron trigger, and a manual run's point is to run regardless of what changed). A cheap `fork-seed-self-test` job (no anvil, no network) runs the shared clock boundaries and both encoder suites on every trigger; if it fails, the fork jobs still start (so the failure surfaces as a real check failure, not a silently-passing skip) but bail out in their first step instead of running the full 30-minute anvil suite. `e2e-connected` ("Connected swap (anvil fork)") and `e2e-governance` ("Connected governance (anvil fork)") both fork Celo mainnet pinned to `FORK_BLOCK` (bump roughly monthly). The fork source is a keyless public archive RPC probed at run time — forno cannot serve pinned-block forks because it prunes a block's state within minutes. A nightly scheduled run (04:20 UTC) repeats the suites at a freshly resolved recent block instead of the pin, to catch chain drift (oracle config, pool, or contract changes) that plan-gated PR runs never see. `e2e-connected-monad` ("Connected swap (Monad anvil fork)") is the Monad sibling: it forks Monad mainnet (chain 143) on port 8546 via `scripts/fork-seed-monad.mjs`, gated on `run_monad`. Unlike the Celo jobs it resolves a fresh block near `finalized` on every trigger (rpc.monad.xyz primary, monad.drpc.org fallback) rather than pinning, because Monad's public RPCs' deep archive retention is unproven while forking near finalized is the verified-servable window. Before oracle reports or swaps, both seed scripts use the shared UTC calendar to select a timestamp that stays FX-open for two hours. None of these checks is a required check yet.
+In CI, `.github/workflows/e2e.yml` triggers on every PR (plus the nightly schedule and manual `workflow_dispatch`) and always reports both check runs. An `e2e-plan` job computes `run_app`/`run_gov`/`run_monad` from changed files (`apps/app.mento.org/**` -> `run_app` + `run_monad`; `apps/governance.mento.org/**` -> `run_gov`; `packages/web3/**`, `packages/ui/**`, `packages/jazzicon/**`, and `scripts/fork-test-clock.*` -> all three; `scripts/fork-seed-monad.*` -> `run_monad`; root-level files like `package.json`/`turbo.json`/the workflow itself -> all three) and fast-no-ops the fork jobs to a green skip when their surface didn't change — that "always reports" property is the prerequisite for eventually adding these checks to the required-checks ruleset (`strict_required_status_checks_policy` would otherwise deadlock non-matching PRs). Scheduled and manually-dispatched runs force both outputs true (no "changed files" concept for a cron trigger, and a manual run's point is to run regardless of what changed). A cheap `fork-seed-self-test` job (no anvil, no network) runs the shared clock boundaries and both encoder suites on every trigger; if it fails, the fork jobs still start (so the failure surfaces as a real check failure, not a silently-passing skip) but bail out in their first step instead of running the full 30-minute anvil suite. `e2e-connected` ("Connected swap (anvil fork)") and `e2e-governance` ("Connected governance (anvil fork)") both fork Celo mainnet pinned to `FORK_BLOCK` (bump roughly monthly). The fork source is a keyless public archive RPC probed at run time — forno cannot serve pinned-block forks because it prunes a block's state within minutes. A nightly scheduled run (04:20 UTC) repeats the suites at a freshly resolved recent block instead of the pin, to catch chain drift (oracle config, pool, or contract changes) that plan-gated PR runs never see. `e2e-connected-monad` ("Connected swap (Monad anvil fork)") is the Monad sibling: it forks Monad mainnet (chain 143) on port 8546 via `scripts/fork-seed-monad.mjs`, gated on `run_monad`. Unlike the Celo jobs it resolves a fresh block near `finalized` on every trigger (rpc.monad.xyz primary, monad.drpc.org fallback) rather than pinning, because Monad's public RPCs' deep archive retention is unproven while forking near finalized is the verified-servable window. Before oracle reports or swaps, both seed scripts use the shared UTC calendar to select a timestamp that stays FX-open for two hours. None of these checks is a required check yet.
 
 All preview verification lives in the secretless reusable
 `.github/workflows/_vercel-preview-smoke.yml`: common immutable-URL, metadata,
@@ -152,308 +398,53 @@ workflow directly because a `GITHUB_TOKEN` Deployment status is evidence, not
 a downstream trigger contract. The automatic exact-SHA controller, bootstrap,
 canary, cutover, and rollback contract is in `docs/vercel-deployments.md`.
 
-Manual staged production URLs use the separate target-aware
-`test:production-shadow` command documented in `docs/vercel-deployments.md`; it
-never enables the mock wallet.
+## CI failure notifications
 
-## Dependabot Processing
+A failing `main`, scheduled, or release-tag run of a watched operational
+workflow reaches two places. `.github/workflows/ci-failure-notifier.yml` opens
+or updates one managed GitHub issue per partition and closes it after recovery.
+`.github/workflows/notify-slack-on-main-failure.yml` posts the same failure to
+Slack's `#ci-failures` with links to the run and to the managed issue. Both
+watch the same static workflow allowlist, alert on the same conclusion set, and
+reconcile an out-of-order callback to the latest decisive run the same way, so
+adding or renaming an operational workflow means updating both lists and
+`scripts/quality-workflows.test.mjs` in the same PR. Run the Slack workflow's
+bare `workflow_dispatch` from the Actions tab to smoke-test the wiring; it
+posts a fixed "🧪 wiring test" message and changes nothing else. Only the
+default-branch copy can post: every event is gated on `github.ref`, and the job
+runs in the `main`-only `slack-ci-notifications` environment.
+`docs/quality-budgets.md` records why that is hardening rather than a complete
+control while `SLACK_BOT_TOKEN` remains org-shared.
 
-Dependabot preparation is human-merge-only. The trusted default-branch
-`.github/workflows/dependabot-process.yml` controller supports exact
-`observe`, `assist`, and `prepare` modes. Empty, legacy `merge`, unknown,
-case, and whitespace variants become `observe`. No processor path merges or
-enables auto-merge. A maintainer performs the final squash merge through one of
-two explicit paths. A prepared change requires a successful exact-head
-`Dependabot ALL CLEAR` check and its exact processor approval. A
-`manual-review` change requires an explicit maintainer takeover. A maintainer
-agent must confirm that `autoMergeRequest` is `null` before any branch mutation
-and immediately before each push. It may then merge the current base into the
-branch without rebasing or force-pushing, resolve conflicts, fix valid findings,
-validate, and push. After each push, it must request a new review from the
-existing CodeRabbit GitHub App. It must require the exact `coderabbitai[bot]`
-Bot identity and a review record whose immutable `commit_id` equals the pushed
-head. It must reply to every review comment and resolve eligible threads. At
-handoff, the agent must re-read the live head and base SHAs. If the head differs
-from local `HEAD` or the base differs from the merged base, it must repeat the
-loop. It must report the exact final head and stop. It must not dismiss a
-review, submit a review
-approval, create a processor approval, publish or claim
-`Dependabot ALL CLEAR`, enable auto-merge, or merge. Human approval is not
-required for this preparation handoff. All other required checks must pass, and
-all feedback must be resolved, on the exact final head and base. Before merging
-the change, verify the exact current head and base, all repository-required
-checks, resolved feedback, a current human
-approval, the ruleset-required approval after the latest push, mergeability,
-and absence of auto-merge. The packetless failed
-`Dependabot Processor` check is non-required and intentionally waived for this
-manual path.
+## Dependabot preparation
 
-`.github/workflows/dependabot-intake.yml` remains the credentialless v1 event
-boundary for exact Dependabot-bot senders. A Refresh or Repair successor uses
-`.github/workflows/dependabot-prepared-head-intake.yml`, whose strict
-`dependabot-prepared-head` repository dispatch accepts only the configured
-Prepare App bot ID/login, exact App slug, nine-key payload, and a completed
-digest-bound operation check. The compact display title stays within GitHub's
-limit. Both intake completions and `Dependabot Claude Review` completions
-resume the processor immediately; the schedule reconciles at minutes
-`3,13,23,33,43,53`. Do not add `workflow_dispatch` or broaden either
-credentialless intake.
+Use [the preparation playbook](docs/dependabot-automation.md) and
+`.github/dependabot-prep-policy.json` from the live default branch. The
+`trusted-openclaw-agent` workflow uses the ordinary coding session and existing
+GitHub authentication; its prohibitions are procedural, not a credential sandbox.
+Use the portable `dependabot-prep` skill, revision `trusted-agent-v1`, with that
+playbook's repository overrides in OpenClaw, Codex or Claude. The historical
+execution-model identifier remains for compatibility. Never invoke the retired
+`/opt/dependabot-prep` launcher or the archived sealed skill procedure.
 
-The trusted `.github/workflows/dependabot-claude-review.yml` reviewer accepts
-both intake receipts. Its no-token first step authenticates the upstream
-workflow event, actor, path, repository, and compact title. For a prepared head,
-the exact-workflow-SHA `scripts/dependabot-prepared-review.mjs` helper fetches
-and validates canonical Refresh/Repair checks, terminal Actions run provenance,
-append-only parents, exact Prepare App bot repair commits, and the verified
-Dependabot seed. The read-only Claude job checks out only
-`github.workflow_sha`. It restricts built-in tools to Bash, denies every MCP
-tool, and pins `claude-sonnet-4-6` to prevent provider-default drift.
-A trusted fail-closed `PreToolUse` guard authorizes one exact
-bound repository-scoped `gh pr diff` command per run attempt. `dontAsk` mode
-and the guard block every other Bash call. A paired `PostToolUse` guard and a
-later no-token assertion require the same successful, complete foreground diff
-result. The post-hook seals the original bytes in a
-`dependabot-claude-review-tool-completed:v2` receipt, then delivers those exact
-bytes as one `text/plain` document tool result, bypassing Claude Code 2.1.243's
-30,000-character Bash text-result persistence. Missing, failed, interrupted,
-empty, or persisted/truncated output is retry-first. The job never checks out,
-caches, installs, downloads, or executes candidate input. The publisher is isolated
-from the Claude secret. It writes canonical structured
-JSON to the exact-head `claude-review` check: validated `findings` are
-deterministic repair input, while an infrastructure or invalid-schema failure
-is retry-first. The reviewer reports transitive dependency changes only when
-the diff shows a concrete incompatible constraint or repository defect. Added
-registry metadata for an unchanged package resolution is not a finding unless
-the updated dependency makes that package newly reachable or creates a concrete
-incompatibility. Human PRs continue to report `claude-review-human`.
+Within the playbook's scope, normal installs, lockfile generation, builds, tests,
+conflict resolution, and dependency-related compatibility fixes are permitted.
+Majors, red CI, and documented runtime coupling are work to attempt, not automatic
+exclusions. Never weaken security or validation to obtain a green result.
+Never approve, dismiss reviews, merge, close, alter auto-merge, or resolve or
+unresolve review threads. Publish only fast-forward updates to the authenticated
+existing PR branch. Human approval, thread resolution, and merge remain separate.
 
-Dependabot review and Claude repair prefer the `ANTHROPIC_API_KEY` secret. They
-use `CLAUDE_CODE_OAUTH_TOKEN` only when the API-key secret is absent. A bounded
-post-action diagnostic reports only the CLI subtype, error flag, terminal
-reason, and numeric API status. It never logs the model result, prompt, tool
-output, or diff. The publisher records canonical non-authorizing failure
-metadata. The processor may rerun the exact trusted review twice for HTTP 429,
-500, 502, 503, 504, or 529. It reruns only when that failure remains the newest
-trusted exact-head Claude result. Attempt three is terminal. The retry job has
-no repository-write, check-write, App, or Claude credential.
+The weekly OpenClaw job stays disabled until this policy is merged, a supervised
+preparation succeeds, and the operator separately confirms activation. Its
+reviewed entry prompt is `scripts/prompts/dependabot-weekly.md`. Never run the
+legacy launcher and the ordinary workflow concurrently. Follow the playbook's
+single-batch lock, recovery, budgets, progress, exact-head verification, and
+research requirements.
 
-Mode authority is:
+Dependabot CI remains secretless. Do not admit these PRs to credentialed Vercel
+Preview workers or broaden the existing author/sender rules.
 
-- `observe`: classify and record evidence only;
-- `assist`: classify and publish non-authorizing evidence for human handling;
-  it cannot issue an automatic repair packet; and
-- `prepare`: refresh, apply up to two bounded repairs, re-review, reply to and
-  resolve only packet-bound findings, create the ruleset-required processor
-  approval, and publish ALL CLEAR. Refreshes do not consume repair attempts.
-
-The preparable tier includes verified npm updates, including grouped and major
-updates. Verified non-sensitive GitHub Actions updates may be prepared only
-while their native Dependabot head is current and green. The Prepare App never
-refreshes or repairs a generation whose live diff contains
-`.github/workflows/**` or `.github/actions/**`. Each ref mutator re-fetches the
-exact file inventory before it writes. A stale or failing Actions update stays
-manual. This policy is
-deliberately separate from the old automatic tier. Sensitive or self-reviewing
-Actions and workflow-policy, deployment, authentication, credential, security,
-or unknown changes remain manual. Untrusted force-push evidence, a human veto
-or close/reopen, malformed identity, unresolved feedback, ambiguous evidence,
-or exhausted repairs also block preparation. A complete native-to-native
-Dependabot rewrite chain starts a new generation under ADR 0008. Risk and update
-metadata remain in the ALL CLEAR evidence for the maintainer's merge decision.
-An exact `@dependabot rebase` or `@dependabot recreate` issue comment from a
-trusted maintainer is a branch-maintenance command, not a veto. Every other
-trusted-maintainer issue comment remains a veto. Only an exact, unchanged
-`@dependabot recreate` comment can start a new native generation after poisoned
-branch history. Its creation and update timestamps must match. The next and all
-later force-push events must have later timestamps. Their destinations must
-remain an exact signed Dependabot chain. `@dependabot rebase` cannot reset that
-history.
-
-Sensitive and self-reviewing Actions remain manual. This includes OSV
-scanner/reporter updates. The workflow contract requires exactly one scanner
-step and one reporter step. Both actions must use full lowercase 40-character
-SHA pins at the same revision. The test does not copy a specific revision into
-another source file. Use the explicit `manual-review` maintainer takeover path
-for these updates. Never report this path as Dependabot ALL CLEAR.
-
-Configure the repository-scoped Prepare App with Actions variables
-`DEPENDABOT_PROCESSOR_PREPARE_APP_CLIENT_ID`,
-`DEPENDABOT_PROCESSOR_PREPARE_APP_SLUG`,
-`DEPENDABOT_PROCESSOR_PREPARE_BOT_ID`, and
-`DEPENDABOT_PROCESSOR_PREPARE_BOT_LOGIN`, plus secret
-`DEPENDABOT_PROCESSOR_PREPARE_APP_PRIVATE_KEY`. Install it with
-`contents: write` and `pull-requests: write`. Update-branch and Refresh need
-both permissions. Repair and authenticated dispatch request only Contents.
-Grant no bypass, Actions, workflow, deployment, package, environment, or
-provider permission. Contents write also makes
-GitHub's merge endpoint technically reachable; the reviewed workflows contain
-no merge call, isolate the token to repair-staging, ref-mutation/refresh, and
-authenticated-dispatch jobs, and revoke it before finalize approval. Never reuse the normal `GITHUB_TOKEN`, preview App,
-deployment/provider credential, package credential, or PAT.
-
-Branch mutation and readiness authority must never coexist:
-
-1. a trusted read-only materializer seals the packet-bound compare, exact Git
-   blobs, and failed-job logs, then a token-free planner may only use guarded
-   Read/Grep over that evidence. Paired pre/post hooks and a later assertion
-   require a successful exact evidence read before the strict bounded plan job
-   can succeed; large files require explicit one-based bounded Read pages, and
-   Grep may locate the relevant ranges;
-2. a secretless validator binds each patch to permitted paths and exact Git
-   blobs, including files larger than the Contents API limit;
-3. a terminal no-output job materializes trusted source, a byte-identical
-   sealed Node executable, and a hash-verified pnpm bootstrap without
-   registering runner actions. It checks a non-writable candidate `PATH` that
-   excludes the runner-owned `/usr/local/bin` directory, reapplies the validated
-   plan to fresh evidence, and executes the typed candidate as the final step
-   under a separate non-sudo account without secrets, caches, or write
-   authority;
-4. an App-only staging job writes one unreachable exact-parent commit without
-   moving the ref;
-5. a no-App-token job publishes a packet/plan/tree-bound Repair Intent before
-   branch mutation;
-6. a fresh App-only job revalidates that intent and moves the exact ref without
-   force;
-7. a no-App-token job publishes the completed receipt, or a checks-only run
-   recovers it after an exact post-move failure, cancellation, or timeout; and
-8. a later processor finalize phase rejects the repair token, recollects every
-   exact-head gate and feedback surface, then alone may clean processor
-   approvals, approve, post receipt-bound replies, and publish ALL CLEAR.
-
-Only a trusted `refresh-pending` result starts the mutation/token job. Native
-green heads skip it and can finalize without Prepare App configuration. A
-same-head `repair-pending` result preserves its original packet/run without
-publishing another packet or identical check.
-
-A packetless Processor check is a non-authorizing status record. It does not
-enter repair-receipt or attempt accounting. Only a `packet=true` check can bind
-repair authority, and that check requires terminal-success workflow
-provenance. Packetless manual checks include one deterministic reason and next
-action in the bounded summary.
-
-The typed check contracts are `Dependabot Refresh`
-(`dependabot-refresh:v1`), `Dependabot Repair Intent`
-(`dependabot-repair-intent:v1`), `Dependabot Repair`
-(`dependabot-repair:v1`), and `Dependabot ALL CLEAR`
-(`dependabot-all-clear:v1`). Canonical JSON and external IDs bind the
-repository, PR, ref, old/new/base SHA, exact workflow SHA/run/attempt, App
-slug/bot identity for prepared mutations, and operation digests. The check
-publisher is github-actions App ID 15368; its generic identity is insufficient
-without the exact terminal trusted run and canonical receipt. A Refresh needs a
-successful request on the old head and completed receipt on the exact
-two-parent result. A Repair needs the exact Processor v2 generic packet or v3
-typed protected-runtime packet, a durable pre-mutation intent, one App-authored
-non-force commit with GitHub verification
-`verified=true` and reason `valid`, and a completed or exact-intent recovered
-receipt. Normal pre-move work and checks-only recovery each get at most two
-exact-evidence infrastructure retries. Those counters do not change the
-two-commit repair limit; refresh count is independent.
-
-The v3 model-free operation supports `vercel-cli-runtime-sync` and the exact
-`frontend-core` `next-catalog-override-sync`. Both admit only stable
-same-major patch/minor updates and bind exact current-head workspace/runtime
-inputs. The Vercel kind also binds both npm release records and changes only
-the exact Vercel regions of the root lock. The Next kind requires caret source
-or target specs, moves the catalog plus root and standalone runtime overrides
-forward to the immutable target, and starts from the sealed source root lock.
-It runs one isolated exact-pnpm 10.34.4 target solve as an oracle. It imports
-only the exact Next runtime closure records and integrity values and preserves
-all unrelated source resolutions. Exact registry metadata also binds the Next
-peer maps, optional-peer metadata, Node engine, bin shape, and retained
-snapshot peer context. The bound `resolutionMode: lowest-direct`
-constrains only the oracle and does not define the output lock. It rotates the
-exact Next override in the sealed standalone lock, requires frozen-lock
-consistency, and reseals the runtime contract. Both paths disable scripts and
-pnpmfile loading. Standalone checks also disable workspace linking. The Next
-kind may edit
-only the root package/workspace/lock and standalone Vercel contract, manifest,
-and lock. Generic v2 repair never gains runtime or deployment write authority.
-ALL CLEAR requires the requested target and its reachable typed operation. A
-maintainer still performs the squash merge.
-After a reachable Vercel v3 sync, one later v2 repair may retain the
-already-bound runtime paths in its authenticated PR inventory only when every
-new finding or feedback path is an exact generic-safe changed file. The packet
-limits expected and permitted blobs to those evidence paths. It excludes
-`scripts/vercel-cli-runtime/**` from the editable blob set and keeps that path
-explicitly forbidden. Missing proof, extra protected paths, unsafe evidence,
-or a mixed non-review failure fails closed as `manual-repair-required`.
-The typed Vercel or Next operation may bind exact Cursor feedback only when each
-structured finding matches the operation kind, source and target versions, and
-a review commit from the authenticated prepare lineage. The Vercel finding must name root
-`package.json`; the Next finding must name root `pnpm-lock.yaml`. Every other
-unresolved finding stays manual. Finalize replies and resolves the bound thread
-only after the typed Repair receipt, green gates, and clean re-review.
-Preview workers validate the candidate runtime tuple only as data and continue
-to stage the credentialed build CLI from trusted default-branch controller
-source. After trusted plan validation, a fresh terminal no-output job uses only
-API and shell steps to materialize the trusted scripts, a byte-identical sealed
-Node executable, and the hash-verified pnpm bootstrap. It registers no runner
-action or post action before candidate code. A separate non-sudo account runs
-candidate code and cannot write the trusted source, evidence, Node or pnpm
-executable, candidate `PATH` directories, workspace, Actions directory, or
-runner command files. The checked `PATH` excludes the runner-owned
-`/usr/local/bin` directory. The job runs the digest-bound validated patches against fresh
-exact evidence, then runs the secretless frozen checks. For Next, its final
-step performs a cacheless frozen install of only the selected app's production
-dependencies. Lifecycle scripts run in a sanitized environment. The job
-executes the exact target CLI and builds a minimal App Router project. It can
-veto staging
-but cannot regenerate the plan or produce mutation authority.
-
-The Prepare App becomes the sender after a repair ref move. Direct PR
-workflows grant repository credentials only when
-`ALLOW_REPOSITORY_CREDENTIALS` proves a same-repository `User` author and
-`User` sender. Dependabot, the Prepare App bot, and reserved Dependabot refs
-remain secretless. Their candidate jobs do not persist checkout credentials or
-use dependency, Foundry, or Trunk caches. This applies to CI, E2E, visual, and Quality
-Budgets. Pull-request supply-chain scanners have read-only tokens;
-schedule/manual scanners own SARIF write authority.
-
-A valid review finding may be included in a v2 repair packet by exact
-finding/thread ID and body digest. The exact typed Vercel and Next mismatches
-above can use the same receipt-bound remediation path in v3. Only after the
-repaired head passes its full gate and clean re-review may finalize post
-`Fixed in <current-head prefix> — <change>` and resolve those exact
-packet-bound threads. Generic github-actions or bot comments never establish
-lineage or satisfy feedback.
-
-Historical Codex `Reviewed commit` text binds that review's own commit SHA.
-Unresolved historical threads still block; resolved ones clear. If a trusted
-packet-bound remediation reply already exists, retry only thread resolution and
-do not post a duplicate reply.
-
-ALL CLEAR requires current-main ancestry, stable identity, complete green
-exact-head gates, clean re-review, clear feedback, one exact processor approval,
-satisfied ruleset/review and GitHub mergeability state, no native
-`AutoMergeRequest`, and no competing candidate. Its v1 receipt states
-`humanAction="merge"`, `mergeAuthorizedByAutomation=false`, and records
-either native seed evidence or the complete prepared operation lineage. Keep
-one candidate serialized through the maintainer merge and that merge SHA's
-default-branch CI and Vercel post-merge proof before another ALL CLEAR candidate
-is admitted. ALL CLEAR is a snapshot: a late comment or new `main` commit can
-still invalidate it before the click, so strict current-base/ruleset enforcement
-at merge time remains required.
-
-A sole valid active ALL CLEAR receipt and exact approval outrank numeric
-candidate selection. Targeted runs must collect and preserve that incumbent even
-when another PR triggered the run.
-
-Prepare-mode targeted runs collect the bounded set of all open Dependabot PRs
-while keeping the triggering expected-head assertion scoped to the original PR.
-A pending Refresh request/completion, trusted same-head repair packet, or valid
-prepared lineage also retains the lane through check, retry, and re-review
-waits. Multiple such incumbents without a valid active ALL CLEAR fail closed.
-
-Use
-`pnpm dependabot:process -- evaluate --input path/to/snapshot.json --mode observe`
-for a network-free plan and `pnpm dependabot:process:test` for the processor,
-workflow, receipt, repair, and reviewer contracts. Run
-`pnpm dependabot:soak` to render and validate the offline observational
-production evidence report. Before changing a pending row to passed, revalidate
-its exact PR, check, workflow-run, and authority evidence against live GitHub.
-The offline command does not certify GitHub provenance. The complete operating
-procedure is `docs/dependabot-automation.md`; the architecture decisions are
-ADRs 0006 and 0008.
 The automatic `.github/workflows/vercel-main-deployment.yml` path starts when
 the exact `CI/CD` push run for `main` is requested and runs read-only planning
 and release preparation concurrently with CI. A separate credential-free
@@ -471,12 +462,12 @@ admitted. Its global mode is
 Governance, Reserve, and UI to `github`. Planning emits
 `vercel-main-plan:v2`: all selected targets stage or build, `activeTargets`
 mutate public mappings, and `shadowTargets` prove the same candidates without
-public mutation. Governance, Reserve, and UI promote exact staged deployments;
-App deploys its verified custom `v3` output and verifies or assigns only the
-reviewed aliases. App builds that custom `v3` output in a parallel `stage-app`
-job and hands the verified tree to activation as one digest-bound, same-attempt
-payload. Planning uses
-the SHA each public target actually serves, and every credential-bearing job
+public mutation. Governance, Reserve, UI, and App all stage and promote exact
+staged deployments; App's `stage-app` build and upload work exactly like the
+other three. App promotes last and is verified at `candidate`, exactly like
+every other target: `promote` and `ordinary_rollback` are the only operation
+types, and there is no bridge alias and no custom `v3` environment. Planning
+uses the SHA each public target actually serves, and every credential-bearing job
 uses only `vercel-cli-production` with `deployment: false`. The exact-attempt
 gate, repeated freshness checks, durable journal, active duplicate census,
 canonical redacted evidence, public runtime smoke, App real-wallet check,
@@ -502,10 +493,11 @@ a prior journal or treats GitHub artifacts as cross-attempt authority. The compa
 terminal receipt and evidence are the only final-verdict handoff and support
 final-only reruns. A completed release emits `current-release-verified` only
 after fresh mapping, census/state, raw public-runtime-smoke, and
-freshness proof; it creates no journal and executes no public mutation. App
-shadow preparation is build-only terminal evidence and never creates a provider
-deployment. Every other non-prefix, ambiguous, conflicting, or incomplete
-provider state fails closed before production work continues.
+freshness proof; it creates no journal and executes no public mutation. In the
+automatic pipeline's shadow mode, App preparation is build-only terminal
+evidence and creates no provider deployment. Every other non-prefix, ambiguous,
+conflicting, or incomplete provider state fails closed before production work
+continues.
 
 ## Coding Conventions
 

@@ -1,0 +1,3 @@
+# Vendored upstream JavaScript from jmrossy/jazzicon, kept byte-for-byte so it
+# can be diffed against upstream. See packages/jazzicon/README.md.
+packages/jazzicon/*.js

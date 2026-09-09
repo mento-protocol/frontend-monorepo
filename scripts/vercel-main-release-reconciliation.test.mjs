@@ -252,7 +252,7 @@ function mapping(alias, target, state) {
 function releaseState({
   selected = TARGET_ORDER,
   candidateCount = 0,
-  appMixed = false,
+  appCandidateFrontier = false,
 } = {}) {
   const releaseManifest = manifest(selected);
   const selectedTargets = releaseManifest.activeTargets;
@@ -270,25 +270,16 @@ function releaseState({
     const activeIndex = selectedTargets.indexOf(target);
     const hasCandidate =
       activeIndex >= 0 &&
-      (activeIndex < candidateCount || (appMixed && target === "app"));
+      (activeIndex < candidateCount ||
+        (appCandidateFrontier && target === "app"));
     candidates[target] = hasCandidate
       ? candidate(target, releaseManifest)
       : null;
     if (activeIndex >= 0) {
       currentMappings[target] = releaseManifest.originalPriors[
         target
-      ].aliases.map((alias, aliasIndex) =>
-        mapping(
-          alias,
-          target,
-          appMixed && target === "app"
-            ? aliasIndex === 0
-              ? "candidate"
-              : "prior"
-            : hasCandidate && activeIndex < candidateCount
-              ? "candidate"
-              : "prior",
-        ),
+      ].aliases.map((alias) =>
+        mapping(alias, target, hasCandidate ? "candidate" : "prior"),
       );
     }
   }
@@ -325,10 +316,9 @@ test("release manifest binds the canonical planner result and all four rollback 
     createHash("sha256").update(JSON.stringify(plan())).digest("hex"),
   );
   assert.equal(first.originalPriors.app.projectId, "prj_app123");
-  assert.deepEqual(first.originalPriors.app.aliases, [
-    "app.mento.org",
-    "appmentoorg-env-v3-mentolabs.vercel.app",
-  ]);
+  assert.deepEqual(first.originalPriors.app.aliases, ["app.mento.org"]);
+  assert.equal(first.originalPriors.app.target, "production");
+  assert.equal(first.originalPriors.app.customEnvironmentSlug, null);
 
   const tamperedIdentity = structuredClone(first);
   tamperedIdentity.releaseId = "mr-000000000000000000000000";
@@ -584,12 +574,7 @@ for (const [name, appGit, servedSha, plannerSelectsApp] of [
     null,
     false,
   ],
-  [
-    "conflicting",
-    (index) => gitEvidence({ sha: index === 0 ? PRIOR_SHA : "9".repeat(40) }),
-    null,
-    false,
-  ],
+
   ["wrong-source", gitEvidence({ repo: "other-repository" }), PRIOR_SHA, false],
 ]) {
   test(`same-SHA provider manifest recomputes the exact ${name} planner result`, () => {
@@ -775,34 +760,34 @@ test("all-candidate is a verification-only no-op and never reader-authorized rol
   );
 });
 
-test("App mixed mappings are accepted only at the activation frontier", () => {
+// Every reviewed target maps exactly one alias, so an App frontier is a
+// whole-target candidate state; a mixed state is malformed evidence.
+test("an App candidate frontier is a complete activation prefix", () => {
   const reconciliation = reconcileMainRelease(
-    releaseState({ candidateCount: 3, appMixed: true }),
+    releaseState({ candidateCount: 3, appCandidateFrontier: true }),
   );
-  assert.equal(reconciliation.frontier, "app");
-  assert.equal(reconciliation.targets.at(-1).state, "mixed");
-  assert.deepEqual(reconciliation.inheritedCandidateTargets, [
-    "governance",
-    "reserve",
-    "ui",
-  ]);
-  assert.deepEqual(reconciliation.inheritedCandidateAliases, [
-    "governance.mento.org",
-    "reserve.mento.org",
-    "ui.mento.org",
-    "app.mento.org",
-  ]);
+  assert.equal(reconciliation.frontier, null);
+  assert.equal(reconciliation.targets.at(-1).state, "candidate");
+  assert.equal(reconciliation.allCandidate, true);
+
+  const mixed = releaseState({ candidateCount: 4 });
+  mixed.currentMappings.app = [
+    ...mixed.currentMappings.app,
+    {
+      alias: "second.mento.org",
+      deploymentId: mixed.manifest.originalPriors.app.deploymentId,
+      deploymentUrl: mixed.manifest.originalPriors.app.deploymentUrl,
+    },
+  ];
+  assert.throws(
+    () => reconcileMainRelease(mixed),
+    /current mappings do not match reviewed aliases/,
+  );
 });
 
 test("only an exact terminal App residual remains recoverable after ordinary rollback", () => {
   const candidateState = appRecoveryResidualState();
-  const mixedState = structuredClone(candidateState);
-  mixedState.currentMappings.app[0] = {
-    alias: mixedState.currentMappings.app[0].alias,
-    deploymentId: mixedState.manifest.originalPriors.app.deploymentId,
-    deploymentUrl: mixedState.manifest.originalPriors.app.deploymentUrl,
-  };
-  for (const state of [candidateState, mixedState]) {
+  for (const state of [candidateState]) {
     assert.throws(
       () => reconcileMainRelease(state),
       /(?:activation prefix|outside the release frontier)/,
@@ -817,7 +802,7 @@ test("only an exact terminal App residual remains recoverable after ordinary rol
         ["governance", "prior"],
         ["reserve", "prior"],
         ["ui", "prior"],
-        ["app", state === candidateState ? "candidate" : "mixed"],
+        ["app", "candidate"],
       ],
     );
     assert.deepEqual(
@@ -828,10 +813,7 @@ test("only an exact terminal App residual remains recoverable after ordinary rol
       {
         reason: "restore-inherited",
         targets: ["app"],
-        aliases:
-          state === candidateState
-            ? [...state.manifest.originalPriors.app.aliases].sort()
-            : [state.manifest.originalPriors.app.aliases[1]],
+        aliases: [...state.manifest.originalPriors.app.aliases].sort(),
       },
     );
     assert.throws(
@@ -942,18 +924,22 @@ test("unsupported non-prefix, third-party, missing-candidate, and disagreeing-ma
     /activation prefix/,
   );
 
-  const mixedAppResidual = releaseState({ candidateCount: 1, appMixed: true });
+  // An App candidate ahead of an unmapped ordinary target is not a prefix.
+  const appAheadOfOrdinary = releaseState({
+    candidateCount: 1,
+    appCandidateFrontier: true,
+  });
   assert.throws(
-    () => reconcileMainRelease(mixedAppResidual),
-    /Mixed App mappings are outside the release frontier/,
+    () => reconcileMainRelease(appAheadOfOrdinary),
+    /activation prefix/,
   );
   assert.throws(
     () => reconcileMainReleaseForRecovery(ordinarySuffix),
     /activation prefix/,
   );
   assert.throws(
-    () => reconcileMainReleaseForRecovery(mixedAppResidual),
-    /Mixed App mappings are outside the release frontier/,
+    () => reconcileMainReleaseForRecovery(appAheadOfOrdinary),
+    /activation prefix/,
   );
 });
 
@@ -1175,8 +1161,8 @@ test("fresh uncovered targets preserve safe older-release recovery decisions", (
   );
 });
 
-test("pre-plan inspection restores an older mixed App frontier", () => {
-  const state = releaseState({ candidateCount: 3, appMixed: true });
+test("pre-plan inspection restores an older App-frontier release", () => {
+  const state = releaseState({ candidateCount: 3 });
   const decision = decideMainPreplanReconciliation({
     nextDeploySha: "2222222222222222222222222222222222222222",
     nextUpstreamRunId: "800",
@@ -1189,24 +1175,16 @@ test("pre-plan inspection restores an older mixed App frontier", () => {
     "governance",
     "reserve",
     "ui",
-    "app",
   ]);
   assert.deepEqual(decision.rollbackAuthorization.aliases, [
-    "app.mento.org",
     "governance.mento.org",
     "reserve.mento.org",
     "ui.mento.org",
   ]);
 });
 
-test("pre-plan restores terminal App candidate and mixed residuals", () => {
+test("pre-plan restores a terminal App candidate residual", () => {
   const candidateState = appRecoveryResidualState();
-  const mixedState = structuredClone(candidateState);
-  mixedState.currentMappings.app[0] = {
-    alias: mixedState.currentMappings.app[0].alias,
-    deploymentId: mixedState.manifest.originalPriors.app.deploymentId,
-    deploymentUrl: mixedState.manifest.originalPriors.app.deploymentUrl,
-  };
   const cases = [
     {
       name: "older",
@@ -1222,7 +1200,7 @@ test("pre-plan restores terminal App candidate and mixed residuals", () => {
     },
   ];
 
-  for (const state of [candidateState, mixedState]) {
+  for (const state of [candidateState]) {
     for (const current of cases) {
       const decision = decideMainPreplanReconciliation({
         nextDeploySha: current.nextDeploySha,
@@ -1236,10 +1214,7 @@ test("pre-plan restores terminal App candidate and mixed residuals", () => {
       assert.deepEqual(decision.rollbackAuthorization, {
         reason: "restore-inherited",
         targets: ["app"],
-        aliases:
-          state === candidateState
-            ? [...state.manifest.originalPriors.app.aliases].sort()
-            : [state.manifest.originalPriors.app.aliases[1]],
+        aliases: [...state.manifest.originalPriors.app.aliases].sort(),
       });
     }
   }

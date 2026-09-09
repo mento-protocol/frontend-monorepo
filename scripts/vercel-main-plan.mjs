@@ -33,12 +33,24 @@ const KNOWN_PLANNER_REASONS = new Set([
   "invalid-commits",
   "non-runtime-only",
   "turbo-planning-failed",
+  "turbo-spawn-failed",
+  "turbo-exit-failed",
+  "turbo-output-invalid",
+  "turbo-plan-malformed",
+  "turbo-task-malformed",
+  "turbo-no-deployable-task",
 ]);
 const FAIL_CLOSED_PLANNER_REASONS = new Set([
   "diff-failed",
   "empty-diff",
   "invalid-commits",
   "turbo-planning-failed",
+  "turbo-spawn-failed",
+  "turbo-exit-failed",
+  "turbo-output-invalid",
+  "turbo-plan-malformed",
+  "turbo-task-malformed",
+  "turbo-no-deployable-task",
 ]);
 const RANGE_REASONS = new Set([
   ...KNOWN_PLANNER_REASONS,
@@ -87,13 +99,10 @@ export const CURRENT_MAIN_OWNERSHIP_MODE = Object.freeze(
 
 export const MAIN_TARGET_CONTRACTS = Object.freeze({
   app: Object.freeze({
-    aliases: Object.freeze([
-      "app.mento.org",
-      "appmentoorg-env-v3-mentolabs.vercel.app",
-    ]),
-    customEnvironmentSlug: "v3",
+    aliases: Object.freeze(["app.mento.org"]),
+    customEnvironmentSlug: null,
     projectName: "app.mento.org",
-    target: null,
+    target: "production",
   }),
   governance: Object.freeze({
     aliases: Object.freeze(["governance.mento.org"]),
@@ -114,6 +123,55 @@ export const MAIN_TARGET_CONTRACTS = Object.freeze({
     target: "production",
   }),
 });
+
+// Every reviewed protected domain that belongs to a main target other than
+// `target`. None of them may appear on the deployment `target`'s reviewed alias
+// serves.
+export function foreignReviewedAliases(target) {
+  return MAIN_DEPLOYMENT_TARGETS.filter(
+    (candidate) => candidate !== target,
+  ).flatMap((candidate) => [...MAIN_TARGET_CONTRACTS[candidate].aliases]);
+}
+
+// Rider domains: every canonical hostname a deployment carries beyond the
+// reviewed aliases this pipeline records and verifies. `vercel promote` and
+// `vercel rollback` are whole-deployment commands, so a project's other
+// production domains move with every release whether or not they are named.
+//
+// Riders are mutable provider state, not release identity. A `--prod
+// --skip-domain` candidate upload moves generated aliases off the still-serving
+// prior, so two attempts of the same release legitimately observe different
+// rider sets. They must therefore never enter the stable release manifest, the
+// candidate seal, or anything else bound into a digest or identity — a sealed
+// rider list would make an interrupted release unresumable. They are captured
+// where they are observed and published as same-run evidence only, and no
+// selection, verification, or recovery decision reads them.
+export function riderAliasesFrom(deploymentAliases, reviewedAliases) {
+  if (!Array.isArray(deploymentAliases) || !Array.isArray(reviewedAliases)) {
+    throw new Error("Rider alias inputs are malformed");
+  }
+  const reviewed = new Set(
+    reviewedAliases.map((alias) => canonicalizeHostname(alias)),
+  );
+  return [
+    ...new Set(deploymentAliases.map((alias) => canonicalizeHostname(alias))),
+  ]
+    .filter((alias) => !reviewed.has(alias))
+    .sort();
+}
+
+// True when `environment` is an acceptable shape for the deployment a reviewed
+// alias served before this release. Every main target — App included — serves
+// its reviewed alias from the ordinary production environment, so a prior is
+// held to exactly the same environment contract as a candidate.
+export function acceptsPriorEnvironment(target, environment) {
+  const contract = MAIN_TARGET_CONTRACTS[target];
+  if (contract === undefined) return false;
+  return (
+    environment?.target === contract.target &&
+    environment?.customEnvironmentSlug === contract.customEnvironmentSlug
+  );
+}
 
 const PRIOR_STATE_REQUIRED_KEYS = Object.freeze([
   "alias",
@@ -261,6 +319,10 @@ function canonicalizeReviewedAliases(aliases, target) {
 }
 
 function canonicalizeOptionalDeploymentAliases(value, target, creatorUsername) {
+  // An absent alias list is the sealed-manifest recompute form: capture-time
+  // snapshot states always carry aliases (the protected-snapshot validation
+  // dereferences state.aliases), and manifest planning leaves proved their
+  // topology when the manifest was sealed.
   if (value === undefined) return null;
   if (!Array.isArray(value)) {
     activationError(target, "alias-set-ambiguous");
@@ -283,25 +345,25 @@ function canonicalizeOptionalDeploymentAliases(value, target, creatorUsername) {
       activationError(target, "alias-set-ambiguous");
     }
   }
-  if (
-    target === "app" &&
-    JSON.stringify(sorted) !==
-      JSON.stringify([...MAIN_TARGET_CONTRACTS.app.aliases].toSorted())
-  ) {
+  const reviewedAliases = new Set(MAIN_TARGET_CONTRACTS[target].aliases);
+  const generatedAliases = sorted.filter(
+    (alias) => !reviewedAliases.has(alias),
+  );
+  // The deployment a reviewed alias currently serves is provider state this
+  // pipeline does not own: a promoted production deployment also carries the
+  // project's other production domains. Those are inert for a rollback target.
+  // What stays fail-closed is another main target's reviewed protected domain
+  // appearing here, which would mean the reviewed mappings had crossed.
+  try {
+    assertOnlyExpectedProductionGeneratedAliases({
+      aliases: generatedAliases,
+      creatorUsername,
+      logicalTarget: target,
+      mode: PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.SERVED_PRIOR,
+      foreignProtectedAliases: foreignReviewedAliases(target),
+    });
+  } catch {
     activationError(target, "alias-set-ambiguous");
-  }
-  if (target !== "app") {
-    const reviewedAliases = new Set(MAIN_TARGET_CONTRACTS[target].aliases);
-    try {
-      assertOnlyExpectedProductionGeneratedAliases({
-        aliases: sorted.filter((alias) => !reviewedAliases.has(alias)),
-        creatorUsername,
-        logicalTarget: target,
-        mode: PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.SERVED_PRIOR,
-      });
-    } catch {
-      activationError(target, "alias-set-ambiguous");
-    }
   }
   return sorted;
 }
@@ -415,10 +477,7 @@ function canonicalizePriorGroup({ target, group, projectId }) {
     ) {
       activationError(target, "project-identity-ambiguous");
     }
-    if (
-      state.target !== contract.target ||
-      state.customEnvironmentSlug !== contract.customEnvironmentSlug
-    ) {
+    if (!acceptsPriorEnvironment(target, state)) {
       activationError(target, "environment-identity-ambiguous");
     }
     if (state.readyState !== "READY") {

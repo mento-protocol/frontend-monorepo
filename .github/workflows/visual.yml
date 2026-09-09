@@ -21,6 +21,7 @@ on:
       - apps/ui.mento.org/**
       - packages/ui/**
       - packages/web3/**
+      - packages/jazzicon/**
   pull_request:
     types: [opened, synchronize]
 
@@ -41,9 +42,7 @@ env:
          github.event.pull_request.head.repo.full_name == github.repository &&
          github.event.pull_request.head.ref != 'dependabot' &&
          !startsWith(github.event.pull_request.head.ref, 'dependabot/') &&
-         github.event.sender.type == 'User' &&
-         github.event.sender.id != 315967666 &&
-         github.event.sender.login != 'mento-dependabot-prepare[bot]') }}
+         github.event.sender.type == 'User') }}
   TURBO_TEAM: ${{ vars.TURBO_TEAM }}
 
 jobs:
@@ -120,7 +119,7 @@ jobs:
                   run_app=true
                   run_ui=true
                   ;;
-                packages/web3/*)
+                packages/web3/* | packages/jazzicon/*)
                   run_app=true
                   ;;
               esac
@@ -155,7 +154,7 @@ jobs:
     # NOTE: deliberate divergence from the reusable live-preview smoke, whose
     # deployed Vercel render environment is not byte-pinnable.
     container:
-      image: mcr.microsoft.com/playwright:v1.61.1-noble
+      image: mcr.microsoft.com/playwright:v1.62.1-noble
 
     env:
       TURBO_TOKEN: ${{ needs.visual-plan.outputs.allow_repository_credentials == 'true' && secrets.TURBO_TOKEN || '' }}
@@ -207,7 +206,7 @@ jobs:
     # NOTE: deliberate divergence from the reusable live-preview smoke, whose
     # deployed Vercel render environment is not byte-pinnable.
     container:
-      image: mcr.microsoft.com/playwright:v1.61.1-noble
+      image: mcr.microsoft.com/playwright:v1.62.1-noble
 
     env:
       TURBO_TOKEN: ${{ needs.visual-plan.outputs.allow_repository_credentials == 'true' && secrets.TURBO_TOKEN || '' }}

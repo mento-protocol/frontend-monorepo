@@ -27,15 +27,10 @@ const ENVIRONMENT_SEMANTICS = {
     VERCEL_TARGET_ENV: "production",
     NEXT_PUBLIC_VERCEL_ENV: "production",
   },
-  v3: {
-    VERCEL_ENV: "preview",
-    VERCEL_TARGET_ENV: "v3",
-    NEXT_PUBLIC_VERCEL_ENV: "preview",
-  },
 };
 
 const TARGET_ENVIRONMENTS = {
-  app: ["preview", "v3", "production"],
+  app: ["preview", "production"],
   governance: ["preview", "production"],
   reserve: ["preview", "production"],
   ui: ["preview", "production"],

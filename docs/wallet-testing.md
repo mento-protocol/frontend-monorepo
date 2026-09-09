@@ -267,38 +267,6 @@ preview URL:
 PREVIEW_URL=https://appmento-<hash>-mentolabs.vercel.app pnpm --filter app.mento.org test:preview
 ```
 
-Staged governance, reserve, and UI production artifacts use a different
-walletless smoke, invoked directly by the manual production-shadow job rather
-than by `deployment_status`:
-
-```bash
-PRODUCTION_SHADOW_TARGET=reserve \
-PRODUCTION_SHADOW_URL=https://<immutable>.vercel.app \
-PRODUCTION_SHADOW_EXPECTED_DEPLOYMENT_ID=<generated-build-id> \
-PRODUCTION_SHADOW_EXPECTED_SHA=<40-character-current-main-sha> \
-pnpm --filter app.mento.org test:production-shadow
-```
-
-This target-aware suite checks production headers, stable content, and one safe
-interaction, fails critical document/script/style responses from any origin,
-keeps the main frame on the exact immutable origin throughout, requires the raw
-server response's leading `<html>` start tag to contain exactly one quoted
-expected `data-dpl-id`, and binds the `X-Mento-Deployment-Sha` response header
-to the exact commit. For Governance, Reserve, and UI, the smoke accepts the
-server-injected marker being absent after hydration only when every observed
-same-origin Next.js static request carries exactly one expected `?dpl=` value,
-Playwright observed actual script and stylesheet request types, no static asset
-redirected outside the same immutable identity, and no conflicting marker
-remained in the live DOM.
-No deployment-protection bypass is supplied; the request policy rejects any
-ambient protection header and handles every redirect as a new browser request.
-The real two-origin Chromium regression is
-`pnpm --filter app.mento.org test:production-shadow:routing`. It does not enable
-the mock wallet and is not a replacement for the team-preview smoke above. See
-`docs/vercel-deployments.md` for the protected alias and deployment-provenance
-gates around it, including the independent Vercel state check that proves the
-exact repository, ref, and SHA before browser smoke starts.
-
 Active main deployments use the credential-free main runtime smoke after each
 exact public activation:
 

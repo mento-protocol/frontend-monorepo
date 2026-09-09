@@ -56,6 +56,7 @@ import {
   createMainCurrentActivePublicSmokes,
   createMainCurrentReleaseVerifiedDeploymentStateSpec,
   createMainStageBarrier,
+  renderMainCurrentReleaseVerificationEvidence,
 } from "./vercel-main-deployment.mjs";
 import { createActiveDeploymentStateProof } from "./vercel-deployment-state.mjs";
 
@@ -90,10 +91,7 @@ function planning(
     shadowTargets: [],
     priors: TARGETS.map((target) => ({
       target,
-      aliases:
-        target === "app"
-          ? ["app.mento.org", "appmentoorg-env-v3-mentolabs.vercel.app"]
-          : [`${target}.mento.org`],
+      aliases: [`${target}.mento.org`],
       deploymentId: `dpl_${target}Prior123`,
       deploymentUrl: `https://${target}-prior.vercel.app`,
       servedSha: PRIOR_SHA,
@@ -125,8 +123,8 @@ function manifest(
           projectId: `prj_${target}`,
           projectName: `${target}.mento.org`,
           readyState: "READY",
-          target: target === "app" ? null : "production",
-          customEnvironmentSlug: target === "app" ? "v3" : null,
+          target: "production",
+          customEnvironmentSlug: null,
           planningLeaves: prior.aliases.map((alias) => ({
             alias,
             deploymentId: prior.deploymentId,
@@ -135,8 +133,8 @@ function manifest(
             projectId: `prj_${target}`,
             projectName: `${target}.mento.org`,
             readyState: "READY",
-            target: target === "app" ? null : "production",
-            customEnvironmentSlug: target === "app" ? "v3" : null,
+            target: "production",
+            customEnvironmentSlug: null,
             git: {
               status: "complete",
               org: "mento-protocol",
@@ -377,8 +375,8 @@ function currentAttemptReceipt(
       projectId: prior.projectId,
       projectName: prior.projectName,
       readyState: "READY",
-      target: target === "app" ? null : "production",
-      customEnvironmentSlug: target === "app" ? "v3" : null,
+      target: "production",
+      customEnvironmentSlug: null,
       source: "cli",
       git: {
         org: "mento-protocol",
@@ -782,6 +780,13 @@ test("CLI entrypoint does not leak execution input paths or environment values",
     ...environment(directory),
     RUNNER_TEMP: directory,
     MAIN_RELEASE_PRIVATE_TEST_SECRET: secret,
+    // This test asserts stderr EXACTLY, so the child must not emit anything the
+    // CLI did not write. Node prints its own process warnings to stderr, and an
+    // ambient environment can provoke them without the CLI's involvement: a
+    // Claude Code cloud session sets NODE_USE_ENV_PROXY=1, which makes every
+    // Node process emit an experimental EnvHttpProxyAgent warning. Silence
+    // Node's warnings so the assertion measures the CLI, not the environment.
+    NODE_NO_WARNINGS: "1",
   };
   const result = spawnSync(
     process.execPath,
@@ -1434,27 +1439,30 @@ test("candidate receipt materializer binds every selected job output to the exac
     "--ui",
     ui,
   ];
-  const pending = await runMainReleaseCli({
-    argv: argv(),
+  // Every selected target, App included, hands over an exact staged receipt.
+  await assert.rejects(
+    () =>
+      runMainReleaseCli({
+        argv: argv(),
+        env: environment(directory),
+      }),
+    /app requires a receipt/,
+  );
+
+  const appReceipt = currentAttemptReceipt(release, "app");
+  const complete = await runMainReleaseCli({
+    argv: argv({
+      app: encodeMainCandidateReceipt(appReceipt),
+    }),
     env: environment(directory),
   });
-  assert.deepEqual(pending, {
-    app: null,
+  assert.deepEqual(complete, {
+    app: appReceipt,
     governance: governanceReceipt,
     reserve: null,
     ui: null,
   });
-  assert.deepEqual(JSON.parse(readFileSync(output, "utf8")), pending);
-
-  const appReceipt = currentAttemptReceipt(release, "app");
-  const reused = await runMainReleaseCli({
-    argv: argv({
-      app: encodeMainCandidateReceipt(appReceipt),
-      destination: join(directory, "receipts-reused-app.json"),
-    }),
-    env: environment(directory),
-  });
-  assert.deepEqual(reused.app, appReceipt);
+  assert.deepEqual(JSON.parse(readFileSync(output, "utf8")), complete);
 
   const noTargetRelease = manifest([]);
   assert.deepEqual(
@@ -1515,10 +1523,17 @@ test("candidate receipt materializer binds every selected job output to the exac
       pattern: /not from the current attempt/,
     },
   ];
+  const appEncoded = encodeMainCandidateReceipt(appReceipt);
+  cases.push({
+    name: "missing-selected-app",
+    app: "none",
+    pattern: /app requires a receipt/,
+  });
   for (const [index, scenario] of cases.entries()) {
     await assert.rejects(
       runMainReleaseCli({
         argv: argv({
+          app: scenario.app ?? appEncoded,
           governance: scenario.governance ?? governanceEncoded,
           reserve: scenario.reserve ?? "none",
           destination: join(directory, `receipts-invalid-${index}.json`),
@@ -1534,7 +1549,7 @@ test("candidate receipt materializer binds every selected job output to the exac
       argv: [
         "candidate-receipts",
         "--app",
-        "none",
+        appEncoded,
         "--execution",
         executionPath,
         "--governance",
@@ -1882,9 +1897,20 @@ test("terminal artifact CLI fully re-verifies an already-current release without
   });
   assert.equal(
     artifacts.evidence.schema,
-    "vercel-main-active-current-release-evidence:v1",
+    "vercel-main-active-current-release-evidence:v2",
   );
   assert.equal(artifacts.proofs.outcome, "current-release-verified");
+  // This branch never captures a planning snapshot, so it supplies no census
+  // and must say it moved nothing rather than that movement is unknown.
+  assert.equal(artifacts.evidence.riderAliases, null);
+  const currentReleaseSummary = renderMainCurrentReleaseVerificationEvidence(
+    artifacts.evidence,
+  );
+  assert.match(
+    currentReleaseSummary,
+    /- Rider domains moved: none \(no mutation in this run\)/,
+  );
+  assert.doesNotMatch(currentReleaseSummary, /Rider domains moved: unknown/);
   assert.equal(artifacts.proofs.mutationCount, 0);
   assert.deepEqual(artifacts.proofs.rollbackTargets, []);
   assert.deepEqual(artifacts.proofs.affectedOperations, []);
@@ -1906,6 +1932,28 @@ test("terminal artifact CLI fully re-verifies an already-current release without
     JSON.parse(readFileSync(proofsOutput, "utf8")),
     artifacts.proofs,
   );
+
+  // A recovery job whose census read could not complete still passes the flag,
+  // pointing at a file holding `null`. The option must read that as "this job
+  // observed no census" rather than rejecting it, because that is what keeps
+  // the terminal handoff alive when only the informational read failed.
+  const nullCensus = await runMainReleaseCli({
+    argv: [
+      // Both producer outputs are create-only, so the rerun needs its own.
+      ...argumentsFor().map((value) =>
+        value === evidenceOutput
+          ? join(directory, "current-release-evidence-null-census.json")
+          : value === proofsOutput
+            ? join(directory, "current-release-proofs-null-census.json")
+            : value,
+      ),
+      "--rider-census",
+      write(directory, "current-release-null-rider-census.json", null),
+    ],
+    env: environment(directory),
+  });
+  assert.equal(nullCensus.evidence.riderAliases, null);
+  assert.deepEqual(nullCensus.evidence, artifacts.evidence);
 
   const wrongExecution = structuredClone(fixture.execution);
   wrongExecution.decision = "resume-existing-release";
@@ -2238,8 +2286,9 @@ test("a mixed App-only residual creates only an inherited recovery journal", asy
       target,
       alias,
     })),
-    [{ kind: "app_alias_restore", target: "app", alias: movedAppAlias }],
+    [{ kind: "ordinary_rollback", target: "app", alias: undefined }],
   );
+  assert.equal(movedAppAlias, "app.mento.org");
 });
 
 test("inherited recovery journal binds a partial prefix to current-attempt receipts and exact outputs", async (t) => {
@@ -2350,5 +2399,145 @@ test("inherited recovery journal binds a partial prefix to current-attempt recei
       "recovery_decision=restore-inherited",
       "",
     ].join("\n"),
+  );
+});
+
+// The layer the admission tests missed. Promoting a target makes its deployment
+// the project's production deployment, so it also serves every other production
+// domain that project has — retired ones and redirect-configured ones included.
+// The first App promote did exactly that, and every main deploy afterwards
+// failed closed here with `phase=baseline-prior-app`, before this pipeline could
+// build a baseline from the state the provider actually presents.
+function servedPriorCensus(release, extraAliasesByTarget) {
+  const census = planningSnapshot(release, "capture-new-baseline");
+  return {
+    ...census,
+    states: census.states.map((state) => {
+      const target = TARGETS.find(
+        (name) => release.originalPriors[name].projectId === state.projectId,
+      );
+      const extra = extraAliasesByTarget[target] ?? [];
+      return extra.length === 0
+        ? state
+        : { ...state, aliases: [...state.aliases, ...extra].toSorted() };
+    }),
+  };
+}
+
+async function runExecution(directory, release, census, suffix) {
+  const argv = executionArguments(directory, {
+    release,
+    census,
+    preplanValue: {
+      schema: "vercel-main-preplan-reconciliation:v2",
+      decision: "capture-new-baseline",
+      reason: "no-mapped-release-metadata",
+      rollbackOnlyTargets: [...TARGETS],
+      reconciliation: null,
+      rollbackAuthorization: null,
+    },
+    discoveryValue: discovery(release, census, {
+      empty: true,
+      rollbackOnlyTargets: [...TARGETS],
+    }),
+    suffix,
+  });
+  let stderr = "";
+  const status = await runMainReleaseCliEntrypoint({
+    argv,
+    env: environment(directory),
+    writeStderr: (line) => {
+      stderr += line;
+    },
+    // The real baseline layer runs; only the Git proof is stubbed, because the
+    // temp directory is not a repository and Git resolution is not what broke.
+    run: (options) =>
+      runMainReleaseCli({
+        ...options,
+        baselineFactory: (baselineOptions) =>
+          createMainReleaseBaseline({
+            ...baselineOptions,
+            gitAdapter: {
+              resolveCommit: (sha) => sha,
+              isAncestor: () => true,
+              firstParent: () => PRIOR_SHA,
+            },
+            runPlanner: ({ base, head }) => ({
+              base,
+              head,
+              deployments: [...TARGETS],
+              reason: "affected-packages",
+            }),
+          }),
+      }),
+  });
+  return { argv, status, stderr };
+}
+
+test("release execution builds a baseline from a served prior carrying the project's other production domains", async (t) => {
+  const directory = realpathSync(
+    mkdtempSync(join(tmpdir(), "main-release-cli-served-prior-")),
+  );
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const release = manifest(TARGETS, "123", TARGETS);
+  // Exactly what the App project presents after its first production promote:
+  // the reviewed domain plus the generated project aliases, the retired custom
+  // environment's alias, and the retired legacy domain that now redirects.
+  const census = servedPriorCensus(release, {
+    app: [
+      "appmentoorg.vercel.app",
+      "appmentoorg-mentolabs.vercel.app",
+      "appmentoorg-git-main-mentolabs.vercel.app",
+      "appmentoorg-env-v3-mentolabs.vercel.app",
+      "v2-app.mento.org",
+    ],
+  });
+  const { argv, status, stderr } = await runExecution(
+    directory,
+    release,
+    census,
+    "-served-prior",
+  );
+  assert.equal(stderr, "");
+  assert.equal(status, 0);
+  const execution = JSON.parse(readFileSync(argv.at(-1), "utf8"));
+  assert.equal(execution.decision, "capture-new-baseline");
+  // The App prior is still exactly one immutable rollback target.
+  assert.equal(
+    execution.manifest.originalPriors.app.deploymentId,
+    release.originalPriors.app.deploymentId,
+  );
+  assert.deepEqual(execution.manifest.originalPriors.app.aliases, [
+    "app.mento.org",
+  ]);
+  assert.deepEqual(
+    {
+      target: execution.manifest.originalPriors.app.target,
+      customEnvironmentSlug:
+        execution.manifest.originalPriors.app.customEnvironmentSlug,
+    },
+    { target: "production", customEnvironmentSlug: null },
+  );
+});
+
+test("release execution still fails closed when a served prior carries another target's reviewed domain", async (t) => {
+  const directory = realpathSync(
+    mkdtempSync(join(tmpdir(), "main-release-cli-crossed-prior-")),
+  );
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const release = manifest(TARGETS, "123", TARGETS);
+  const census = servedPriorCensus(release, {
+    app: ["governance.mento.org"],
+  });
+  const { status, stderr } = await runExecution(
+    directory,
+    release,
+    census,
+    "-crossed-prior",
+  );
+  assert.equal(status, 1);
+  assert.equal(
+    stderr,
+    renderMainReleaseExecutionCliFailure("baseline-prior-app"),
   );
 });

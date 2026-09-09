@@ -11,6 +11,7 @@ import {
   MainActivationStateError,
   partitionMainOwnership,
   planMainDeployments,
+  riderAliasesFrom,
 } from "./vercel-main-plan.mjs";
 import { PRODUCTION_GENERATED_ALIAS_CONTRACTS } from "./vercel-production-generated-aliases.mjs";
 
@@ -553,37 +554,142 @@ test("one valid global build-input range preserves the all-target planner result
   assert.equal(plan.reasons[0].reason, "global-build-input");
 });
 
-test("App always plans from its reviewed v3 aliases and never legacy v2", () => {
+test("App plans from exactly one reviewed alias", () => {
   const input = fixture();
   input.mode = "active";
   input.mainOwnershipMode = ownershipMode("github");
   const planner = createPlannerFixture();
   const { plan } = runFixture(input, { planner });
-  assert.deepEqual(plan.priors[0].aliases, [
-    "app.mento.org",
-    "appmentoorg-env-v3-mentolabs.vercel.app",
-  ]);
+  assert.deepEqual(plan.priors[0].aliases, ["app.mento.org"]);
+  assert.deepEqual(MAIN_TARGET_CONTRACTS.app, {
+    aliases: ["app.mento.org"],
+    customEnvironmentSlug: null,
+    projectName: "app.mento.org",
+    target: "production",
+  });
   assert.equal(planner.calls[0].base, "a".repeat(40));
 
-  const v2Environment = fixture();
-  for (const state of v2Environment.priorStates.app.states) {
-    state.target = "production";
-    state.customEnvironmentSlug = null;
-    state.git.ref = "v2";
-  }
+  const legacyAlias = fixture();
+  legacyAlias.priorStates.app.states[0].alias = "v2-app.mento.org";
   assertActivationError(
-    () => runFixture(v2Environment),
-    "app",
-    "environment-identity-ambiguous",
-  );
-
-  const v2Alias = fixture();
-  v2Alias.priorStates.app.states[1].alias = "v2-app.mento.org";
-  assertActivationError(
-    () => runFixture(v2Alias),
+    () => runFixture(legacyAlias),
     "app",
     "alias-set-ambiguous",
   );
+
+  const legacyRef = fixture();
+  for (const state of legacyRef.priorStates.app.states) {
+    state.git.ref = "v2";
+  }
+  const { plan: legacyRefPlan } = runFixture(legacyRef);
+  assert.deepEqual(
+    legacyRefPlan.reasons.filter((entry) => entry.target === "app"),
+    [
+      {
+        target: "app",
+        reason: "served-git-metadata-wrong-source",
+        base: "a".repeat(40),
+      },
+    ],
+  );
+});
+
+// MGP-18 retired the App custom `v3` environment. Every App prior is now held
+// to exactly the same production *environment* contract as every other
+// target's, so the retiring environment's shape can no longer re-enter there.
+// Its alias list is a different matter: that is unowned provider state.
+test("App priors are production-shaped and carry the project's other domains", () => {
+  const steady = fixture();
+  steady.mode = "active";
+  steady.mainOwnershipMode = ownershipMode("github");
+  const steadyState = steady.priorStates.app.states[0];
+  assert.equal(steadyState.target, "production");
+  assert.equal(steadyState.customEnvironmentSlug, null);
+  const { plan: steadyPlan } = runFixture(steady);
+  assert.deepEqual(steadyPlan.priors[0], {
+    target: "app",
+    aliases: ["app.mento.org"],
+    deploymentId: "dpl_appA123",
+    deploymentUrl: "https://app-main-a.vercel.app",
+    servedSha: "a".repeat(40),
+  });
+  // The production-shaped App prior recomputes identically from the
+  // sealed-manifest leaf form, which omits the alias list.
+  const recomputeForm = fixture();
+  recomputeForm.mode = "active";
+  recomputeForm.mainOwnershipMode = ownershipMode("github");
+  for (const state of recomputeForm.priorStates.app.states) {
+    delete state.aliases;
+  }
+  assert.deepEqual(
+    runFixture(recomputeForm).plan.priors[0],
+    steadyPlan.priors[0],
+  );
+
+  // A v3-shaped App prior is rejected exactly like a preview-shaped one.
+  for (const slug of ["v3", "preview"]) {
+    const custom = fixture();
+    for (const state of custom.priorStates.app.states) {
+      state.target = null;
+      state.customEnvironmentSlug = slug;
+    }
+    assertActivationError(
+      () => runFixture(custom),
+      "app",
+      "environment-identity-ambiguous",
+    );
+  }
+
+  // Promoting App made its production deployment carry every production domain
+  // the project has, retired and redirect-configured ones included. Those ride
+  // along on the served prior and must not fail the release closed — this is
+  // exactly what blocked every main deploy after the first bridge-era promote.
+  for (const alias of [
+    "appmentoorg-env-v3-mentolabs.vercel.app",
+    "v2-app.mento.org",
+    "appmentoorg-operator-mentolabs.vercel.app",
+  ]) {
+    const carried = fixture();
+    carried.mode = "active";
+    carried.mainOwnershipMode = ownershipMode("github");
+    for (const state of carried.priorStates.app.states) {
+      state.aliases = [...state.aliases, alias].toSorted();
+    }
+    assert.equal(runFixture(carried).plan.priors[0].target, "app", alias);
+  }
+
+  // Another main target's reviewed protected domain is the one alias condition
+  // that still fails closed.
+  for (const alias of [
+    "governance.mento.org",
+    "reserve.mento.org",
+    "ui.mento.org",
+  ]) {
+    const crossed = fixture();
+    crossed.mode = "active";
+    crossed.mainOwnershipMode = ownershipMode("github");
+    for (const state of crossed.priorStates.app.states) {
+      state.aliases = [...state.aliases, alias].toSorted();
+    }
+    assertActivationError(
+      () => runFixture(crossed),
+      "app",
+      "alias-set-ambiguous",
+    );
+  }
+
+  // Every reviewed production generated alias stays admissible.
+  const reviewedTopology = fixture();
+  reviewedTopology.mode = "active";
+  reviewedTopology.mainOwnershipMode = ownershipMode("github");
+  for (const state of reviewedTopology.priorStates.app.states) {
+    state.aliases = [
+      "app.mento.org",
+      PRODUCTION_GENERATED_ALIAS_CONTRACTS.app.generatedProjectAlias,
+      PRODUCTION_GENERATED_ALIAS_CONTRACTS.app.generatedProjectDefaultAlias,
+    ].toSorted();
+  }
+  assert.equal(runFixture(reviewedTopology).plan.priors[0].target, "app");
 });
 
 for (const [name, mutate, expectedReason, expectedServedSha] of [
@@ -607,7 +713,6 @@ for (const [name, mutate, expectedReason, expectedServedSha] of [
     "malformed",
     (input) => {
       input.priorStates.app.states[0].git.sha = "main";
-      input.priorStates.app.states[1].git.sha = "main";
     },
     "served-git-metadata-malformed",
     null,
@@ -620,14 +725,7 @@ for (const [name, mutate, expectedReason, expectedServedSha] of [
     "served-git-metadata-malformed",
     null,
   ],
-  [
-    "conflicting",
-    (input) => {
-      input.priorStates.app.states[1].git.sha = "9".repeat(40);
-    },
-    "served-git-metadata-conflicting",
-    null,
-  ],
+
   [
     "wrong repository",
     (input) => {
@@ -668,6 +766,21 @@ for (const [name, mutate, expectedReason, expectedServedSha] of [
     assert.equal(planner.calls.length, 0);
   });
 }
+
+// Every reviewed target now maps exactly one alias, so a prior group can
+// never carry two conflicting Git records. A second state is rejected as an
+// ambiguous alias set instead.
+test("a prior group may not carry an unreviewed second state", () => {
+  const input = fixture();
+  input.mode = "active";
+  input.mainOwnershipMode = ownershipMode("github");
+  input.priorStates.app.states.push({
+    ...structuredClone(input.priorStates.app.states[0]),
+    alias: "appmentoorg-env-v3-mentolabs.vercel.app",
+    git: { ...input.priorStates.app.states[0].git, sha: "9".repeat(40) },
+  });
+  assertActivationError(() => runFixture(input), "app", "alias-set-ambiguous");
+});
 
 for (const [name, gitOptions, reason] of [
   [
@@ -719,29 +832,39 @@ test("planner execution failure selects every target that uses that served base"
   assert.doesNotMatch(JSON.stringify(plan), /private fixture error/);
 });
 
-test("known fail-closed planner output selects only targets sharing the failed range", () => {
-  const input = fixture();
-  input.mode = "active";
-  input.mainOwnershipMode = ownershipMode("github");
-  setTargetSha(input, "app", input.deploySha);
-  setTargetSha(input, "ui", input.deploySha);
-  const planner = createPlannerFixture(
-    new Map([
-      [
-        "b".repeat(40),
-        plannerOutput(
+for (const reason of [
+  "turbo-planning-failed",
+  "turbo-spawn-failed",
+  "turbo-exit-failed",
+  "turbo-output-invalid",
+  "turbo-plan-malformed",
+  "turbo-task-malformed",
+  "turbo-no-deployable-task",
+]) {
+  test(`known fail-closed reason ${reason} selects only targets sharing the failed range`, () => {
+    const input = fixture();
+    input.mode = "active";
+    input.mainOwnershipMode = ownershipMode("github");
+    setTargetSha(input, "app", input.deploySha);
+    setTargetSha(input, "ui", input.deploySha);
+    const planner = createPlannerFixture(
+      new Map([
+        [
           "b".repeat(40),
-          input.deploySha,
-          [...MAIN_DEPLOYMENT_TARGETS],
-          "turbo-planning-failed",
-        ),
-      ],
-    ]),
-  );
-  const { plan } = runFixture(input, { planner });
-  assert.deepEqual(plan.plan, ["governance", "reserve"]);
-  assert.equal(plan.ranges[1].reason, "turbo-planning-failed");
-});
+          plannerOutput(
+            "b".repeat(40),
+            input.deploySha,
+            [...MAIN_DEPLOYMENT_TARGETS],
+            reason,
+          ),
+        ],
+      ]),
+    );
+    const { plan } = runFixture(input, { planner });
+    assert.deepEqual(plan.plan, ["governance", "reserve"]);
+    assert.equal(plan.ranges[1].reason, reason);
+  });
+}
 
 test("an unknowable affected set keeps current targets out of the active selection", () => {
   const input = fixture();
@@ -1296,77 +1419,24 @@ const activationAmbiguities = [
     },
   },
   {
-    name: "unknown generated alias",
-    target: "governance",
-    code: "alias-set-ambiguous",
-    mutate(input) {
-      input.priorStates.governance.states[0].aliases.push("attacker.invalid");
-      input.priorStates.governance.states[0].aliases.sort();
-    },
-  },
-  {
-    name: "wrong-target generated alias",
+    name: "malformed alias hostname",
     target: "governance",
     code: "alias-set-ambiguous",
     mutate(input) {
       input.priorStates.governance.states[0].aliases.push(
-        PRODUCTION_GENERATED_ALIAS_CONTRACTS.reserve.generatedProjectAlias,
+        "https://attacker.invalid/path",
       );
       input.priorStates.governance.states[0].aliases.sort();
     },
   },
   {
-    name: "operator-scoped alias",
+    // The reviewed mappings crossing is the one alias condition a served prior
+    // may never present.
+    name: "another target's reviewed protected domain",
     target: "governance",
     code: "alias-set-ambiguous",
     mutate(input) {
-      input.priorStates.governance.states[0].aliases.push(
-        "governancementoorg-operator-mentolabs.vercel.app",
-      );
-      input.priorStates.governance.states[0].aliases.sort();
-    },
-  },
-  {
-    name: "custom alias",
-    target: "governance",
-    code: "alias-set-ambiguous",
-    mutate(input) {
-      input.priorStates.governance.states[0].aliases.push(
-        "governance-preview.mento.org",
-      );
-      input.priorStates.governance.states[0].aliases.sort();
-    },
-  },
-  {
-    name: "creator near-miss alias",
-    target: "governance",
-    code: "alias-set-ambiguous",
-    mutate(input) {
-      input.priorStates.governance.states[0].aliases.push(
-        "governancementoorg-fixture-author2-mentolabs.vercel.app",
-      );
-      input.priorStates.governance.states[0].aliases.sort();
-    },
-  },
-  {
-    name: "git branch near-miss alias",
-    target: "governance",
-    code: "alias-set-ambiguous",
-    mutate(input) {
-      input.priorStates.governance.states[0].aliases.push(
-        "governancementoorg-git-feature-mentolabs.vercel.app",
-      );
-      input.priorStates.governance.states[0].aliases.sort();
-    },
-  },
-  {
-    name: "project-default near-miss alias",
-    target: "governance",
-    code: "alias-set-ambiguous",
-    mutate(input) {
-      input.priorStates.governance.states[0].aliases.push(
-        "governancementoorg2.vercel.app",
-      );
+      input.priorStates.governance.states[0].aliases.push("app.mento.org");
       input.priorStates.governance.states[0].aliases.sort();
     },
   },
@@ -1399,7 +1469,17 @@ const activationAmbiguities = [
     target: "app",
     code: "environment-identity-ambiguous",
     mutate(input) {
-      input.priorStates.app.states[1].customEnvironmentSlug = "preview";
+      input.priorStates.app.states[0].customEnvironmentSlug = "preview";
+    },
+  },
+  {
+    // The retired custom environment cannot re-enter through any target.
+    name: "v3-shaped governance prior",
+    target: "governance",
+    code: "environment-identity-ambiguous",
+    mutate(input) {
+      input.priorStates.governance.states[0].target = null;
+      input.priorStates.governance.states[0].customEnvironmentSlug = "v3";
     },
   },
   {
@@ -1419,20 +1499,13 @@ const activationAmbiguities = [
     },
   },
   {
-    name: "conflicting rollback deployment ID",
+    name: "app prior deployment omits its reviewed alias",
     target: "app",
-    code: "rollback-target-ambiguous",
+    code: "alias-set-ambiguous",
     mutate(input) {
-      input.priorStates.app.states[1].deploymentId = "dpl_other123";
-    },
-  },
-  {
-    name: "conflicting rollback deployment URL",
-    target: "app",
-    code: "rollback-target-ambiguous",
-    mutate(input) {
-      input.priorStates.app.states[1].deploymentUrl =
-        "https://other-app.vercel.app";
+      input.priorStates.app.states[0].aliases = [
+        "appmentoorg-env-v3-mentolabs.vercel.app",
+      ];
     },
   },
   {
@@ -1613,4 +1686,49 @@ test("the same canonical evidence produces byte-identical JSON", () => {
   const first = runFixture(structuredClone(input)).plan;
   const second = runFixture(structuredClone(input)).plan;
   assert.equal(JSON.stringify(first), JSON.stringify(second));
+});
+
+test("rider aliases are the canonical remainder of a deployment's alias set", () => {
+  assert.deepEqual(
+    riderAliasesFrom(
+      [
+        "APPMENTOORG-mentolabs.vercel.app",
+        "app.mento.org",
+        "appmentoorg.vercel.app",
+        "appmentoorg-mentolabs.vercel.app",
+      ],
+      ["app.mento.org"],
+    ),
+    ["appmentoorg-mentolabs.vercel.app", "appmentoorg.vercel.app"],
+  );
+  assert.deepEqual(riderAliasesFrom(["ui.mento.org"], ["ui.mento.org"]), []);
+  assert.throws(
+    () => riderAliasesFrom("ui.mento.org", ["ui.mento.org"]),
+    /Rider alias inputs are malformed/,
+  );
+});
+
+test("rider domains on a served prior never change the planned result", () => {
+  const base = fixture();
+  base.mode = "active";
+  base.mainOwnershipMode = ownershipMode("github");
+  const bare = structuredClone(base);
+  for (const target of MAIN_DEPLOYMENT_TARGETS) {
+    for (const state of bare.priorStates[target].states) {
+      state.aliases = [...MAIN_TARGET_CONTRACTS[target].aliases].toSorted();
+    }
+  }
+  const crowded = structuredClone(base);
+  for (const target of MAIN_DEPLOYMENT_TARGETS) {
+    for (const state of crowded.priorStates[target].states) {
+      state.aliases = [
+        ...state.aliases,
+        `${target}-retired.mento.org`,
+        `${PRODUCTION_GENERATED_ALIAS_CONTRACTS[target].generatedProjectSlug}-operator-mentolabs.vercel.app`,
+      ].toSorted();
+    }
+  }
+  const expected = runFixture(base).plan;
+  assert.deepEqual(runFixture(bare).plan, expected);
+  assert.deepEqual(runFixture(crowded).plan, expected);
 });

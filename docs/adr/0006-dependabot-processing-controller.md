@@ -1,17 +1,26 @@
 ---
 title: A trusted controller prepares exact-head Dependabot pull requests for human merge
-status: active
+status: archived
 owner: eng
-canonical: true
-last_verified: 2026-08-31
+canonical: false
+last_verified: 2026-09-01
 scope: ci/dependabot-processing
 date: 2026-08-10
+superseded_by: "0009"
 ---
 
 # ADR 0006 — A trusted controller prepares exact-head Dependabot pull requests for human merge
 
-**Status:** Accepted, amended Aug 14, Aug 22, Aug 24, and Aug 31 2026
+**Status:** Superseded by ADR 0009 on 2026-09-01
 **Scope:** ci/dependabot-processing
+
+This ADR records the retired repository-hosted preparation architecture.
+[ADR 0009](0009-external-agent-dependabot-preparation.md) defines the current
+external-agent preparation and human-merge decision.
+
+> Archive notice: The remainder of this file is historical. Do not run its
+> commands, configure its credentials, or follow its operating steps. Use ADR
+> 0009 and the active Dependabot preparation runbook.
 
 ## Context
 

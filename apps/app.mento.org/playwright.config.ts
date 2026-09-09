@@ -29,18 +29,17 @@ export default defineConfig({
   use: { baseURL: `http://localhost:${PORT}`, deviceScaleFactor: 1 },
   projects: [
     {
-      // `preview/` and `production-shadow/` each run only through their
-      // dedicated configs (they need deployment-specific environment and
-      // have no local webServer). Ignore them here or the visual projects
-      // would collect the smoke specs against the local webServer and fail
-      // fast on missing env vars.
+      // `preview/` runs only through its dedicated config (it needs
+      // deployment-specific environment and has no local webServer). Ignore it
+      // here or the visual projects would collect the smoke specs against the
+      // local webServer and fail fast on missing env vars.
       name: "desktop",
-      testIgnore: [/connected\//, /preview\//, /production-shadow\//],
+      testIgnore: [/connected\//, /preview\//],
       use: { viewport: { width: 1280, height: 900 } },
     },
     {
       name: "mobile",
-      testIgnore: [/connected\//, /preview\//, /production-shadow\//],
+      testIgnore: [/connected\//, /preview\//],
       use: { viewport: { width: 375, height: 812 } },
     },
     {
