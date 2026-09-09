@@ -780,6 +780,13 @@ test("CLI entrypoint does not leak execution input paths or environment values",
     ...environment(directory),
     RUNNER_TEMP: directory,
     MAIN_RELEASE_PRIVATE_TEST_SECRET: secret,
+    // This test asserts stderr EXACTLY, so the child must not emit anything the
+    // CLI did not write. Node prints its own process warnings to stderr, and an
+    // ambient environment can provoke them without the CLI's involvement: a
+    // Claude Code cloud session sets NODE_USE_ENV_PROXY=1, which makes every
+    // Node process emit an experimental EnvHttpProxyAgent warning. Silence
+    // Node's warnings so the assertion measures the CLI, not the environment.
+    NODE_NO_WARNINGS: "1",
   };
   const result = spawnSync(
     process.execPath,
