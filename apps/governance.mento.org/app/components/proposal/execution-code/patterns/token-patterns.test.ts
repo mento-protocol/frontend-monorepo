@@ -195,4 +195,60 @@ describe("tokenPatterns", () => {
     const args = [arg("newSymbol", "string", null as unknown as string)];
     expect(getPattern("setSymbol(string)")(CONTRACT, args, "0")).toBe(null);
   });
+
+  it("describes all supported token operations", () => {
+    const recipient = arg(
+      "recipient",
+      "address",
+      "0x1111111111111111111111111111111111111111",
+    );
+    const amount = arg("amount", "uint256", "1000000000000000000");
+    expect(
+      getPattern("approve(address,uint256)")(
+        CONTRACT,
+        [recipient, amount],
+        "0",
+      ),
+    ).toContain("Approve");
+    expect(
+      getPattern("mint(address,uint256)")(CONTRACT, [recipient, amount], "0"),
+    ).toContain("Mint 1");
+    expect(getPattern("burn(uint256)")(CONTRACT, [amount], "0")).toContain(
+      "Burn 1",
+    );
+    expect(
+      getPattern("lock(address,address,uint96,uint32,uint32)")(
+        CONTRACT,
+        [
+          recipient,
+          recipient,
+          amount,
+          arg("slope", "uint32", "10"),
+          arg("cliff", "uint32", "2"),
+        ],
+        "0",
+      ),
+    ).toContain("2 weeks cliff");
+    expect(
+      getPattern("delegateTo(uint256,address)")(
+        CONTRACT,
+        [arg("id", "uint256", "7"), recipient],
+        "0",
+      ),
+    ).toContain("lock #7");
+    expect(
+      getPattern("setName(string)")(
+        CONTRACT,
+        [arg("name", "string", "New Token")],
+        "0",
+      ),
+    ).toContain('"New Token"');
+    expect(
+      getPattern("setSymbol(string)")(
+        CONTRACT,
+        [arg("symbol", "string", "NEW")],
+        "0",
+      ),
+    ).toContain('"NEW"');
+  });
 });

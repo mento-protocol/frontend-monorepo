@@ -17,7 +17,7 @@ export default mergeConfig(sharedConfig, {
       },
     },
     coverage: {
-      all: true, // untested included files count as 0% — keeps the gate deletion-proof
+      // Vitest 4 includes untested files matching these patterns in coverage.
       include: [
         "src/features/borrow/leverage/math.ts",
         "src/features/swap/utils.ts",
