@@ -154,7 +154,7 @@ jobs:
     # NOTE: deliberate divergence from the reusable live-preview smoke, whose
     # deployed Vercel render environment is not byte-pinnable.
     container:
-      image: mcr.microsoft.com/playwright:v1.61.1-noble
+      image: mcr.microsoft.com/playwright:v1.62.1-noble
 
     env:
       TURBO_TOKEN: ${{ needs.visual-plan.outputs.allow_repository_credentials == 'true' && secrets.TURBO_TOKEN || '' }}
@@ -206,7 +206,7 @@ jobs:
     # NOTE: deliberate divergence from the reusable live-preview smoke, whose
     # deployed Vercel render environment is not byte-pinnable.
     container:
-      image: mcr.microsoft.com/playwright:v1.61.1-noble
+      image: mcr.microsoft.com/playwright:v1.62.1-noble
 
     env:
       TURBO_TOKEN: ${{ needs.visual-plan.outputs.allow_repository_credentials == 'true' && secrets.TURBO_TOKEN || '' }}

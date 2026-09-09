@@ -117,7 +117,7 @@ jobs:
     permissions:
       contents: read
     container:
-      image: mcr.microsoft.com/playwright:v1.61.1-noble
+      image: mcr.microsoft.com/playwright:v1.62.1-noble
     env:
       DEPLOY_SHA: ${{ inputs.expected_sha }}
       EXPECTED_PROJECT_ID: ${{ inputs.expected_project_id }}
