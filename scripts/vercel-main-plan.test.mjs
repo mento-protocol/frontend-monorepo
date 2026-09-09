@@ -832,29 +832,39 @@ test("planner execution failure selects every target that uses that served base"
   assert.doesNotMatch(JSON.stringify(plan), /private fixture error/);
 });
 
-test("known fail-closed planner output selects only targets sharing the failed range", () => {
-  const input = fixture();
-  input.mode = "active";
-  input.mainOwnershipMode = ownershipMode("github");
-  setTargetSha(input, "app", input.deploySha);
-  setTargetSha(input, "ui", input.deploySha);
-  const planner = createPlannerFixture(
-    new Map([
-      [
-        "b".repeat(40),
-        plannerOutput(
+for (const reason of [
+  "turbo-planning-failed",
+  "turbo-spawn-failed",
+  "turbo-exit-failed",
+  "turbo-output-invalid",
+  "turbo-plan-malformed",
+  "turbo-task-malformed",
+  "turbo-no-deployable-task",
+]) {
+  test(`known fail-closed reason ${reason} selects only targets sharing the failed range`, () => {
+    const input = fixture();
+    input.mode = "active";
+    input.mainOwnershipMode = ownershipMode("github");
+    setTargetSha(input, "app", input.deploySha);
+    setTargetSha(input, "ui", input.deploySha);
+    const planner = createPlannerFixture(
+      new Map([
+        [
           "b".repeat(40),
-          input.deploySha,
-          [...MAIN_DEPLOYMENT_TARGETS],
-          "turbo-planning-failed",
-        ),
-      ],
-    ]),
-  );
-  const { plan } = runFixture(input, { planner });
-  assert.deepEqual(plan.plan, ["governance", "reserve"]);
-  assert.equal(plan.ranges[1].reason, "turbo-planning-failed");
-});
+          plannerOutput(
+            "b".repeat(40),
+            input.deploySha,
+            [...MAIN_DEPLOYMENT_TARGETS],
+            reason,
+          ),
+        ],
+      ]),
+    );
+    const { plan } = runFixture(input, { planner });
+    assert.deepEqual(plan.plan, ["governance", "reserve"]);
+    assert.equal(plan.ranges[1].reason, reason);
+  });
+}
 
 test("an unknowable affected set keeps current targets out of the active selection", () => {
   const input = fixture();

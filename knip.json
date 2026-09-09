@@ -1,7 +1,7 @@
 {
   "$schema": "https://unpkg.com/knip@5/schema.json",
   "ignoreBinaries": ["anvil", "cast", "mkfifo"],
-  "ignoreWorkspaces": ["packages/typescript-config"],
+  "ignoreWorkspaces": ["packages/jazzicon", "packages/typescript-config"],
   "ignore": [
     ".trunk/**",
     ".design-sync/**",

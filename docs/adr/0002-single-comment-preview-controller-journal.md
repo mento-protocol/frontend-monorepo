@@ -208,7 +208,15 @@ persisted.
 For this PR, every receipt-required admission above the cursor needs its exact
 live receipt, and every numbered receipt above the cursor must map to one strict
 admission. A missing queued or in-progress receipt defers without state, status,
-dispatch, or ownership mutation; a completed run with no receipt fails closed.
+dispatch, or ownership mutation; a completed run with no receipt fails closed
+during reconciliation. A receipt writer may retain its own exact authenticated
+event when another completed run lacks a receipt. It does not advance the
+admission cursor, compact the incomplete interval, or reconcile state. After
+persisting that event, it reports the missing run IDs as a failure. This makes
+receipt restoration possible without letting mutually missing receipts block
+each other's persistence. Every required receipt must still exist before
+reconciliation can authorize preview work. See the
+[receipt recovery procedure](../vercel-deployments.md#missing-controller-event-receipts).
 Foreign strict runs are classified inside the same interval without opening a
 foreign journal. Dynamic placeholder titles hydrate through one shared
 deadline-based queue capped at eight concurrent run-detail requests. The queue

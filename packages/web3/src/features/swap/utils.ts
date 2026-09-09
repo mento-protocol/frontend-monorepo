@@ -56,7 +56,12 @@ export const formatWithMaxDecimals = (
   useThousandSeparators = true,
 ): string => {
   if (!value || value === "0") return "0";
-  const num = new BigNumber(value);
+  let num: BigNumber;
+  try {
+    num = new BigNumber(value);
+  } catch {
+    return "0";
+  }
   if (num.isNaN() || !num.isFinite()) return "0";
 
   // Decimal, arbitrary-precision truncation — no IEEE-754 round-trip.

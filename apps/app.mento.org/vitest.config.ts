@@ -17,7 +17,6 @@ export default mergeConfig(sharedConfig, {
     environment: "jsdom",
     include: ["app/**/*.test.ts", "app/**/*.test.tsx"],
     coverage: {
-      all: true,
       include: [
         "app/**/*.{js,jsx,mjs,ts,tsx}",
         "instrumentation.ts",

@@ -79,6 +79,175 @@ Always use `--filter` to avoid building/running everything unnecessarily.
 2. Run `trunk check --fix` — confirm linting passes
 3. Verify changes visually on localhost (check the app's package.json `dev` script for the port)
 
+## Cloud Sessions (Claude Code on the Web)
+
+Cloud sessions start from a fresh clone with no `node_modules`. The
+`SessionStart` hook in [.claude/settings.json](.claude/settings.json) runs
+[scripts/cloud-session-setup.sh](scripts/cloud-session-setup.sh), which runs
+`pnpm install --frozen-lockfile` when `CLAUDE_CODE_REMOTE=true` and the
+`node_modules/.cloud-session-setup-complete` stamp does not match the current
+install inputs: the `pnpm-lock.yaml` digest, the configuration that shapes the
+tree (`.npmrc`'s `public-hoist-pattern` entries and `pnpm-workspace.yaml`'s
+`onlyBuiltDependencies`, either of which can move without the lockfile moving),
+the pnpm that actually ran the install, and the `packageManager` pin. Recording
+the running pnpm rather than the pin keeps the stamp honest when the two differ,
+so correcting a drifted environment reinstalls instead of certifying a tree the
+pinned version never built. A partial tree from a failed install and a resumed
+session whose lockfile, install configuration, pnpm, or pin moved are all
+reinstalled rather than mistaken for a finished install. The stamp is cleared
+before pnpm runs and rewritten only on success, so an install that dies partway
+through cannot leave an older revision's stamp standing over the tree it
+changed. A failed install prints its last log lines to stdout, where the session
+can see them. Local sessions exit the script immediately.
+
+The cloud environment's setup script is a separate file. It is configured per
+environment at claude.ai/code, not in this repository. It runs as root before
+the repository is cloned, so it must not read repository files, and it must
+exit 0 or the session fails to start. Keep it to VM provisioning, such as
+Foundry and the Trunk launcher. Install tools into a shared path such as
+`/opt`, then symlink them into `/usr/local/bin`: the environment cache keeps
+files but not an exported `PATH`, and the session user cannot read `/root`.
+Fork tests additionally need the RPC hosts (`forno.celo.org`, `rpc.monad.xyz`)
+on a Custom network allowlist.
+
+Cloud sessions gate GitHub by _repository_, not by host, and the gate is far
+wider than a tarball path: the proxy fronts `github.com` as if it were the
+GitHub _API_, so ordinary web URLs are intercepted too. A request for a
+repository outside the session's scope is answered by the proxy itself with HTTP
+403 and the body `GitHub access to this repository is not enabled for this
+session`. That covers `codeload.github.com` tarballs, but equally
+`github.com/vercel/next.js`, `github.com/pnpm/pnpm/issues/13567`, and even
+`github.com/features/actions`, which the gateway parses as an owner/repo pair. An
+in-scope repository is not exempt either: a request for
+`github.com/mento-protocol/frontend-monorepo/actions/runs/<id>` returns a
+_different_ 403 — `This GitHub API path is not available: sessions are bound to
+their configured repositories` — because it is not a repository-scoped API
+endpoint. The network allowlist cannot lift any of this: `github.com` is on the
+allowlist and is still intercepted.
+
+Exactly two paths pass through, and every workaround below rests on them. The
+git protocol is not intercepted, so anonymous `git clone` and `git ls-remote` of
+any public repository succeed. And GitHub **release assets** under
+`releases/download/` are served normally, which several hermetic runtimes rely
+on.
+
+This used to break `pnpm install` outright. The catalog pinned
+`@metamask/jazzicon` to `github:jmrossy/jazzicon#<sha>`, which pnpm resolves to
+a `codeload.github.com` tarball, so every cloud session died mid-install and
+left an unusable `node_modules`. That fork is now vendored at
+`packages/jazzicon` and consumed as a `workspace:*` dependency, so the install
+needs no GitHub fetch at all. See
+[packages/jazzicon/README.md](packages/jazzicon/README.md) for provenance and
+the rejected alternatives. Its upstream `.js` files are kept byte-for-byte and
+are excluded from Trunk in `.trunk/trunk.yaml`; do not reformat them.
+
+One consequence of the same gating affects Trunk: **`trunk check` and `trunk fmt`
+do not work out of the box in a cloud session,** because Trunk fetches its plugin
+bundle from `https://github.com/trunk-io/plugins/archive/<ref>.zip` and that is
+refused with the repository-scope 403, so the CLI exits before linting anything.
+
+Adding `trunk-io/plugins` to the session's GitHub repository scope is **not** the
+way out, despite being the obvious one: `add_repo` refuses it with `cross-tier
+adds are not supported in v1`, because a session may hold repositories from only
+one owner and `trunk-io` is not `mento-protocol`. No allowlist entry or admin
+setting lifts that.
+
+What works is the git protocol, which the gateway passes through. So clone the
+bundle and point the source at the local checkout:
+
+```bash
+git clone --depth 1 --branch v1.7.3 \
+  https://github.com/trunk-io/plugins /tmp/trunk-plugins
+# then, temporarily, in .trunk/trunk.yaml, replace the source's `uri` and `ref`:
+#   local: /tmp/trunk-plugins
+```
+
+`local` is Trunk's field for an on-disk plugin repository, and it takes
+precedence over `uri` and `ref`. Two consequences are worth knowing. The pinned
+`ref` is ignored once `local` is set, so the checkout alone decides which plugin
+version you get — match `--branch` to the `ref` that `.trunk/trunk.yaml` pins, or
+you will lint against a different bundle than CI does. And `local` reads
+`plugin.yaml` from the working tree, so the clone must be an ordinary checkout: a
+`--bare` one fails with `plugin load failed; expected plugin.yaml to be present`.
+
+Keep the edit local and never commit it.
+
+The hermetic runtimes in `.trunk/trunk.yaml` then need to be downloadable, which
+is a _network allowlist_ question rather than a repository-scope one. The two
+failures look different and should not be confused: an allowlist refusal appears
+as `CONNECT tunnel failed, response 403` with no HTTP body, whereas the
+repository gate returns a real body naming the session's scope. Of the three
+enabled runtimes, only `go` ever needed an allowlist entry:
+
+| Runtime         | Downloads from                                            | Notes                                                                                                                                                       |
+| --------------- | --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `node@22.16.0`  | `nodejs.org`                                              | Reachable by default.                                                                                                                                       |
+| `go@1.21.0`     | `golang.org/dl` → `go.dev/dl` → `dl.google.com`           | Two redirects, not one. **`dl.google.com` must be on the allowlist**; it is the final target, so allowlisting `golang.org` or `go.dev` alone is not enough. |
+| `python@3.10.8` | `github.com/…/python-build-standalone/releases/download/` | Reachable by default — a release asset, so the GitHub gateway does not apply. `www.python.org` is on the allowlist but Trunk never uses it.                 |
+
+With `dl.google.com` allowlisted and the local clone in place, `trunk check` runs
+and passes in a cloud session; both the `go` and `python` runtimes install
+normally. Measured from cold caches: a mixed markdown/yaml/shell/mjs/json check
+takes about 1m30s including every runtime and linter download, `trunk fmt
+--no-fix --all` about 30s over 1172 files, and `trunk check --all` about 2m45s
+cold or 1m15s warm over 1235 files.
+
+`trunk check --all` is therefore fast enough to be practical, but it **cannot
+pass in a cloud session** — not because of anything in the repo, but because two
+of the enabled linters depend on network the session does not have:
+
+- **`markdown-link-check`** reports every external link as a 403. About a quarter
+  are `github.com` links killed by the API gateway described above; the rest are
+  hosts that are simply not on the allowlist, among them `nextjs.org`,
+  `vercel.com`, `pnpm.io`, and `docs.trunk.io` — the allowlist carries `trunk.io`
+  and `api.trunk.io`, not `*.trunk.io`. None of it is evidence of a broken link.
+- **`trufflehog`** reports pinned GitHub Action SHAs and placeholder commit SHAs
+  in test fixtures as verified secrets. Trunk runs it with `--only-verified`, and
+  verification is precisely what should rule these out — but the proxy
+  authenticates GitHub API calls on the session's behalf (`api.github.com/user`
+  returns 200 with no `Authorization` header at all), so every 40-hex candidate
+  verifies.
+
+Skip exactly those two and the repository is clean — 1235 files, no issues:
+
+```bash
+trunk check --all --filter=-markdown-link-check,-trufflehog
+```
+
+That command is an iteration loop, not a substitute for the real gate: it
+disables both linters wholesale, including the parts of them that work fine here
+and that do catch real problems. Use it while iterating, then triage an
+unfiltered run before pushing. The cloud-session artifacts are distinguishable
+from genuine findings by their signature:
+
+- A `markdown-link-check/403` means the request never reached the origin, so on
+  its own it proves nothing: either the host is off the allowlist, or the GitHub
+  gateway answered first. On a link that was already in the tree, treat it as a
+  known-baseline artifact. On a link this change **adds or edits**, it is simply
+  unverified — a typo under an out-of-scope repository returns exactly the same
+  403 as a working URL — so confirm that link outside the cloud session, or let
+  CI's full-network run confirm it for you.
+- A **`markdown-link-check/400` is a broken relative link**: the file it points
+  at does not exist. Relative links need no network and are validated correctly
+  in a cloud session, so a 400 is always real and must be fixed.
+- `trufflehog/Github` verification fails in one direction only here: the proxy
+  makes candidates verify that should not, and never the reverse. So a hit is
+  never cleared by the tool and every one is triaged by reading the flagged line.
+  A 40-hex string that is a pinned action SHA, a placeholder SHA in a fixture, or
+  an upstream commit referenced by a documentation link is a known non-secret.
+  Anything you cannot account for that way is treated as a real credential until
+  it is checked outside the session. Never dismiss a secret-scanner finding you
+  have not looked at, and never disable a scanner to obtain a green run —
+  `.trunk/trunk.yaml` holds that same rule for the vendored files.
+
+Absent that setup, use the underlying tools directly, scoped to the files you
+changed — `pnpm exec prettier --check <files>` and `pnpm exec eslint <files>` —
+and rely on CI for the full Trunk run. Repo-wide invocations are not equivalent
+to Trunk: Trunk applies the ignore list in `.trunk/trunk.yaml` and pins its own
+prettier (3.7.4, against the workspace's 3.9.6), so a bare `pnpm exec prettier
+--check .` reports pre-existing differences in generated and unrelated files.
+`pnpm exec eslint .` is clean repo-wide.
+
 ## Visual Regression Testing
 
 Two layers guard against unintended UI changes:
@@ -88,7 +257,8 @@ Two layers guard against unintended UI changes:
   On pull requests, the workflow plans from changed files and only runs the app
   checks whose rendered surfaces can be affected: `apps/ui.mento.org/**` and
   `packages/ui/**` run the showcase; `apps/app.mento.org/**`,
-  `packages/ui/**`, and `packages/web3/**` run the app shells; and root package,
+  `packages/ui/**`, `packages/web3/**`, and `packages/jazzicon/**` run the app
+  shells; and root package,
   workflow, `.npmrc`, `turbo.json`, `patches/**`, and
   `scripts/security-headers.mjs` changes run both. On `main`, the push trigger
   uses that union of visual-impact paths and every started run executes both
@@ -129,7 +299,7 @@ Functional connected-wallet Playwright specs (not VRT) that run against a seeded
 
 See [docs/wallet-testing.md](docs/wallet-testing.md) for the full runbook.
 
-In CI, `.github/workflows/e2e.yml` triggers on every PR (plus the nightly schedule and manual `workflow_dispatch`) and always reports both check runs. An `e2e-plan` job computes `run_app`/`run_gov`/`run_monad` from changed files (`apps/app.mento.org/**` -> `run_app` + `run_monad`; `apps/governance.mento.org/**` -> `run_gov`; `packages/web3/**`, `packages/ui/**`, and `scripts/fork-test-clock.*` -> all three; `scripts/fork-seed-monad.*` -> `run_monad`; root-level files like `package.json`/`turbo.json`/the workflow itself -> all three) and fast-no-ops the fork jobs to a green skip when their surface didn't change — that "always reports" property is the prerequisite for eventually adding these checks to the required-checks ruleset (`strict_required_status_checks_policy` would otherwise deadlock non-matching PRs). Scheduled and manually-dispatched runs force both outputs true (no "changed files" concept for a cron trigger, and a manual run's point is to run regardless of what changed). A cheap `fork-seed-self-test` job (no anvil, no network) runs the shared clock boundaries and both encoder suites on every trigger; if it fails, the fork jobs still start (so the failure surfaces as a real check failure, not a silently-passing skip) but bail out in their first step instead of running the full 30-minute anvil suite. `e2e-connected` ("Connected swap (anvil fork)") and `e2e-governance` ("Connected governance (anvil fork)") both fork Celo mainnet pinned to `FORK_BLOCK` (bump roughly monthly). The fork source is a keyless public archive RPC probed at run time — forno cannot serve pinned-block forks because it prunes a block's state within minutes. A nightly scheduled run (04:20 UTC) repeats the suites at a freshly resolved recent block instead of the pin, to catch chain drift (oracle config, pool, or contract changes) that plan-gated PR runs never see. `e2e-connected-monad` ("Connected swap (Monad anvil fork)") is the Monad sibling: it forks Monad mainnet (chain 143) on port 8546 via `scripts/fork-seed-monad.mjs`, gated on `run_monad`. Unlike the Celo jobs it resolves a fresh block near `finalized` on every trigger (rpc.monad.xyz primary, monad.drpc.org fallback) rather than pinning, because Monad's public RPCs' deep archive retention is unproven while forking near finalized is the verified-servable window. Before oracle reports or swaps, both seed scripts use the shared UTC calendar to select a timestamp that stays FX-open for two hours. None of these checks is a required check yet.
+In CI, `.github/workflows/e2e.yml` triggers on every PR (plus the nightly schedule and manual `workflow_dispatch`) and always reports both check runs. An `e2e-plan` job computes `run_app`/`run_gov`/`run_monad` from changed files (`apps/app.mento.org/**` -> `run_app` + `run_monad`; `apps/governance.mento.org/**` -> `run_gov`; `packages/web3/**`, `packages/ui/**`, `packages/jazzicon/**`, and `scripts/fork-test-clock.*` -> all three; `scripts/fork-seed-monad.*` -> `run_monad`; root-level files like `package.json`/`turbo.json`/the workflow itself -> all three) and fast-no-ops the fork jobs to a green skip when their surface didn't change — that "always reports" property is the prerequisite for eventually adding these checks to the required-checks ruleset (`strict_required_status_checks_policy` would otherwise deadlock non-matching PRs). Scheduled and manually-dispatched runs force both outputs true (no "changed files" concept for a cron trigger, and a manual run's point is to run regardless of what changed). A cheap `fork-seed-self-test` job (no anvil, no network) runs the shared clock boundaries and both encoder suites on every trigger; if it fails, the fork jobs still start (so the failure surfaces as a real check failure, not a silently-passing skip) but bail out in their first step instead of running the full 30-minute anvil suite. `e2e-connected` ("Connected swap (anvil fork)") and `e2e-governance` ("Connected governance (anvil fork)") both fork Celo mainnet pinned to `FORK_BLOCK` (bump roughly monthly). The fork source is a keyless public archive RPC probed at run time — forno cannot serve pinned-block forks because it prunes a block's state within minutes. A nightly scheduled run (04:20 UTC) repeats the suites at a freshly resolved recent block instead of the pin, to catch chain drift (oracle config, pool, or contract changes) that plan-gated PR runs never see. `e2e-connected-monad` ("Connected swap (Monad anvil fork)") is the Monad sibling: it forks Monad mainnet (chain 143) on port 8546 via `scripts/fork-seed-monad.mjs`, gated on `run_monad`. Unlike the Celo jobs it resolves a fresh block near `finalized` on every trigger (rpc.monad.xyz primary, monad.drpc.org fallback) rather than pinning, because Monad's public RPCs' deep archive retention is unproven while forking near finalized is the verified-servable window. Before oracle reports or swaps, both seed scripts use the shared UTC calendar to select a timestamp that stays FX-open for two hours. None of these checks is a required check yet.
 
 All preview verification lives in the secretless reusable
 `.github/workflows/_vercel-preview-smoke.yml`: common immutable-URL, metadata,
@@ -172,8 +342,10 @@ Use [the preparation playbook](docs/dependabot-automation.md) and
 `.github/dependabot-prep-policy.json` from the live default branch. The
 `trusted-openclaw-agent` workflow uses the ordinary coding session and existing
 GitHub authentication; its prohibitions are procedural, not a credential sandbox.
-Do not invoke the retired `/opt/dependabot-prep` launcher or the generic sealed
-`dependabot-prep` write path for this workflow.
+Use the portable `dependabot-prep` skill, revision `trusted-agent-v1`, with that
+playbook's repository overrides in OpenClaw, Codex or Claude. The historical
+execution-model identifier remains for compatibility. Never invoke the retired
+`/opt/dependabot-prep` launcher or the archived sealed skill procedure.
 
 Within the playbook's scope, normal installs, lockfile generation, builds, tests,
 conflict resolution, and dependency-related compatibility fixes are permitted.

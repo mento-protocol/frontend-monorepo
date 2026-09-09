@@ -13,8 +13,8 @@ overrides:
   '@metamask/sdk-communication-layer@>=0.16.0 <=0.33.0': '>=0.33.1'
   '@mysten/sui': 1.45.2
   '@opentelemetry/core@<2.8.0': '>=2.8.0'
-  '@tanstack/query-core': 5.90.16
-  '@tanstack/react-query': 5.90.16
+  '@tanstack/query-core': 5.102.8
+  '@tanstack/react-query': 5.102.8
   '@tootallnate/once@<2.0.1': 2.0.1
   ajv@>=8.0.0 <8.18.0: '>=8.18.0'
   ajv@<6.14.0: 6.14.0
@@ -76,7 +76,7 @@ overrides:
   ws@>=7.0.0 <7.5.11: 7.5.11
   yaml@>=2.0.0 <2.8.3: '>=2.8.3'
   yaml@<1.10.3: '>=1.10.3 <2'
-  zod: ^4.4.3
+  zod: ^4.5.4
   zustand>use-sync-external-store: 1.4.0
 
 importers:
@@ -1647,8 +1647,8 @@ packages:
   yauzl@2.10.0:
     resolution: {integrity: sha512-p4a9I6X6nu6IhoGmBqAcbJy1mlC4j27vEPZX9F4L4/vZT3Lyq1VkFHw/V/PUcB9Buo+DG3iHkT0x3Qya58zc3g==}
 
-  zod@4.4.3:
-    resolution: {integrity: sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==}
+  zod@4.5.4:
+    resolution: {integrity: sha512-sC95tT5iHHH9gtpj6A81kh+NEaRAUFN+qlUPDUbRfOMvNf5QCBqsb3WgvnpVtK5Y+4UfA6KqufotuTvMGiTlsA==}
 
 snapshots:
 
@@ -2007,7 +2007,7 @@ snapshots:
       srvx: 0.11.16
       ts-morph: 12.0.0
       tsx: 4.21.0
-      zod: 4.4.3
+      zod: 4.5.4
     transitivePeerDependencies:
       - '@emnapi/core'
       - '@emnapi/runtime'
@@ -2045,12 +2045,12 @@ snapshots:
       '@vercel/cli-config': 0.2.0
       async-listen: 3.0.0
       open: 8.4.0
-      zod: 4.4.3
+      zod: 4.5.4
 
   '@vercel/cli-config@0.2.0':
     dependencies:
       xdg-app-paths: 5.5.1
-      zod: 4.4.3
+      zod: 4.5.4
 
   '@vercel/container@0.0.5': {}
 
@@ -2076,7 +2076,7 @@ snapshots:
       fs-extra: 11.1.0
       path-to-regexp: 8.4.2
       ts-morph: 12.0.0
-      zod: 4.4.3
+      zod: 4.5.4
     transitivePeerDependencies:
       - '@emnapi/core'
       - '@emnapi/runtime'
@@ -2148,7 +2148,7 @@ snapshots:
       fs-extra: 11.1.0
       path-to-regexp: 8.4.2
       ts-morph: 12.0.0
-      zod: 4.4.3
+      zod: 4.5.4
     transitivePeerDependencies:
       - encoding
       - rollup
@@ -2245,7 +2245,7 @@ snapshots:
       js-yaml: 4.3.1
       minimatch: 10.2.6
       smol-toml: 1.8.0
-      zod: 4.4.3
+      zod: 4.5.4
 
   '@vercel/python@6.51.1':
     dependencies:
@@ -2295,7 +2295,7 @@ snapshots:
       tar-stream: 3.1.7
       undici: 7.29.0
       xdg-app-paths: 5.1.0
-      zod: 4.4.3
+      zod: 4.5.4
     transitivePeerDependencies:
       - bare-abort-controller
       - react-native-b4a
@@ -2861,7 +2861,7 @@ snapshots:
       async-retry: 1.3.3
       debug: 4.4.3
       ws: 8.21.3
-      zod: 4.4.3
+      zod: 4.5.4
     transitivePeerDependencies:
       - bare-abort-controller
       - bufferutil
@@ -3007,7 +3007,7 @@ snapshots:
       sandbox: 3.4.0
       smol-toml: 1.8.0
       undici: 6.28.0
-      zod: 4.4.3
+      zod: 4.5.4
     optionalDependencies:
       '@vercel/backends': 0.8.25(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)
       '@vercel/container': 0.0.5
@@ -3084,4 +3084,4 @@ snapshots:
       buffer-crc32: 0.2.13
       fd-slicer: 1.1.0
 
-  zod@4.4.3: {}
+  zod@4.5.4: {}

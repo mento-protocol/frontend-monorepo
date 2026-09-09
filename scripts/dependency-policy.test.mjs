@@ -104,7 +104,7 @@ function firstDependabotGroup(groups, dependency, dependencyType, updateType) {
 }
 
 const CLAUDE_ACTION =
-  "anthropics/claude-code-action@e5ad3c7725bc2459721893f88879fef9dbcf97b0";
+  "anthropics/claude-code-action@8251c103ac8c1d761882c86aba1412c7f583c844";
 const CLAUDE_PLUGIN_MARKETPLACE = "./.claude-code-plugin-marketplace";
 const CLAUDE_CODE_REVIEW_PLUGIN = `${CLAUDE_PLUGIN_MARKETPLACE}/plugins/code-review`;
 const CLAUDE_PLUGIN_MARKETPLACE_REF =
@@ -173,6 +173,14 @@ test("trusted-agent policy limits authority to existing Dependabot pull requests
     perPullRequestMinutes: 45,
     repairAttempts: 3,
   });
+  assert.deepEqual(policy.coordination, {
+    host: "giskard",
+    lockPath: "/home/molt/.local/state/mento-dependabot/active",
+    allWriters: "same-atomic-lock-before-writes",
+    remoteAccess: "operator-configured-authenticated-encrypted-connection",
+    unavailable: "read-only",
+    release: "owner-only-after-local-work-stops",
+  });
   assert.deepEqual(policy.changes.push, {
     existingPullRequestBranchOnly: true,
     fastForwardOnly: true,
@@ -226,8 +234,7 @@ test("dependency repairs remain executable without granting security or final PR
     "weakened-or-disabled-checks",
     "credential-or-permission-changes",
     "unexplained-history",
-    "disputed-review-findings",
-    "product-or-architecture-decisions",
+    "irreversible-or-out-of-scope-product-or-architecture-changes",
   ])
     assert.ok(policy.changes.needsDecisionTriggers.includes(trigger), trigger);
   for (const action of [
@@ -262,6 +269,63 @@ test("dependency repairs remain executable without granting security or final PR
     osvScannerAndReporter: "same-revision",
     checksAndSecurityControls: "never-weaken",
   });
+});
+
+test("agent decisions, delivered reports and serialized heavy work are the default", () => {
+  const policy = authorityJson(read(".github/dependabot-prep-policy.json"));
+  assert.equal(policy.operatingRevision, "autonomous-decisions-v1");
+  assert.equal(policy.decisions.uncertaintyAloneBlocks, false);
+  assert.equal(
+    policy.decisions.default,
+    "best-supported-reversible-choice-and-continue",
+  );
+  assert.equal(
+    policy.decisions.explicitHoldsAndForbiddenActions,
+    "never-override",
+  );
+  assert.deepEqual(policy.reporting.slack, [
+    "start",
+    "actionable-exception",
+    "final-report",
+  ]);
+  assert.equal(policy.reporting.periodicStatusMessages, false);
+  assert.equal(
+    policy.reporting.finalDelivery,
+    "full-readable-report-not-local-path-only",
+  );
+  assert.equal(policy.reporting.requireDeliveryReceipt, true);
+  assert.deepEqual(policy.hostResources, {
+    heavyTrees: 1,
+    memoryHigh: "2G",
+    memoryMax: "3G",
+    memorySwapMax: 0,
+    cpuQuota: "100%",
+    turboConcurrency: 1,
+    vitestWorkers: 1,
+    hooks: "enabled-verify-effective-serialization",
+  });
+  const prompt = read(policy.entryPrompt);
+  const playbook = read(policy.canonicalPlaybook);
+  assert.ok(prompt.includes(policy.operatingRevision));
+  assert.ok(playbook.includes(policy.reporting.prCommentMarker));
+  assert.ok(playbook.includes("Input welcome"));
+  assert.ok(playbook.includes("lowest-numbered eligible PR"));
+  assert.ok(playbook.includes("Retain the delivery receipt"));
+  assert.ok(playbook.includes("--concurrency=1"));
+  assert.doesNotMatch(prompt + playbook, /at-least-five-minute/);
+  assert.ok(
+    !policy.changes.needsDecisionTriggers.includes("disputed-review-findings"),
+  );
+  assert.ok(
+    !policy.changes.needsDecisionTriggers.includes(
+      "product-or-architecture-decisions",
+    ),
+  );
+  assert.ok(
+    policy.changes.needsDecisionTriggers.includes(
+      "irreversible-or-out-of-scope-product-or-architecture-changes",
+    ),
+  );
 });
 
 test("every dependency receives research and readiness requires exact-head review and checks", () => {
@@ -336,7 +400,10 @@ test("every dependency receives research and readiness requires exact-head revie
     "all-surfaces-including-walkthroughs-and-followups",
   );
   assert.equal(handoff.actionableFeedback, "address-and-answer-every-item");
-  assert.equal(handoff.disputedFeedback, "needs-decision");
+  assert.equal(
+    handoff.disputedFeedback,
+    "investigate-decide-and-answer-with-evidence-no-unproven-ready",
+  );
   assert.equal(handoff.answeredUnresolvedThreads, "list-for-maintainer");
   assert.equal(handoff.humanApprovalAndMerge, "maintainer-only");
 });
@@ -1810,6 +1877,19 @@ test("entry instructions resolve to the canonical trusted-agent playbook", () =>
   const policy = authorityJson(read(".github/dependabot-prep-policy.json"));
   assert.equal(policy.canonicalPlaybook, "docs/dependabot-automation.md");
   assert.equal(policy.entryPrompt, "scripts/prompts/dependabot-weekly.md");
+  assert.deepEqual(policy.workflow, {
+    skill: "dependabot-prep",
+    revision: "trusted-agent-v1",
+    runtimes: ["openclaw", "codex", "claude"],
+    hostProfile: "giskard-capped-otherwise-portable-serial",
+  });
+  const entry = read(policy.entryPrompt);
+  assert.ok(entry.includes(policy.workflow.skill));
+  assert.ok(entry.includes(policy.workflow.revision));
+  assert.ok(entry.includes(policy.repository));
+  assert.ok(entry.includes("giskard-only scheduled-job adapter"));
+  assert.ok(entry.includes("Verify the host before writes"));
+  assert.ok(entry.includes("On another host, stop this adapter"));
   for (const path of [policy.canonicalPlaybook, policy.entryPrompt]) {
     assert.ok(existsSync(new URL(`../${path}`, import.meta.url)), path);
     assert.ok(read(path).includes(".github/dependabot-prep-policy.json"), path);
