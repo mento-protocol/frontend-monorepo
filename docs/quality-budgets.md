@@ -196,6 +196,16 @@ which conclusions count. The message links the failed run and the managed-issue
 search; it opens, updates, and closes nothing, so the issue lifecycle above
 stays the single source of truth.
 
+The notifier waits 15 minutes before it evaluates and posts a failure. Its
+workflow-level concurrency key contains the watched workflow, event, and target
+ref, plus the source repository that isolates nested Vercel fork callbacks. A
+newer success in that partition cancels the waiting run. A newer failure does
+not cancel the first failure. Reconciliation suppresses a callback after a newer
+success and lets only the first failure after the nearest prior success post.
+This keeps one red message per active failure episode, including when failures
+continue more often than the recovery window. The workflow stores no Slack
+receipt and does not update old messages.
+
 `chat.postMessage` accepts a channel name for a public channel, so the payload
 passes `#ci-failures` rather than an encoded ID. Configure an ID instead only
 if the channel is ever renamed; the step fails loudly on a `channel_not_found`
@@ -214,8 +224,9 @@ run with nothing but Node and pnpm — no network, and no binary outside the
 documented prerequisites. Pin drift with exact-text assertions; never add a
 tool dependency to make a gate runnable.
 
-It uses `secrets.SLACK_BOT_TOKEN` (which needs Slack's `chat:write.public`
-scope). The workflow grants no permissions; the job grants exactly
+It uses `secrets.SLACK_BOT_TOKEN`, which needs Slack's `chat:write` scope. It
+also needs `chat:write.public` only when the bot posts to a public channel that
+it has not joined. The workflow grants no permissions; the job grants exactly
 `actions: read`, the single scope the freshness reconciliation below needs to
 list this workflow's completed runs. It writes nothing back to GitHub, checks
 out no code, and runs no action. Every
@@ -224,6 +235,10 @@ environment variable and passed to `jq --arg`, never interpolated into the
 shell, because a commit title can contain backticks or `$(…)`. The commit title
 is additionally escaped for Slack mrkdwn so a title like `<!channel>` cannot
 render as a real mass-page mention.
+
+For `Vercel Main Deployment`, `workflow_run.head_sha` identifies the controller
+workflow revision. The Slack message labels it `Controller commit`. It does not
+claim that the value is the deployment SHA.
 
 Its bare `workflow_dispatch` (no inputs; checkov `CKV_GHA_7` forbids them)
 posts a fixed "🧪 wiring test" message. The workflow must be on `main` to be
@@ -239,29 +254,25 @@ callback to the latest decisive run in its partition — `workflow_id` plus
 "decisive" is `success` plus `FAILURE_CONCLUSIONS` — and acting on that run, so
 it closes or leaves closed the managed issue.
 
-Slack is not idempotent the way one managed issue is, so the mirror is: post
-only when the triggering run is itself the latest decisive run in its
-partition. A newer decisive run either succeeded, in which case there is
-nothing to announce, or failed and owns its own message. A `Reconcile against
-the latest decisive run` step lists the workflow's completed runs for the
-callback's own event with `actions: read` and sets a `stale` output the post
-step is gated on; the smoke-test dispatch skips it entirely.
+Slack is not idempotent the way one managed issue is. The workflow therefore
+posts only for the first failure in an active episode. A newer success
+suppresses an older callback. A prior failure suppresses a later failure until
+the nearest prior decisive run is a success. A `Reconcile the active failure
+episode` step lists the workflow's completed runs for the callback's own
+event with `actions: read` and sets a `stale` output that gates the post step;
+the smoke-test dispatch skips it entirely.
 
-It paginates. `listCompletedWorkflowRuns()` keeps fetching until a page holds a
-run at or before the callback, because a long tail of newer non-decisive runs —
-a hundred cancellations, say — can push the decisive one past the first page.
-The step stops on that same condition, on a short final page, or as soon as it
-finds a newer decisive run, whichever comes first, and is bounded to ten pages.
+It paginates until it finds a newer success, the nearest older decisive run, or
+a short final page. This handles a long tail of non-decisive runs. The scan is
+bounded to ten pages.
 
 It fails open. An API error, an unexpected workflow id, malformed or
 unparseable JSON, or exhausting the page limit posts anyway — a rare duplicate
 beats a dropped alert. Parity is pinned by exact-source assertions on
-`runPosition()`, `compareRuns()`, `isDecisiveRun()`, and the helper's
-pagination break, by exact-text assertions on the jq pipeline, the query
-parameters, and the loop, and by a scenario table asserting the mirror and the
-reference agree on all eight cases — including a decisive run beyond page one,
-with a companion assertion proving a single-page lookup would get that case
-wrong.
+`runPosition()`, `compareRuns()`, and `isDecisiveRun()`, by exact-text
+assertions on the jq pipeline, the query
+parameters, and the loop, and by scenario tests for recovery, repeated failure,
+partition isolation, repository ownership, and results beyond page one.
 
 ### Keeping the Slack token off non-default branches
 

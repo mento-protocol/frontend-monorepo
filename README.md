@@ -480,7 +480,9 @@ The repository is set up with GitHub Actions for CI:
   failure and closes the issue after recovery. The same failures also post to
   Slack's `#ci-failures` from
   [`.github/workflows/notify-slack-on-main-failure.yml`](.github/workflows/notify-slack-on-main-failure.yml),
-  which links the run and the managed issue; run that workflow's
+  after a 15-minute recovery window. A newer success cancels a pending alert,
+  and only the first failure in an active episode posts. The message links the
+  run and the managed issue; run that workflow's
   `workflow_dispatch` from the Actions tab to smoke-test the Slack wiring.
 - **Dependabot preparation**: Native updates open Monday at 06:00 UTC.
   The disabled 10:15 UTC OpenClaw job will use the ordinary coding agent and

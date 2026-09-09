@@ -1,9 +1,10 @@
 name: Notify Slack on main-branch workflow failure
 
-# Fires when a watched operational workflow completes with a failing
-# conclusion for the default branch (or an allowlisted release tag). Posts a
-# structured message to `#ci-failures` via Slack's `chat.postMessage`, so
-# silent post-merge breakage is caught without anyone watching the Actions tab.
+# Reports a watched operational failure only when it remains current for 15
+# minutes. A newer success in the same workflow, event, and target-ref partition
+# cancels the waiting alert. The reconciliation handles callbacks that GitHub
+# delivers out of order and lets only the first failure in an active episode
+# post.
 #
 # Relationship to `.github/workflows/ci-failure-notifier.yml`: that workflow
 # owns the managed GitHub issue lifecycle (open, update, close after recovery)
@@ -13,8 +14,8 @@ name: Notify Slack on main-branch workflow failure
 # quality:budgets:test` asserts the two lists stay identical.
 #
 # The bot token is the org-shared `secrets.SLACK_BOT_TOKEN`. It needs Slack's
-# `chat:write.public` scope so the bot can post to a public channel it has not
-# been invited to.
+# `chat:write` scope. It also needs `chat:write.public` only when the bot posts
+# to a public channel that it has not joined.
 #
 # Trigger discipline:
 #   - `workflow_run` requires the watched workflows to be named explicitly
@@ -67,6 +68,14 @@ on:
 
 permissions: {}
 
+# Every completed callback enters this group before job conditions run. A newer
+# success cancels a failure inside the recovery window. A newer failure does not
+# cancel the first failure that owns the episode. The run-id fallback isolates
+# manual wiring tests.
+concurrency:
+  group: slack-ci-notifier-${{ github.event_name == 'workflow_dispatch' && github.run_id || format('{0}-{1}-{2}-{3}', github.event.workflow_run.workflow_id, github.event.workflow_run.event, github.event.workflow_run.head_branch || github.event.repository.default_branch, github.event.workflow_run.head_repository.full_name || github.repository) }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' && github.event.workflow_run.conclusion == 'success' }}
+
 jobs:
   notify:
     name: post failure to Slack
@@ -112,7 +121,7 @@ jobs:
         )
       )
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 20
     # `actions: read` is the single scope the freshness reconciliation below
     # needs to list this workflow's completed runs. Nothing else is granted:
     # the Slack credential goes to Slack, and this job writes nothing back to
@@ -127,20 +136,22 @@ jobs:
       name: slack-ci-notifications
       deployment: false # trunk-ignore(actionlint/syntax-check): Pinned actionlint has not learned GitHub's deployment key.
     steps:
+      - name: Wait for automatic recovery
+        if: github.event_name != 'workflow_dispatch'
+        run: sleep 900
+
       # A `workflow_run` callback can arrive out of order: run N's failure can
       # land after run N+1 already succeeded, and an older attempt can land
       # after a successful rerun. `scripts/ci-failure-issue.mjs` handles that
-      # by reconciling every callback to the latest decisive run in its
-      # partition (`workflow_id` + `event` + target ref) and acting on THAT
-      # run, so it closes or leaves closed the managed issue. Slack is not
-      # idempotent the way one managed issue is, so the mirror here is:
-      # post only when the triggering run is itself the latest decisive run in
-      # its partition. A newer decisive run either succeeded — nothing to
-      # announce — or failed and owns its own message.
+      # by reconciling every callback against decisive runs in its
+      # partition (`workflow_id` + `event` + target ref). Slack needs one alert
+      # per active failure episode. A newer success suppresses this callback.
+      # When no newer success exists, only the first failure after the nearest
+      # prior success posts. Later failures in that same episode skip.
       #
       # Fails open: any API error, or a callback run missing from the page,
       # posts anyway. A rare duplicate beats a dropped alert.
-      - name: Reconcile against the latest decisive run
+      - name: Reconcile the active failure episode
         id: freshness
         if: github.event_name != 'workflow_dispatch'
         env:
@@ -164,14 +175,10 @@ jobs:
             exit 0
           fi
 
-          # Pages of 100 completed runs, newest first, filtered to this
-          # callback's own event — the same query `listCompletedWorkflowRuns()`
-          # issues. That helper keeps paginating until a page contains a run at
-          # or before the callback, because a long tail of newer non-decisive
-          # runs (100 cancellations, say) can push the decisive one past the
-          # first page. This loop stops on the same condition, and additionally
-          # as soon as a newer decisive run is found — the only fact it needs.
-          # PAGE_LIMIT bounds the job; exhausting it fails open.
+          # Pages of 100 completed runs are newest first. The query is already
+          # restricted to this callback's event. Scan until a newer success or
+          # the closest older decisive run in this partition is known. The page
+          # limit bounds the job; exhausting it fails open.
           STALE=false
           PAGE=1
           PAGE_LIMIT=10
@@ -204,10 +211,8 @@ jobs:
             # and `workflow_dispatch` runs are always repository-owned, so the
             # filter only bites on `workflow_run`. A missing `head_repository`
             # drops the candidate, which can only add a post, never drop one.
-            # `reached` mirrors
-            # the helper's break condition and deliberately spans every run on
-            # the page, not just this partition. Every value reaches jq through
-            # --arg or stdin; nothing is interpolated into the shell.
+            # Every value reaches jq through --arg or stdin; nothing is
+            # interpolated into the shell.
             if ! RESULT=$(printf '%s' "$RUNS" | jq -r \
               --arg event "$EVENT" \
               --arg head_branch "$HEAD_BRANCH" \
@@ -218,16 +223,15 @@ jobs:
                 (if $head_branch != "" then $head_branch elif $event == "push" then "release tag" else $default_branch end) as $target
                 | ["success", "action_required", "failure", "startup_failure", "timed_out"] as $decisive
                 | (.workflow_runs // []) as $runs
-                | [ $runs[] | [(.run_number // 0), (.run_attempt // 1)] ] as $positions
                 | [ $runs[]
                     | select(.status == "completed")
                     | select(.conclusion as $c | $decisive | index($c))
                     | select((if (.head_branch // "") != "" then .head_branch elif $event == "push" then "release tag" else $default_branch end) == $target)
                     | select((.head_repository.full_name // "") == $repository)
-                    | [(.run_number // 0), (.run_attempt // 1)]
-                  ] as $decisivePositions
-                | [ ($decisivePositions | map(select(. > [$number, $attempt])) | length > 0),
-                    ($positions | map(select(. <= [$number, $attempt])) | length > 0),
+                    | {position: [(.run_number // 0), (.run_attempt // 1)], conclusion}
+                  ] as $decisiveRuns
+                | [ ($decisiveRuns | map(select(.conclusion == "success" and .position > [$number, $attempt])) | length > 0),
+                    ($decisiveRuns | map(select(.position < [$number, $attempt])) | sort_by(.position) | last | .conclusion // "none"),
                     ($runs | length)
                   ]
                 | @tsv
@@ -237,20 +241,27 @@ jobs:
               exit 0
             fi
 
-            IFS=$'\t' read -r PAGE_STALE PAGE_REACHED PAGE_COUNT <<<"$RESULT"
-            if [ "$PAGE_STALE" = "true" ]; then
+            IFS=$'\t' read -r PAGE_RECOVERED PAGE_PRIOR PAGE_COUNT <<<"$RESULT"
+            if [ "$PAGE_RECOVERED" = "true" ]; then
               STALE=true
+              echo "A newer success recovered this failure; skipping the Slack post."
               break
             fi
-            # Reached the callback, or ran out of runs: nothing newer remains.
-            if [ "$PAGE_REACHED" = "true" ] || [ "${PAGE_COUNT:-0}" -lt 100 ]; then
+            if [ "$PAGE_PRIOR" != "none" ]; then
+              if [ "$PAGE_PRIOR" != "success" ]; then
+                STALE=true
+                echo "An earlier failure owns this active episode; skipping the Slack post."
+              fi
+              break
+            fi
+            if [ "${PAGE_COUNT:-0}" -lt 100 ]; then
               break
             fi
             PAGE=$((PAGE + 1))
           done
 
           if [ "$PAGE" -gt "$PAGE_LIMIT" ]; then
-            echo "Reached the $PAGE_LIMIT-page scan limit without finding this run; posting without reconciliation."
+            echo "Reached the $PAGE_LIMIT-page scan limit without finding a prior decisive run; posting without reconciliation."
             echo "stale=false" >>"$GITHUB_OUTPUT"
             exit 0
           fi
@@ -258,8 +269,6 @@ jobs:
           # Anything but a clean `true` posts. Fail open, always.
           if [ "$STALE" != "true" ]; then
             STALE=false
-          else
-            echo "A newer decisive run of this workflow already concluded; skipping the Slack post."
           fi
           echo "stale=$STALE" >>"$GITHUB_OUTPUT"
 
@@ -338,13 +347,14 @@ jobs:
                | (if $head_branch != "" then $head_branch elif $event == "push" then "release tag" else $default_branch end) as $ref
                | (if $actor != "" and $actor != "null" then "\n*Triggered by:* " + $actor + " (`" + $event + "`)" else "\n*Triggered by:* `" + $event + "`" end) as $actor_line
                | ("https://github.com/" + $repo + "/issues?q=" + ("is:issue is:open in:title CI: " + $wf + " is failing" | @uri)) as $issue_url
+               | (if $wf == "Vercel Main Deployment" then "Controller commit" else "Commit" end) as $commit_label
                | {
                 channel: $ch,
                 text: ("❌ " + $wf + " " + $conclusion + " on " + $ref + " (" + $sha + ")"),
                 blocks: [
                   {type: "section", text: {type: "mrkdwn", text: ("❌ *<" + $url + "|" + $wf + ">* concluded `" + $conclusion + "` on `" + $ref + "`")}},
-                  {type: "section", text: {type: "mrkdwn", text: ("*Commit:* `" + $sha + "` — " + $safe_msg + $actor_line + "\n\n<" + $url + "|View failed run →>  ·  <" + $issue_url + "|Managed failure issue →>")}},
-                  {type: "context", elements: [{type: "mrkdwn", text: "The CI Failure Notifier tracks this in a managed GitHub issue and closes it after recovery."}]}
+                  {type: "section", text: {type: "mrkdwn", text: ("*" + $commit_label + ":* `" + $sha + "` — " + $safe_msg + $actor_line + "\n\n<" + $url + "|View failed run →>  ·  <" + $issue_url + "|Managed failure issue →>")}},
+                  {type: "context", elements: [{type: "mrkdwn", text: "This failure remained current for 15 minutes. The CI Failure Notifier tracks it in a managed GitHub issue and closes that issue after recovery."}]}
                 ]
               }')
           fi

@@ -315,6 +315,18 @@ test("the Slack notifier watches the issue notifier's allowlist and never shells
   );
   assert.deepEqual([...referencedSecrets], ["SLACK_BOT_TOKEN"]);
 
+  // A later callback in the same issue partition cancels a failure during its
+  // recovery window. Manual wiring tests use their unique run ID instead.
+  assert.match(
+    slack,
+    /^ {2}group: slack-ci-notifier-\$\{\{ github\.event_name == 'workflow_dispatch' && github\.run_id \|\| format\('\{0\}-\{1\}-\{2\}-\{3\}', github\.event\.workflow_run\.workflow_id, github\.event\.workflow_run\.event, github\.event\.workflow_run\.head_branch \|\| github\.event\.repository\.default_branch, github\.event\.workflow_run\.head_repository\.full_name \|\| github\.repository\) \}\}$/m,
+  );
+  assert.match(
+    slack,
+    /^ {2}cancel-in-progress: \$\{\{ github\.event_name != 'workflow_dispatch' && github\.event\.workflow_run\.conclusion == 'success' \}\}$/m,
+  );
+  assert.match(slack, /^ {4}timeout-minutes: 20$/m);
+
   // The Slack side channel must cover exactly the incident set the issue
   // notifier treats as a failure, minus the `success` recovery conclusion it
   // uses to close issues.
@@ -370,17 +382,21 @@ test("the Slack notifier watches the issue notifier's allowlist and never shells
   assert.equal(
     runBlocks.length,
     2,
-    "the notifier must have exactly the freshness and post run blocks",
+    "the notifier must have exactly the freshness and post multiline run blocks",
+  );
+  assert.match(
+    slack,
+    /^ {6}- name: Wait for automatic recovery\n {8}if: github\.event_name != 'workflow_dispatch'\n {8}run: sleep 900$/m,
   );
   assert.match(
     runBlocks[0],
     /actions\/workflows\/\$WORKFLOW_ID\/runs/,
-    "the first run block must be the freshness reconciliation",
+    "the first multiline run block must be the freshness reconciliation",
   );
   assert.match(
     runBlocks[1],
     /curl -fsS -X POST https:\/\/slack\.com\/api\/chat\.postMessage/,
-    "the second run block must be the Slack post body",
+    "the second multiline run block must be the Slack post body",
   );
   for (const block of runBlocks) {
     assert.doesNotMatch(
@@ -414,6 +430,16 @@ test("the Slack notifier watches the issue notifier's allowlist and never shells
     slack,
     /gsub\("&"; "&amp;"\) \| gsub\("<"; "&lt;"\) \| gsub\(">"; "&gt;"\)/,
     "the commit title must be escaped for Slack mrkdwn before insertion",
+  );
+  assert.match(
+    slack,
+    /if \$wf == "Vercel Main Deployment" then "Controller commit" else "Commit" end/,
+    "the nested Vercel workflow must not label its controller SHA as the deployed commit",
+  );
+  assert.match(
+    slack,
+    /This failure remained current for 15 minutes\./,
+    "a posted alert must state that it survived the recovery window",
   );
 
   // This privileged workflow_run listener must never check out or execute the
@@ -473,7 +499,7 @@ test("the Slack notifier names the same target ref as the managed issue", () => 
   }
 });
 
-test("the Slack notifier suppresses the same stale callbacks the issue notifier reconciles away", () => {
+test("the Slack notifier suppresses recovered and repeated failure callbacks", () => {
   const slack = read(".github/workflows/notify-slack-on-main-failure.yml");
   const issueScript = read("scripts/ci-failure-issue.mjs");
 
@@ -534,9 +560,15 @@ test("the Slack notifier suppresses the same stale callbacks the issue notifier 
   );
   assert.ok(
     slack.includes(
-      "($decisivePositions | map(select(. > [$number, $attempt])) | length > 0)",
+      '($decisiveRuns | map(select(.conclusion == "success" and .position > [$number, $attempt])) | length > 0)',
     ),
-    "staleness must be: some decisive run in the partition sorts after this one",
+    "a newer success must suppress a recovered failure",
+  );
+  assert.ok(
+    slack.includes(
+      '($decisiveRuns | map(select(.position < [$number, $attempt])) | sort_by(.position) | last | .conclusion // "none")',
+    ),
+    "the closest prior decisive run must identify the failure episode leader",
   );
 
   // Candidates must also be repository-owned, mirroring the
@@ -560,26 +592,11 @@ test("the Slack notifier suppresses the same stale callbacks the issue notifier 
     "decisive candidates must be filtered to runs this repository owns",
   );
 
-  // A long tail of newer non-decisive runs can push the decisive one past the
-  // first page, so the lookup must paginate on the same break condition
-  // listCompletedWorkflowRuns() uses: stop once a page holds a run at or
-  // before the callback.
-  assert.match(
-    issueScript,
-    /if \(page\.some\(\(candidate\) => compareRuns\(candidate, callbackRun\) <= 0\)\) \{\n {6}break;\n {4}\}/,
-    "the helper's pagination break changed; update the workflow loop",
-  );
+  // A long tail of non-decisive runs can push recovery or the previous episode
+  // boundary past the first page.
   assert.ok(
-    slack.includes(
-      "($positions | map(select(. <= [$number, $attempt])) | length > 0)",
-    ),
-    "the loop must mirror the helper's at-or-before-the-callback break",
-  );
-  assert.ok(
-    slack.includes(
-      'if [ "$PAGE_REACHED" = "true" ] || [ "${PAGE_COUNT:-0}" -lt 100 ]; then',
-    ),
-    "pagination must stop on the break condition or a short final page",
+    slack.includes('if [ "${PAGE_COUNT:-0}" -lt 100 ]; then'),
+    "pagination must stop on a short final page",
   );
   assert.match(
     slack,
@@ -588,14 +605,13 @@ test("the Slack notifier suppresses the same stale callbacks the issue notifier 
   );
   assert.ok(
     slack.includes(
-      'echo "Reached the $PAGE_LIMIT-page scan limit without finding this run; posting without reconciliation."',
+      'echo "Reached the $PAGE_LIMIT-page scan limit without finding a prior decisive run; posting without reconciliation."',
     ),
     "exhausting the page limit must fail open",
   );
 
-  // Reference: the issue notifier reconciles a callback to the latest decisive
-  // run in its partition and acts on that run. Mirror: the Slack post is
-  // suppressed exactly when that reconciliation would pick a different run.
+  // Reference helpers preserve the shared partition, ordering, and decisive
+  // conclusion rules. Slack then applies its episode-leader rule.
   const runPosition = (run) => [run.run_number ?? 0, run.run_attempt ?? 1];
   const compareRuns = (left, right) => {
     const [ln, la] = runPosition(left);
@@ -609,36 +625,11 @@ test("the Slack notifier suppresses the same stale callbacks the issue notifier 
     "startup_failure",
     "timed_out",
   ]);
-  const targetRefFor = (run, defaultBranch) =>
-    run.head_branch || (run.event === "push" ? "release tag" : defaultBranch);
   const repository = "mento-protocol/frontend-monorepo";
-  // isRelevantRun(), restricted to an already event-partitioned candidate
-  // set: only its `workflow_run` branch carries a repository check, because
-  // `push`, `schedule`, and `workflow_dispatch` runs are always
-  // repository-owned.
-  const isRelevant = (run, defaultBranch) =>
-    run.event !== "workflow_run" ||
-    (run.name === "Vercel Main Deployment" &&
-      run.head_branch === defaultBranch &&
-      (run.head_repository?.full_name ?? "") === repository);
-  const referenceReconcilesAway = (callback, runs, defaultBranch) => {
-    const partition = targetRefFor(callback, defaultBranch);
-    const latest = [callback, ...runs]
-      .filter(
-        (candidate) =>
-          candidate.status === "completed" &&
-          decisive.has(candidate.conclusion) &&
-          isRelevant(candidate, defaultBranch) &&
-          targetRefFor(candidate, defaultBranch) === partition,
-      )
-      .sort((left, right) => compareRuns(right, left))[0];
-    return latest !== undefined && compareRuns(latest, callback) !== 0;
-  };
-  // The workflow step, reimplemented: page through the runs newest-first, and
-  // on each page ask whether a decisive run in the same partition sorts after
-  // the callback. Stop once a page holds a run at or before the callback, or
-  // the page is short. `runs` here is the full newest-first listing; the
-  // pageSize argument keeps the pagination path testable without 100 fixtures.
+  // The workflow step, reimplemented. A newer success means this callback
+  // recovered. Otherwise, the nearest older decisive run says whether this is
+  // the first failure in the current episode. `runs` is the full newest-first
+  // listing; pageSize keeps pagination testable without 100 fixtures.
   const workflowSkips = (callback, runs, defaultBranch, pageSize = 100) => {
     const partition =
       callback.head_branch !== ""
@@ -663,20 +654,28 @@ test("the Slack notifier suppresses the same stale callbacks the issue notifier 
     const pageLimit = 10;
     for (let page = 0; page < pageLimit; page += 1) {
       const rows = runs.slice(page * pageSize, (page + 1) * pageSize);
-      const stale = rows
+      const candidates = rows
         .filter((candidate) => candidate.status === "completed")
         .filter((candidate) => decisive.has(candidate.conclusion))
         .filter(inPartition)
         .filter(
           (candidate) =>
             (candidate.head_repository?.full_name ?? "") === repository,
+        );
+      if (
+        candidates.some(
+          (candidate) =>
+            candidate.conclusion === "success" &&
+            compareRuns(candidate, callbackPosition) > 0,
         )
-        .some((candidate) => compareRuns(candidate, callbackPosition) > 0);
-      if (stale) return true;
-      const reached = rows.some(
-        (candidate) => compareRuns(candidate, callbackPosition) <= 0,
-      );
-      if (reached || rows.length < pageSize) return false;
+      ) {
+        return true;
+      }
+      const prior = candidates
+        .filter((candidate) => compareRuns(candidate, callbackPosition) < 0)
+        .sort((left, right) => compareRuns(right, left))[0];
+      if (prior) return prior.conclusion !== "success";
+      if (rows.length < pageSize) return false;
     }
     // Page limit exhausted: fail open.
     return false;
@@ -704,8 +703,13 @@ test("the Slack notifier suppresses the same stale callbacks the issue notifier 
       skip: true,
     },
     {
-      name: "a newer run also failed and owns its own message",
+      name: "a newer failure keeps the first failure as episode owner",
       runs: [{ ...callback, run_number: 12 }],
+      skip: false,
+    },
+    {
+      name: "an earlier failure already owns the active episode",
+      runs: [{ ...callback, run_number: 10 }],
       skip: true,
     },
     {
@@ -726,7 +730,7 @@ test("the Slack notifier suppresses the same stale callbacks the issue notifier 
       skip: false,
     },
     {
-      name: "an older run succeeded after this failure",
+      name: "the nearest older success starts this failure episode",
       runs: [{ ...callback, conclusion: "success", run_number: 10 }],
       skip: false,
     },
@@ -745,17 +749,25 @@ test("the Slack notifier suppresses the same stale callbacks the issue notifier 
       pageSize: 4,
       skip: true,
     },
+    {
+      name: "the previous episode failure sits beyond the first page",
+      runs: [
+        ...Array.from({ length: 4 }, (_unused, index) => ({
+          ...callback,
+          conclusion: "cancelled",
+          run_number: 100 - index,
+        })),
+        { ...callback, run_number: 10 },
+      ],
+      pageSize: 4,
+      skip: true,
+    },
   ];
   for (const scenario of scenarios) {
     assert.equal(
       workflowSkips(callback, scenario.runs, "main", scenario.pageSize),
       scenario.skip,
       `workflow mirror wrong: ${scenario.name}`,
-    );
-    assert.equal(
-      referenceReconcilesAway(callback, scenario.runs, "main"),
-      scenario.skip,
-      `the issue notifier disagrees: ${scenario.name}`,
     );
   }
 
@@ -785,11 +797,6 @@ test("the Slack notifier suppresses the same stale callbacks the issue notifier 
     false,
     "a fork-owned newer success must not suppress the Slack post",
   );
-  assert.equal(
-    referenceReconcilesAway(workflowRunCallback, [forkSuccess], "main"),
-    false,
-    "the issue notifier ignores the fork run; Slack must agree",
-  );
   // Control: the same run owned by this repository still suppresses the post,
   // so the filter narrows to ownership rather than disabling reconciliation.
   const ownedSuccess = {
@@ -801,15 +808,10 @@ test("the Slack notifier suppresses the same stale callbacks the issue notifier 
     true,
     "a repository-owned newer success must still suppress the Slack post",
   );
-  assert.equal(
-    referenceReconcilesAway(workflowRunCallback, [ownedSuccess], "main"),
-    true,
-    "the issue notifier reconciles the owned run away; Slack must agree",
-  );
 
   // Prove the pagination scenario is a real regression guard: a lookup capped
   // at one page reports "not stale" for it, which is the bug being fixed.
-  const buriedSuccess = scenarios.at(-1);
+  const buriedSuccess = scenarios.at(-2);
   assert.equal(
     workflowSkips(callback, buriedSuccess.runs, "main", 1000),
     true,
