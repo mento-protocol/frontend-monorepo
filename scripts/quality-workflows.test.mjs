@@ -315,16 +315,10 @@ test("the Slack notifier watches the issue notifier's allowlist and never shells
   );
   assert.deepEqual([...referencedSecrets], ["SLACK_BOT_TOKEN"]);
 
-  // A later callback in the same issue partition cancels a failure during its
-  // recovery window. Manual wiring tests use their unique run ID instead.
-  assert.match(
-    slack,
-    /^ {2}group: slack-ci-notifier-\$\{\{ github\.event_name == 'workflow_dispatch' && github\.run_id \|\| format\('\{0\}-\{1\}-\{2\}-\{3\}', github\.event\.workflow_run\.workflow_id, github\.event\.workflow_run\.event, github\.event\.workflow_run\.head_branch \|\| github\.event\.repository\.default_branch, github\.event\.workflow_run\.head_repository\.full_name \|\| github\.repository\) \}\}$/m,
-  );
-  assert.match(
-    slack,
-    /^ {2}cancel-in-progress: \$\{\{ github\.event_name != 'workflow_dispatch' && github\.event\.workflow_run\.conclusion == 'success' \}\}$/m,
-  );
+  // Failure callbacks must wait independently. GitHub keeps at most one
+  // pending member per concurrency group and can otherwise discard the older
+  // callback that owns the active episode.
+  assert.doesNotMatch(slack, /^concurrency:/m);
   assert.match(slack, /^ {4}timeout-minutes: 20$/m);
 
   // The Slack side channel must cover exactly the incident set the issue
@@ -394,8 +388,13 @@ test("the Slack notifier watches the issue notifier's allowlist and never shells
     "the first multiline run block must be the freshness reconciliation",
   );
   assert.match(
+    runBlocks[0],
+    /curl -fsS --connect-timeout 5 --max-time 20/,
+    "the GitHub request must finish before the job timeout",
+  );
+  assert.match(
     runBlocks[1],
-    /curl -fsS -X POST https:\/\/slack\.com\/api\/chat\.postMessage/,
+    /curl -fsS --connect-timeout 5 --max-time 20 -X POST https:\/\/slack\.com\/api\/chat\.postMessage/,
     "the second multiline run block must be the Slack post body",
   );
   for (const block of runBlocks) {

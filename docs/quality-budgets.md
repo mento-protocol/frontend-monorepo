@@ -196,15 +196,13 @@ which conclusions count. The message links the failed run and the managed-issue
 search; it opens, updates, and closes nothing, so the issue lifecycle above
 stays the single source of truth.
 
-The notifier waits 15 minutes before it evaluates and posts a failure. Its
-workflow-level concurrency key contains the watched workflow, event, and target
-ref, plus the source repository that isolates nested Vercel fork callbacks. A
-newer success in that partition cancels the waiting run. A newer failure does
-not cancel the first failure. Reconciliation suppresses a callback after a newer
-success and lets only the first failure after the nearest prior success post.
-This keeps one red message per active failure episode, including when failures
-continue more often than the recovery window. The workflow stores no Slack
-receipt and does not update old messages.
+The notifier waits 15 minutes before it evaluates and posts a failure. Each
+failure callback waits independently. This prevents GitHub's concurrency queue
+from discarding the callback that owns the episode. Reconciliation then
+suppresses a callback after a newer success and lets only the first failure after
+the nearest prior success post. This keeps one red message per active failure
+episode, including when failures continue more often than the recovery window.
+The workflow stores no Slack receipt and does not update old messages.
 
 `chat.postMessage` accepts a channel name for a public channel, so the payload
 passes `#ci-failures` rather than an encoded ID. Configure an ID instead only
@@ -264,7 +262,7 @@ the smoke-test dispatch skips it entirely.
 
 It paginates until it finds a newer success, the nearest older decisive run, or
 a short final page. This handles a long tail of non-decisive runs. The scan is
-bounded to ten pages.
+bounded to ten pages. Each GitHub and Slack request has a 20-second deadline.
 
 It fails open. An API error, an unexpected workflow id, malformed or
 unparseable JSON, or exhausting the page limit posts anyway — a rare duplicate

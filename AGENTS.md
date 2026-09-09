@@ -101,9 +101,10 @@ evidence; pull requests remain path-gated per surface.
 `.github/workflows/notify-slack-on-main-failure.yml` watches that same static
 allowlist and posts the same failures to Slack's `#ci-failures` with a link to
 the run and to the managed issue; it opens no issue and duplicates no issue
-logic. It waits 15 minutes before posting. A newer success in the same workflow,
-event, and target-ref partition cancels that wait. When failures continue, only
-the first failure in the active episode posts. It alerts on exactly the
+logic. It waits 15 minutes before posting. Reconciliation then suppresses a
+failure when a newer success exists in the same workflow, event, and target-ref
+partition. When failures continue, only the first failure in the active episode
+posts. It alerts on exactly the
 `FAILURE_CONCLUSIONS` set from
 `scripts/ci-failure-issue.mjs` and uses the same target-ref, run-order,
 decisive-conclusion, and repository-ownership rules. This prevents an

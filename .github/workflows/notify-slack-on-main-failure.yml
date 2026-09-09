@@ -1,10 +1,9 @@
 name: Notify Slack on main-branch workflow failure
 
 # Reports a watched operational failure only when it remains current for 15
-# minutes. A newer success in the same workflow, event, and target-ref partition
-# cancels the waiting alert. The reconciliation handles callbacks that GitHub
-# delivers out of order and lets only the first failure in an active episode
-# post.
+# minutes. Reconciliation suppresses a recovered failure and lets only the first
+# failure in an active episode post, including when GitHub delivers callbacks out
+# of order.
 #
 # Relationship to `.github/workflows/ci-failure-notifier.yml`: that workflow
 # owns the managed GitHub issue lifecycle (open, update, close after recovery)
@@ -67,14 +66,6 @@ on:
   workflow_dispatch:
 
 permissions: {}
-
-# Every completed callback enters this group before job conditions run. A newer
-# success cancels a failure inside the recovery window. A newer failure does not
-# cancel the first failure that owns the episode. The run-id fallback isolates
-# manual wiring tests.
-concurrency:
-  group: slack-ci-notifier-${{ github.event_name == 'workflow_dispatch' && github.run_id || format('{0}-{1}-{2}-{3}', github.event.workflow_run.workflow_id, github.event.workflow_run.event, github.event.workflow_run.head_branch || github.event.repository.default_branch, github.event.workflow_run.head_repository.full_name || github.repository) }}
-  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' && github.event.workflow_run.conclusion == 'success' }}
 
 jobs:
   notify:
@@ -183,7 +174,7 @@ jobs:
           PAGE=1
           PAGE_LIMIT=10
           while [ "$PAGE" -le "$PAGE_LIMIT" ]; do
-            if ! RUNS=$(curl -fsS \
+            if ! RUNS=$(curl -fsS --connect-timeout 5 --max-time 20 \
               -H "Authorization: Bearer $GH_TOKEN" \
               -H "Accept: application/vnd.github+json" \
               -H "X-GitHub-Api-Version: 2022-11-28" \
@@ -359,7 +350,7 @@ jobs:
               }')
           fi
 
-          RESPONSE=$(curl -fsS -X POST https://slack.com/api/chat.postMessage \
+          RESPONSE=$(curl -fsS --connect-timeout 5 --max-time 20 -X POST https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
             -H "Content-Type: application/json; charset=utf-8" \
             --data "$PAYLOAD")

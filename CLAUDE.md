@@ -462,8 +462,8 @@ workflow reaches two places. `.github/workflows/ci-failure-notifier.yml` opens
 or updates one managed GitHub issue per partition and closes it after recovery.
 `.github/workflows/notify-slack-on-main-failure.yml` posts the same failure to
 Slack's `#ci-failures` with links to the run and to the managed issue. It waits
-15 minutes, cancels the wait after a newer success, and lets only the first
-failure in an active episode post. Both watch the same static workflow
+15 minutes, suppresses a recovered failure after the wait, and lets only the
+first failure in an active episode post. Both watch the same static workflow
 allowlist and use the same target-ref, run-order, decisive-conclusion, and
 repository-ownership rules. Therefore,
 adding or renaming an operational workflow means updating both lists and
