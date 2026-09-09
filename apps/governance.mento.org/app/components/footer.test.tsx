@@ -18,7 +18,7 @@ describe("Governance footer external links", () => {
     ).toBe("https://github.com/mento-protocol");
     expect(
       (screen.getByTestId("discord-link-button") as HTMLAnchorElement).href,
-    ).toBe("http://discord.mento.org/");
+    ).toBe("https://discord.mento.org/");
   });
 
   it("links Mento.org, Reserve, and Privacy Policy to the expected destinations", () => {
