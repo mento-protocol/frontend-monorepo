@@ -18,7 +18,6 @@ export default mergeConfig(sharedConfig, {
     setupFiles: ["./vitest.setup.ts"],
     include: ["src/**/*.test.tsx"],
     coverage: {
-      all: true,
       include: ["src/**/*.{js,jsx,ts,tsx}"],
       exclude: [
         "src/**/*.test.{js,jsx,ts,tsx}",
