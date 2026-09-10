@@ -41,7 +41,7 @@ Use [the preparation playbook](docs/dependabot-automation.md) and
 `.github/dependabot-prep-policy.json` from the live default branch. The
 `trusted-openclaw-agent` workflow uses the ordinary coding session and existing
 GitHub authentication; its prohibitions are procedural, not a credential sandbox.
-Use the portable `dependabot-prep` skill, revision `trusted-agent-v1`, with that
+Use the portable `dependabot-prep` skill, revision `trusted-agent-v2`, with that
 playbook's repository overrides in OpenClaw, Codex or Claude. The historical
 execution-model identifier remains for compatibility. Never invoke the retired
 `/opt/dependabot-prep` launcher or the archived sealed skill procedure.
@@ -58,8 +58,8 @@ The weekly OpenClaw job stays disabled until this policy is merged, a supervised
 preparation succeeds, and the operator separately confirms activation. Its
 reviewed entry prompt is `scripts/prompts/dependabot-weekly.md`. Never run the
 legacy launcher and the ordinary workflow concurrently. Follow the playbook's
-single-batch lock, recovery, budgets, progress, exact-head verification, and
-research requirements.
+per-pull-request claim coordination, recovery, budgets, progress, exact-head
+verification, and research requirements.
 
 Dependabot CI remains secretless. Do not admit these PRs to credentialed Vercel
 Preview workers or broaden the existing author/sender rules.

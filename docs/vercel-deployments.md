@@ -1388,8 +1388,9 @@ workflow changes, and cross-workspace inputs such as the lockfile, root package
 configuration, `turbo.json`, patches, or shared security headers. Proven
 documentation and test-only paths return an empty deployment list. There is no
 dependency-maintenance workflow exception or prefix-based script exception.
-The exact `.github/dependabot.yml`, `.github/dependabot-prep-policy.json`, and
-`scripts/dependency-policy.test.mjs` files are retained non-runtime exceptions.
+The exact `.github/dependabot.yml`, `.github/dependabot-prep-policy.json`,
+`scripts/dependabot-claim.mjs`, and `scripts/dependency-policy.test.mjs` files
+are retained non-runtime exceptions.
 A workflow change mixed with an application, package, lockfile,
 security-header, CI, Vercel, unknown, renamed, or near-match path still selects
 all four deployments. Every retained non-runtime exception names an exact

@@ -51,12 +51,12 @@ only the exact reviewed nanoid 3.3.18 pair. Do not restore a retired patch or
 cross-paired manifest and lockfile state.
 
 The ordinary trusted coding agent may prepare Next.js and Vercel CLI rotations
-under the [v3 playbook](dependabot-automation.md), including installation,
+under the [canonical playbook](dependabot-automation.md), including installation,
 generation, builds and tests. Preserve the coupling, registry provenance and
 validation requirements below; do not guess digests or relax validators.
 
 Protected pnpm transitions that change workflows, trusted checkers or security
-controls still require a human decision under v3. Keep their checker-only first
+controls still require a human decision. Keep their checker-only first
 PR separate from the atomic second-stage update. The scheduled agent does not
 create replacement PRs, publish needs-decision changes or dispatch privileged
 workflows; report the required maintainer procedure instead.
@@ -171,7 +171,7 @@ workspace `catalog:` references. Regenerate the necessary Next runtime closure
 and affected contract digests. Preserve Vercel identity, builder dependencies,
 registry integrity, contract schema and unrelated package/runtime pins unless
 the requested update proves a documented coupling. Explain every additional
-change; no blanket patch-only or no-exec lane applies under v3.
+change; no blanket patch-only or no-exec lane applies.
 Then:
 
 1. Start from the live Dependabot or maintainer branch. Review the requested

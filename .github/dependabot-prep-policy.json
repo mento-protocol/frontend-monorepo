@@ -1,10 +1,10 @@
 {
-  "schema": "dependabot-prep-policy:v3",
+  "schema": "dependabot-prep-policy:v4",
   "executionModel": "trusted-openclaw-agent",
   "operatingRevision": "autonomous-decisions-v1",
   "workflow": {
     "skill": "dependabot-prep",
-    "revision": "trusted-agent-v1",
+    "revision": "trusted-agent-v2",
     "runtimes": ["openclaw", "codex", "claude"],
     "hostProfile": "giskard-capped-otherwise-portable-serial"
   },
@@ -38,18 +38,47 @@
     "unexplainedForeignCommits": "needs-decision"
   },
   "limits": {
-    "activeBatches": 1,
     "batchMinutes": 360,
     "perPullRequestMinutes": 45,
     "repairAttempts": 3
   },
   "coordination": {
-    "host": "giskard",
-    "lockPath": "/home/molt/.local/state/mento-dependabot/active",
-    "allWriters": "same-atomic-lock-before-writes",
-    "remoteAccess": "operator-configured-authenticated-encrypted-connection",
-    "unavailable": "read-only",
-    "release": "owner-only-after-local-work-stops"
+    "primitive": "github-ref-claims",
+    "claims": {
+      "schema": "mento-claims-config:v1",
+      "profile": "pr",
+      "namespace": "refs/mento-claims/v1/pr",
+      "scopeTemplate": "refs/mento-claims/v1/pr/{pr}",
+      "kind": "mento-claim",
+      "payloadVersion": 1,
+      "author": {
+        "name": "Mento claims",
+        "email": "claims@users.noreply.github.com"
+      },
+      "ttlMinutes": 30,
+      "renewMinutes": 10,
+      "graceMinutes": 10,
+      "maxTtlMinutes": 360,
+      "minRemainingSeconds": 360,
+      "skewToleranceSeconds": 300,
+      "label": "dependabot-prep:claimed",
+      "markerRevision": "v2",
+      "requiredBefore": ["branch-push", "review-request"],
+      "advisoryBefore": ["summary-comment", "inline-reply", "long-wait"],
+      "allowOverrides": false,
+      "allowCloudWriters": false,
+      "command": ["pnpm", "dependabot:claim", "--"],
+      "package": { "name": "@mento-protocol/issues", "version": "0.1.0" }
+    },
+    "hostLock": {
+      "scope": "host-local-heavy-tree",
+      "path": "${XDG_STATE_HOME:-$HOME/.local/state}/dependabot-prep/<host>__<owner>__<repo>/active",
+      "pathMacos": "$HOME/Library/Application Support/dependabot-prep/<host>__<owner>__<repo>/active",
+      "purpose": "process-tree-resource-cap-only-not-cross-host-serialization"
+    },
+    "allWriters": "claim-required-before-push-and-review-request-advisory-otherwise",
+    "unavailable": "read-only-for-that-pull-request",
+    "release": "owner-only-on-terminal-verdict-or-expiry-takeover"
   },
   "decisions": {
     "default": "best-supported-reversible-choice-and-continue",
@@ -64,7 +93,8 @@
     "periodicStatusMessages": false,
     "finalDelivery": "full-readable-report-not-local-path-only",
     "requireDeliveryReceipt": true,
-    "prCommentMarker": "<!-- mento-dependabot-preparation:v1 -->"
+    "prCommentMarker": "<!-- mento-dependabot-preparation:v1 -->",
+    "prCommentClaimMarkerSchema": "mento-dependabot-preparation:v2"
   },
   "hostResources": {
     "heavyTrees": 1,
@@ -95,6 +125,7 @@
       "AGENTS.md",
       "CLAUDE.md",
       "docs/dependabot-automation.md",
+      "scripts/dependabot-claim.mjs",
       "scripts/prompts/dependabot-weekly.md"
     ],
     "needsDecisionPathExceptions": {
@@ -131,6 +162,7 @@
     "dismiss-review",
     "resolve-thread",
     "unresolve-thread",
+    "delete-claim-refs",
     "force-push",
     "rebase",
     "recreate",
