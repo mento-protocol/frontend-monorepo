@@ -1,6 +1,9 @@
 import { ProposalContent } from "@/components/proposal/content";
 import { env } from "@/env.mjs";
-import { getGraphAuthorization } from "@/graphql/graph-gateway";
+import {
+  getGraphAuthorization,
+  isPrimaryUnavailable,
+} from "@/graphql/graph-gateway";
 import { getGraphRequestOrigin } from "@/graphql/graph-request-origin";
 import { Metadata } from "next";
 import { notFound } from "next/navigation";
@@ -112,33 +115,57 @@ async function fetchProposalData(id: string) {
     throw new Error("Subgraph URL not configured");
   }
 
-  // Host-gated: the gateway takes the key, a Studio endpoint does not.
-  const authorization = getGraphAuthorization(
-    subgraphUrl,
-    env.NEXT_PUBLIC_GRAPH_API_KEY,
-  );
-
-  const response = await fetch(subgraphUrl, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Origin: getGraphRequestOrigin({
-        vercelEnvironment: env.NEXT_PUBLIC_VERCEL_ENV,
-      }),
-      ...(authorization && { Authorization: authorization }),
-    },
-    body: JSON.stringify({
-      query: GET_PROPOSAL_METADATA,
-      variables: { id },
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`HTTP error! status: ${response.status}`);
+  // Mainnet is the only chain with a fallback; Celo Sepolia's primary is
+  // already the Studio endpoint. Tried once, only when the primary is
+  // unavailable — same rule as the Apollo fallback link.
+  const endpoints = [subgraphUrl];
+  if (!isCeloSepolia && env.NEXT_PUBLIC_SUBGRAPH_FALLBACK_URL) {
+    endpoints.push(env.NEXT_PUBLIC_SUBGRAPH_FALLBACK_URL);
   }
 
-  const result = await response.json();
-  return result.data;
+  const body = JSON.stringify({
+    query: GET_PROPOSAL_METADATA,
+    variables: { id },
+  });
+  const origin = getGraphRequestOrigin({
+    vercelEnvironment: env.NEXT_PUBLIC_VERCEL_ENV,
+  });
+
+  let lastFailure: Error | undefined;
+  for (const url of endpoints) {
+    // Host-gated per endpoint: the gateway takes the key, Studio does not.
+    const authorization = getGraphAuthorization(
+      url,
+      env.NEXT_PUBLIC_GRAPH_API_KEY,
+    );
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: origin,
+        ...(authorization && { Authorization: authorization }),
+      },
+      body,
+    });
+
+    if (!response.ok) {
+      lastFailure = new Error(`HTTP error! status: ${response.status}`);
+      continue;
+    }
+
+    const result = await response.json();
+    if (isPrimaryUnavailable(result)) {
+      lastFailure = new Error(
+        `Subgraph unavailable: ${JSON.stringify(result.errors)}`,
+      );
+      continue;
+    }
+
+    return result.data;
+  }
+
+  throw lastFailure ?? new Error("Subgraph request failed");
 }
 
 interface PageProps {

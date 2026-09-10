@@ -31,6 +31,15 @@ export const env = createEnv({
     NEXT_PUBLIC_STORAGE_URL: z.string().url(),
     NEXT_PUBLIC_SUBGRAPH_URL: z.string().url(),
     NEXT_PUBLIC_SUBGRAPH_URL_CELO_SEPOLIA: z.string().url(),
+    // Optional second endpoint for the mainnet subgraph, tried once when the
+    // primary (the decentralized-network gateway) is unavailable. Unset means
+    // no fallback — today's behaviour exactly. Typically the Subgraph Studio
+    // dev endpoint for the same subgraph, which is rate-limited (3,000
+    // queries/day) and so a degraded mode, not a second primary.
+    NEXT_PUBLIC_SUBGRAPH_FALLBACK_URL: z.preprocess(
+      (value) => (value === "" ? undefined : value),
+      z.string().url().optional(),
+    ),
     NEXT_PUBLIC_VERCEL_ENV: z.string(),
     NEXT_PUBLIC_WALLET_CONNECT_ID: z.string(),
   },
@@ -57,6 +66,8 @@ export const env = createEnv({
     NEXT_PUBLIC_SUBGRAPH_URL: process.env.NEXT_PUBLIC_SUBGRAPH_URL,
     NEXT_PUBLIC_SUBGRAPH_URL_CELO_SEPOLIA:
       process.env.NEXT_PUBLIC_SUBGRAPH_URL_CELO_SEPOLIA,
+    NEXT_PUBLIC_SUBGRAPH_FALLBACK_URL:
+      process.env.NEXT_PUBLIC_SUBGRAPH_FALLBACK_URL,
     NEXT_PUBLIC_VERCEL_ENV: process.env.NEXT_PUBLIC_VERCEL_ENV,
     NEXT_PUBLIC_WALLET_CONNECT_ID: process.env.NEXT_PUBLIC_WALLET_CONNECT_ID,
   },

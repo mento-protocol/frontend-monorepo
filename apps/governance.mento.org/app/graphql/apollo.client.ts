@@ -12,18 +12,26 @@ import { HttpLink } from "@apollo/client/link/http";
 import { LocalState } from "@apollo/client/local-state";
 import { env } from "@/env.mjs";
 import { getGraphAuthorization } from "./graph-gateway";
+import {
+  createSubgraphFallbackLink,
+  SUBGRAPH_FALLBACK_CONTEXT_KEY,
+} from "./subgraph-fallback-link";
 
 // One source of truth for "which URL does this apiName hit". Both the
 // transport and the auth link consult it, so the key decision can never
 // disagree with the destination.
-function resolveEndpoint(apiName: unknown): string {
+function resolveEndpoint(apiName: unknown, useFallback = false): string {
   switch (apiName) {
     case "celoExplorer":
       return env.NEXT_PUBLIC_BLOCKSCOUT_GRAPHQL_URL;
     case "celoExplorerCeloSepolia":
       return env.NEXT_PUBLIC_BLOCKSCOUT_GRAPHQL_URL_CELO_SEPOLIA;
     case "subgraph":
-      return env.NEXT_PUBLIC_SUBGRAPH_URL;
+      // Mainnet is the only chain with a fallback. Celo Sepolia's primary is
+      // already the Studio endpoint and has nothing to fall back to.
+      return useFallback && env.NEXT_PUBLIC_SUBGRAPH_FALLBACK_URL
+        ? env.NEXT_PUBLIC_SUBGRAPH_FALLBACK_URL
+        : env.NEXT_PUBLIC_SUBGRAPH_URL;
     case "subgraphCeloSepolia":
       return env.NEXT_PUBLIC_SUBGRAPH_URL_CELO_SEPOLIA;
     default:
@@ -31,11 +39,19 @@ function resolveEndpoint(apiName: unknown): string {
   }
 }
 
+const SUBGRAPH_FALLBACK_API_NAMES = ["subgraph"] as const;
+
 // have a function to create a client for you
 export function makeClient() {
   const httpLink = new HttpLink({
     // needs to be an absolute url, as relative urls cannot be used in SSR
-    uri: (operation) => resolveEndpoint(operation.getContext().apiName),
+    uri: (operation) => {
+      const context = operation.getContext();
+      return resolveEndpoint(
+        context.apiName,
+        Boolean(context[SUBGRAPH_FALLBACK_CONTEXT_KEY]),
+      );
+    },
 
     // you can disable result caching here if you want to
     // (this does not work if you are rendering your page with `export const dynamic = "force-static"`)
@@ -47,26 +63,44 @@ export function makeClient() {
   });
 
   // Auth link to add API keys to requests
-  const authLink = new SetContextLink(({ apiName, headers }) => {
+  const authLink = new SetContextLink((context) => {
+    const { apiName, headers } = context;
     // Only subgraph operations are candidates for the key, and only when the
     // resolved endpoint is the gateway. A chain that has moved to a Studio
-    // dev endpoint gets no key, since Studio does not take one.
+    // dev endpoint gets no key, since Studio does not take one — and neither
+    // does a retry that the fallback link has redirected to Studio.
     const isSubgraphOperation =
       apiName === "subgraph" || apiName === "subgraphCeloSepolia";
     const authorization = isSubgraphOperation
       ? getGraphAuthorization(
-          resolveEndpoint(apiName),
+          resolveEndpoint(
+            apiName,
+            Boolean(context[SUBGRAPH_FALLBACK_CONTEXT_KEY]),
+          ),
           env.NEXT_PUBLIC_GRAPH_API_KEY,
         )
       : undefined;
 
+    // On a fallback retry this link runs a second time over a context that
+    // already carries the first pass's authorization. Strip it so the
+    // decision below is the only thing that puts a key on the request.
+    const otherHeaders = { ...(headers ?? {}) } as Record<string, string>;
+    delete otherHeaders.authorization;
+
     // Return the headers to the context so httpLink can read them
     return {
       headers: {
-        ...headers,
+        ...otherHeaders,
         ...(authorization && { authorization }),
       },
     };
+  });
+
+  // Upstream of auth + transport so a retry re-runs both with the fallback
+  // context set. Inert when NEXT_PUBLIC_SUBGRAPH_FALLBACK_URL is unset.
+  const fallbackLink = createSubgraphFallbackLink({
+    apiNames: SUBGRAPH_FALLBACK_API_NAMES,
+    enabled: Boolean(env.NEXT_PUBLIC_SUBGRAPH_FALLBACK_URL),
   });
 
   const cache = new InMemoryCache({
@@ -92,9 +126,10 @@ export function makeClient() {
             new SSRMultipartLink({
               stripDefer: true,
             }),
+            fallbackLink,
             authLink,
             httpLink,
           ])
-        : authLink.concat(httpLink),
+        : ApolloLink.from([fallbackLink, authLink, httpLink]),
   });
 }
