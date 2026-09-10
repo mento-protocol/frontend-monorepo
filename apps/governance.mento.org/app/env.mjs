@@ -38,7 +38,11 @@ export const env = createEnv({
     // queries/day) and so a degraded mode, not a second primary.
     NEXT_PUBLIC_SUBGRAPH_FALLBACK_URL: z.preprocess(
       (value) => (value === "" ? undefined : value),
-      z.string().url().optional(),
+      z
+        .string()
+        .url()
+        .startsWith("https://", "Subgraph fallback URL must use https")
+        .optional(),
     ),
     NEXT_PUBLIC_VERCEL_ENV: z.string(),
     NEXT_PUBLIC_WALLET_CONNECT_ID: z.string(),
