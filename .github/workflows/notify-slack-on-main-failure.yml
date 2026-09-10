@@ -260,6 +260,7 @@ jobs:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           IS_TEST: ${{ github.event_name == 'workflow_dispatch' }}
           REPOSITORY: ${{ github.repository }}
+          REPOSITORY_NAME: ${{ github.event.repository.name }}
           # `workflow_run` context (only populated for real failures).
           # IMPORTANT: never interpolate any of these into a shell command —
           # a commit message can contain backticks or $(…) and would execute
@@ -316,6 +317,7 @@ jobs:
             PAYLOAD=$(jq -nc \
               --arg ch '#ci-failures' \
               --arg repo "$REPOSITORY" \
+              --arg repo_name "$REPOSITORY_NAME" \
               --arg wf "$WORKFLOW_NAME" \
               --arg url "$RUN_URL" \
               --arg sha "${COMMIT_SHA:0:7}" \
@@ -332,9 +334,9 @@ jobs:
                | (if $wf == "Vercel Main Deployment" then "Controller commit" else "Commit" end) as $commit_label
                | {
                 channel: $ch,
-                text: ("❌ " + $wf + " " + $conclusion + " on " + $ref + " (" + $sha + ")"),
+                text: ("❌ " + $wf + " " + $conclusion + " on " + $ref + " in " + $repo_name + " (" + $sha + ")"),
                 blocks: [
-                  {type: "section", text: {type: "mrkdwn", text: ("❌ *<" + $url + "|" + $wf + ">* concluded `" + $conclusion + "` on `" + $ref + "`")}},
+                  {type: "section", text: {type: "mrkdwn", text: ("❌ *<" + $url + "|" + $wf + ">* concluded `" + $conclusion + "` on `" + $ref + "` *in " + $repo_name + "*")}},
                   {type: "section", text: {type: "mrkdwn", text: ("*" + $commit_label + ":* `" + $sha + "` — " + $safe_msg + $actor_line + "\n\n<" + $url + "|View failed run →>  ·  <" + $issue_url + "|Managed failure issue →>")}},
                   {type: "context", elements: [{type: "mrkdwn", text: "This failure remained current for 15 minutes. The CI Failure Notifier tracks it in a managed GitHub issue and closes that issue after recovery."}]}
                 ]

@@ -444,6 +444,28 @@ test("the Slack notifier watches the issue notifier's allowlist and never shells
     /This failure remained current for 15 minutes\./,
     "a posted alert must state that it survived the recovery window",
   );
+  assert.match(
+    slack,
+    /^ {10}REPOSITORY_NAME: \$\{\{ github\.event\.repository\.name \}\}$/m,
+    "the Slack alert must bind the short repository name",
+  );
+  assert.match(
+    slack,
+    /--arg repo_name "\$REPOSITORY_NAME"/,
+    "the repository name must reach jq through an escaped argument",
+  );
+  assert.ok(
+    slack.includes(
+      'text: ("❌ " + $wf + " " + $conclusion + " on " + $ref + " in " + $repo_name + " (" + $sha + ")")',
+    ),
+    "the Slack fallback text must include the repository name",
+  );
+  assert.ok(
+    slack.includes(
+      'text: ("❌ *<" + $url + "|" + $wf + ">* concluded `" + $conclusion + "` on `" + $ref + "` *in " + $repo_name + "*")',
+    ),
+    "the visible Slack heading must include the repository name",
+  );
 
   // This privileged workflow_run listener must never check out or execute the
   // triggering head SHA.
