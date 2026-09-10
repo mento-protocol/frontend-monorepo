@@ -11,7 +11,10 @@ const GRAPH_GATEWAY_HOSTNAME = "gateway.thegraph.com";
 export function isGraphGatewayUrl(url: string | undefined): boolean {
   if (!url) return false;
   try {
-    return new URL(url).hostname === GRAPH_GATEWAY_HOSTNAME;
+    const { protocol, hostname } = new URL(url);
+    // https only: a Bearer token must never go out in cleartext, even if an
+    // env var is mistyped as http://.
+    return protocol === "https:" && hostname === GRAPH_GATEWAY_HOSTNAME;
   } catch {
     // A malformed env value shouldn't throw during render or SSR; the fetch
     // itself will fail and surface through the query's error state.

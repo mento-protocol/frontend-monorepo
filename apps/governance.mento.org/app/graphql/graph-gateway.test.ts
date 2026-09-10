@@ -13,6 +13,18 @@ describe("isGraphGatewayUrl", () => {
     ).toBe(true);
   });
 
+  it("rejects the gateway host over plain http", () => {
+    expect(
+      isGraphGatewayUrl("http://gateway.thegraph.com/api/subgraphs/id/abc123"),
+    ).toBe(false);
+    expect(
+      getGraphAuthorization(
+        "http://gateway.thegraph.com/api/subgraphs/id/abc123",
+        "secret",
+      ),
+    ).toBeUndefined();
+  });
+
   it("rejects Studio, lookalike hosts, and junk", () => {
     expect(isGraphGatewayUrl(STUDIO)).toBe(false);
     expect(
