@@ -58,7 +58,16 @@ The skill must be installed on each host; its update is not a MacBook execution 
   requires consolidation, the agent selects the lowest-numbered eligible PR as
   target, explains the choice on every affected PR, and leaves siblings open.
   Do not publish to a held sibling or count it as ready through the target's CI.
-- Do not automatically publish workflow/local-Action, automation-authority,
+- Routine package patch/minor preparation includes necessary version-only CI
+  coupling, such as matching Playwright container/browser versions. This is the
+  sole exception to the protected workflow path rule, recorded in
+  `changes.needsDecisionPathExceptions`. Verify upstream versions and immutable
+  digests where used, retain the image publisher/platform, and validate the
+  coupled versions. A workflow file path alone does not require another approval.
+  This exception does not cover Action upgrades or changes to permissions,
+  secrets, triggers, admission, executable steps, runner trust or check coverage;
+  all other needs-decision triggers and maintainer holds still apply.
+- Do not automatically publish other workflow/local-Action, automation-authority,
   credential, security-control or validation-machinery changes. Research and
   report `needs decision`. Never weaken a gate, coverage floor or security test
   to get green. Explain ordinary test adaptations and preserve their coverage.

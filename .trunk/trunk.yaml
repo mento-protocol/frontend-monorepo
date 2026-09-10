@@ -110,7 +110,10 @@ actions:
     - id: check-types-pre-push
       display_name: Check Types Pre-Push
       description: Run `turbo run check-types` before pushing code
-      run: turbo run check-types
+      # Through pnpm, like every other action here: git hooks do not run with the
+      # workspace's node_modules/.bin on PATH, so a bare `turbo` is not found and
+      # the action fails closed, blocking the push it was meant to gate.
+      run: pnpm exec turbo run check-types
       triggers:
         - git_hooks: [pre-push]
     - id: check-knip-pre-push

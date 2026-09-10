@@ -101,12 +101,17 @@ evidence; pull requests remain path-gated per surface.
 `.github/workflows/notify-slack-on-main-failure.yml` watches that same static
 allowlist and posts the same failures to Slack's `#ci-failures` with a link to
 the run and to the managed issue; it opens no issue and duplicates no issue
-logic. It alerts on exactly the `FAILURE_CONCLUSIONS` set from
-`scripts/ci-failure-issue.mjs`, mirrors that script's `targetRefFor()` fallback
-in jq, and mirrors its latest-decisive-run reconciliation so an out-of-order
-callback cannot announce a failure the managed issue has already closed; all
-three are pinned by parity tests. That reconciliation is the only reason the
-job holds `actions: read`. Its bare `workflow_dispatch` posts
+logic. It waits 15 minutes before posting. Reconciliation then suppresses a
+failure when a newer success exists in the same workflow, event, and target-ref
+partition. Every sustained failure otherwise posts. It alerts on exactly the
+`FAILURE_CONCLUSIONS` set from
+`scripts/ci-failure-issue.mjs` and uses the same target-ref, run-order,
+decisive-conclusion, and repository-ownership rules. This prevents an
+out-of-order callback from announcing a recovered failure. Parity tests pin
+those rules. The reconciliation is the only reason the job holds `actions:
+read`. A Vercel alert labels `head_sha` as the controller
+commit because the nested workflow event does not expose the deployment SHA.
+Its bare `workflow_dispatch` posts
 a fixed "🧪 wiring test" message so the Slack wiring can be smoke-tested from
 the Actions tab. Every event is gated on `github.ref` being the default branch,
 and the job runs in the `main`-only `slack-ci-notifications` environment, so a

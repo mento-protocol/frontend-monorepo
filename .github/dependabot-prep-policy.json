@@ -128,6 +128,9 @@
       "scripts/dependabot-claim.mjs",
       "scripts/prompts/dependabot-weekly.md"
     ],
+    "needsDecisionPathExceptions": {
+      ".github/workflows/**": "version-only-ci-coupling-for-package-patch-or-minor"
+    },
     "needsDecisionTriggers": [
       "security-control-changes",
       "automation-policy-changes",

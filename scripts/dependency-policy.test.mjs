@@ -105,7 +105,7 @@ function firstDependabotGroup(groups, dependency, dependencyType, updateType) {
 }
 
 const CLAUDE_ACTION =
-  "anthropics/claude-code-action@8251c103ac8c1d761882c86aba1412c7f583c844";
+  "anthropics/claude-code-action@fa2b2666b747000bf42767d1f332065b375e3c8f";
 const CLAUDE_PLUGIN_MARKETPLACE = "./.claude-code-plugin-marketplace";
 const CLAUDE_CODE_REVIEW_PLUGIN = `${CLAUDE_PLUGIN_MARKETPLACE}/plugins/code-review`;
 const CLAUDE_PLUGIN_MARKETPLACE_REF =
@@ -442,6 +442,10 @@ test("dependency repairs remain executable without granting security or final PR
     "research-and-repair-with-documented-validation",
   );
   assert.equal(policy.changes.needsDecisionPublication, false);
+  assert.deepEqual(policy.changes.needsDecisionPathExceptions, {
+    ".github/workflows/**":
+      "version-only-ci-coupling-for-package-patch-or-minor",
+  });
   for (const path of [
     ".github/workflows/**",
     ".github/actions/**",
@@ -1563,7 +1567,8 @@ test("Wagmi paths share one use-sync-external-store peer snapshot", () => {
 });
 
 test("Dependabot groups isolate protected runtimes and couple test tooling", () => {
-  const config = yaml(".github/dependabot.yml");
+  const dependabotSource = read(".github/dependabot.yml");
+  const config = parse(dependabotSource, { uniqueKeys: true });
   const web3Patterns = [
     "wagmi",
     "viem",
@@ -1988,7 +1993,22 @@ test("Dependabot groups isolate protected runtimes and couple test tooling", () 
       );
     }
   }
-  assert.equal(npmConfig.ignore, undefined);
+  assert.deepEqual(npmConfig.ignore, [
+    {
+      "dependency-name": "wagmi",
+      "update-types": ["version-update:semver-major"],
+    },
+  ]);
+  const wagmiHoldDeadline =
+    /# wagmi-major-review-deadline: (\d{4}-\d{2}-\d{2})$/mu.exec(
+      dependabotSource,
+    )?.[1];
+  assert.equal(wagmiHoldDeadline, "2027-03-09");
+  const wagmiHoldDeadlineMs = Date.parse(`${wagmiHoldDeadline}T00:00:00Z`);
+  assert.ok(
+    Date.now() < wagmiHoldDeadlineMs,
+    `The Wagmi major-version hold expired on ${wagmiHoldDeadline}. Recheck RainbowKit's Wagmi v3 support, then remove or renew the hold with current evidence.`,
+  );
 
   const routine = actionsConfig.groups["github-actions-routine"];
   const manual = actionsConfig.groups["github-actions-manual"];

@@ -12,9 +12,12 @@ vi.mock("@/env.mjs", () => ({
     NEXT_PUBLIC_BLOCKSCOUT_GRAPHQL_URL_CELO_SEPOLIA:
       "https://example.com/blockscout-sepolia",
     NEXT_PUBLIC_GRAPH_API_KEY: "test-graph-api-key",
-    NEXT_PUBLIC_SUBGRAPH_URL: "https://example.com/subgraph",
+    // Mainnet is on the decentralized-network gateway (takes the key);
+    // Celo Sepolia is on a Studio dev endpoint (must NOT be sent the key).
+    NEXT_PUBLIC_SUBGRAPH_URL:
+      "https://gateway.thegraph.com/api/subgraphs/id/test-mainnet",
     NEXT_PUBLIC_SUBGRAPH_URL_CELO_SEPOLIA:
-      "https://example.com/subgraph-sepolia",
+      "https://api.studio.thegraph.com/query/1724470/mento-governance-celo-sepolia/v1.0.1",
   },
 }));
 
@@ -67,17 +70,19 @@ describe("makeClient", () => {
     {
       apiName: "subgraph",
       authorization: "Bearer test-graph-api-key",
-      expectedUrl: "https://example.com/subgraph",
+      expectedUrl: "https://gateway.thegraph.com/api/subgraphs/id/test-mainnet",
     },
     {
+      // Studio host: key configured, deliberately withheld.
       apiName: "subgraphCeloSepolia",
-      authorization: "Bearer test-graph-api-key",
-      expectedUrl: "https://example.com/subgraph-sepolia",
+      authorization: null,
+      expectedUrl:
+        "https://api.studio.thegraph.com/query/1724470/mento-governance-celo-sepolia/v1.0.1",
     },
     {
       apiName: undefined,
       authorization: null,
-      expectedUrl: "https://example.com/subgraph",
+      expectedUrl: "https://gateway.thegraph.com/api/subgraphs/id/test-mainnet",
     },
   ])(
     "routes $apiName operations to $expectedUrl",

@@ -7,9 +7,10 @@ vi.mock("@/components/proposal/content", () => ({
 vi.mock("@/env.mjs", () => ({
   env: {
     NEXT_PUBLIC_GRAPH_API_KEY: "test-graph-api-key",
-    NEXT_PUBLIC_SUBGRAPH_URL: "https://example.com/subgraph",
+    NEXT_PUBLIC_SUBGRAPH_URL:
+      "https://gateway.thegraph.com/api/subgraphs/id/test-mainnet",
     NEXT_PUBLIC_SUBGRAPH_URL_CELO_SEPOLIA:
-      "https://example.com/subgraph-sepolia",
+      "https://api.studio.thegraph.com/query/1724470/mento-governance-celo-sepolia/v1.0.1",
     NEXT_PUBLIC_VERCEL_ENV: "production",
   },
 }));
