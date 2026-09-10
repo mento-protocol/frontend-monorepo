@@ -42,6 +42,9 @@ expose the deployed source SHA.
 - Post every failure immediately. This caused the alert noise addressed here.
 - Use workflow concurrency to cancel a waiting alert after success. GitHub can
   replace a pending failure callback before it evaluates current state.
+- Use a GitHub Environment wait timer. This moves the delay into mutable
+  repository settings. It also delays the manual wiring test or requires a
+  separate test job.
 - Suppress later failures in the same incident. Without a delivery receipt, a
   failed first notification can suppress every later notification.
 - Store Slack receipts and update messages after recovery. This adds durable
@@ -65,4 +68,5 @@ messages or stale Slack messages cause operational confusion after this change.
 
 - [Slack notification runbook](../quality-budgets.md#slack-notification)
 - [Slack notifier workflow](../../.github/workflows/notify-slack-on-main-failure.yml)
+- [PR #946 review](https://github.com/mento-protocol/frontend-monorepo/pull/946)
 - [Managed Vercel failure issue](https://github.com/mento-protocol/frontend-monorepo/issues/636)
