@@ -1,5 +1,6 @@
 import { ProposalContent } from "@/components/proposal/content";
 import { env } from "@/env.mjs";
+import { getGraphAuthorization } from "@/graphql/graph-gateway";
 import { getGraphRequestOrigin } from "@/graphql/graph-request-origin";
 import { Metadata } from "next";
 import { notFound } from "next/navigation";
@@ -107,11 +108,15 @@ async function fetchProposalData(id: string) {
   const subgraphUrl = isCeloSepolia
     ? env.NEXT_PUBLIC_SUBGRAPH_URL_CELO_SEPOLIA
     : env.NEXT_PUBLIC_SUBGRAPH_URL;
-  const apiKey = env.NEXT_PUBLIC_GRAPH_API_KEY;
-
   if (!subgraphUrl) {
     throw new Error("Subgraph URL not configured");
   }
+
+  // Host-gated: the gateway takes the key, a Studio endpoint does not.
+  const authorization = getGraphAuthorization(
+    subgraphUrl,
+    env.NEXT_PUBLIC_GRAPH_API_KEY,
+  );
 
   const response = await fetch(subgraphUrl, {
     method: "POST",
@@ -120,7 +125,7 @@ async function fetchProposalData(id: string) {
       Origin: getGraphRequestOrigin({
         vercelEnvironment: env.NEXT_PUBLIC_VERCEL_ENV,
       }),
-      ...(apiKey && { Authorization: `Bearer ${apiKey}` }),
+      ...(authorization && { Authorization: authorization }),
     },
     body: JSON.stringify({
       query: GET_PROPOSAL_METADATA,
