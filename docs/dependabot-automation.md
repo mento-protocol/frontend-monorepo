@@ -433,8 +433,8 @@ run held it. Migrate in this order:
 
 8. Record where the cron reads its prompt. The giskard job holds a copy of
    `scripts/prompts/dependabot-weekly.md` in its `payload.message`; the
-   operator refreshes it from `main` and verifies it is byte-identical to the
-   file (a copied prompt otherwise keeps an old revision, policy schema or
+   operator refreshes it from `main` and verifies it matches the file apart
+   from the final newline (a copied prompt otherwise keeps an old revision, policy schema or
    Slack destination), and sets the job's delivery destination to match the
    prompt in the same edit. See _Schedule and activation_.
 9. Run one supervised interactive preparation on a single PR end to end, with the
@@ -616,9 +616,13 @@ Monday `15 10 * * 1` UTC, stagger zero. The job's `delivery.to` and
 `failureAlert.to` are the `#engineering` channel (`C0AP4BCR396`), the same
 destination the prompt names; when the prompt's destination changes, change
 the job's delivery setting in the same edit, because the prompt alone does not
-move the scheduler's fallback delivery. The job's stored prompt must be
-byte-identical to `scripts/prompts/dependabot-weekly.md` on `main`; verify
-that after every refresh and before enabling.
+move the scheduler's fallback delivery. The job's stored prompt must match
+`scripts/prompts/dependabot-weekly.md` on `main` byte for byte, with one
+exception: OpenClaw stores `payload.message` without the file's final newline,
+and the source file keeps that newline for the formatter. Compare the stored
+prompt with the file after dropping that one trailing newline, and treat any
+other difference as a stale copy. Verify that after every refresh and before
+enabling.
 Use an ordinary `agentTurn` with the checked-in prompt, isolated session and
 seven-hour timeout (six-hour budget plus reporting margin). Keep the normal
 coding model configuration, with no nested authorized-run invocation.
@@ -628,14 +632,14 @@ the current job, and read it back after editing; never print gateway credentials
 Activation is complete: the package and policy merged on 2026-09-10, the skill
 on 2026-09-11, the rollout checks passed, and the operator enabled the job on
 2026-09-11 after this prompt revision reached `main`, with the stored prompt
-refreshed from `main` and verified byte-identical first. The job never ran
+refreshed from `main` and verified against the file first. The job never ran
 with the earlier direct-message prompt or with unmerged prompt bytes. The
 first scheduled run is the supervised acceptance run; the operator reads its
 report and evidence, and disabling the job again is an operator decision, not
 a preparation session's.
 Any future reactivation (after a disable, a prompt or policy change, or a new
 skill revision) repeats the same sequence: refresh the stored prompt, verify it
-byte-identical, confirm the delivery destination, then enable. Preparation
+against the file, confirm the delivery destination, then enable. Preparation
 sessions must not change the scheduler or their own policy.
 
 To run the job once outside its schedule, for example as a manual pilot on an
