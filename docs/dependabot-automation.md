@@ -625,14 +625,18 @@ coding model configuration, with no nested authorized-run invocation.
 Enable failure alerts after one operational error. Inspect CLI help, back up
 the current job, and read it back after editing; never print gateway credentials.
 
-Activation requires merged policy, a supervised ordinary-agent run producing a
-genuinely ready PR, visible progress/recovery evidence and separate operator
-confirmation. Keep the job disabled until then. A manual pilot uses the same
-prompt/lock/policy narrowed to an explicitly selected PR.
-Preparation sessions must not change the scheduler or their own policy.
+Activation is complete: the policy, package and skill merged on 2026-09-10,
+the rollout checks passed, and the operator enabled the job on 2026-09-11 with
+its stored prompt refreshed from `main`. The first scheduled run is the
+supervised acceptance run; the operator reads its report and evidence, and
+disabling the job again is an operator decision, not a preparation session's.
+Any future reactivation (after a disable, a prompt or policy change, or a new
+skill revision) repeats the same sequence: refresh the stored prompt, verify it
+byte-identical, confirm the delivery destination, then enable. Preparation
+sessions must not change the scheduler or their own policy.
 
-After these instructions are merged and the disabled job's prompt is refreshed,
-the operator can manually run it once without enabling the weekly schedule:
+To run the job once outside its schedule, for example as a manual pilot on an
+explicitly selected PR, use:
 
 ```sh
 openclaw cron run 1b1cad5e-fa4e-48b3-a1f0-10bca3628175
