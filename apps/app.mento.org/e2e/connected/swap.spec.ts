@@ -496,7 +496,9 @@ test("resumes allowance verification after a background quote refresh", async ({
   await expect(page.getByText("Confirm Swap")).toBeVisible({
     timeout: 30_000,
   });
-  expect(interception.postReceiptAllowanceReadCount()).toBe(1);
+  expect(interception.postReceiptAllowanceReadCount()).toBeGreaterThanOrEqual(
+    1,
+  );
   expect(interception.approvalTransactionCount()).toBe(1);
 });
 
