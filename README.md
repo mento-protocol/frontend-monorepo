@@ -373,8 +373,9 @@ approves, dismisses reviews, merges, closes, changes auto-merge or thread state,
 force-pushes, or weakens validation. Sensitive automation/security changes need
 a human decision. Dependabot CI remains secretless.
 
-The Monday 10:15 UTC job stays disabled until merged policy, a successful
-supervised preparation and separate operator activation confirmation.
+The Monday 10:15 UTC job was enabled on 2026-09-11 by operator confirmation
+after the policy merged and the rollout checks passed; its first live run is the
+supervised acceptance run, and it reports to `#engineering`.
 See [ADR 0010](docs/adr/0010-trusted-agent-dependabot-preparation.md).
 
 #### When to Use Catalog vs Direct Versions

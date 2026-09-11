@@ -354,7 +354,8 @@ Nothing converts. The retired mechanism was a directory that existed only while 
 run held it. Migrate in this order:
 
 1. Merge this policy. Every host still at `trusted-agent-v1` then refuses to
-   write, because of the revision rule above. The weekly cron stays disabled.
+   write, because of the revision rule above. Keep the weekly cron disabled
+   until the steps below are done (merged 2026-09-10; enabled 2026-09-11).
 2. Confirm the pinned claims package resolves and reads this policy:
 
    ```sh
@@ -366,7 +367,8 @@ run held it. Migrate in this order:
    the operating parameters the run will use, so a policy the CLI rejects
    surfaces here rather than at the first claim.
 
-   Until `@mento-protocol/issues@0.1.0` is published, keep the fallback under
+   `@mento-protocol/issues@0.1.0` is published, so the pin resolves through
+   `pnpm dlx`. If a future pin is not yet published, keep the fallback under
    the wrapper rather than running the package checkout's binary directly. Name
    the checkout in `DEPENDABOT_CLAIM_PACKAGE_DIR` and run the same commands:
 

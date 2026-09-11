@@ -14,8 +14,9 @@ supersedes:
 
 ## Status
 
-Accepted for implementation; scheduled activation still requires a successful
-supervised run and separate operator confirmation.
+Accepted and rolled out. The package, policy and skill merged on 2026-09-10;
+the operator enabled the scheduled job on 2026-09-11, so its first live run is
+the supervised acceptance run. Reports go to `#engineering`.
 
 ## Context
 
@@ -80,8 +81,9 @@ binding. Keep the cron prompt thin: skill, repository, policy guard, host profil
 budget and delivery. Giskard retains enforced resource caps; Mac sessions serialize
 work and report their unenforced memory-containment residual. No new credential
 isolation is claimed. Roll out the skill first, then merged repository policy,
-then refresh the disabled job; never fall back to the old skill or start a batch
-as part of rollout. An actual Mac/scheduled run remains acceptance evidence.
+then refresh the job's stored prompt from `scripts/prompts/dependabot-weekly.md`
+before enabling it; never fall back to the old skill or start a batch as part of
+rollout. The first scheduled run is the acceptance evidence.
 
 The earlier generic-skill exclusion above describes the former sealed entry;
 it does not exclude this portable successor. No legacy pins are rotated.
