@@ -34,7 +34,8 @@ per PR, cumulative across resume. Use the current coding runtime; no nested CLI
 or provider/configuration changes.
 
 Deliver start, actionable exceptions and the full readable final report to the
-configured Slack destination U06S6HCHV9C. No periodic status chatter. Verify final
+configured Slack destination #engineering (channel:C0AP4BCR396). No periodic
+status chatter. Verify final
 delivery and retain its receipt; return useful fallback report text without
 duplicating confirmed delivery. No local-path-only handoff.
 

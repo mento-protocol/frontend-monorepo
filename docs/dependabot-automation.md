@@ -354,7 +354,8 @@ Nothing converts. The retired mechanism was a directory that existed only while 
 run held it. Migrate in this order:
 
 1. Merge this policy. Every host still at `trusted-agent-v1` then refuses to
-   write, because of the revision rule above. The weekly cron stays disabled.
+   write, because of the revision rule above. The steps below were completed
+   on 2026-09-10 and 2026-09-11, and the weekly cron is enabled.
 2. Confirm the pinned claims package resolves and reads this policy:
 
    ```sh
@@ -366,7 +367,8 @@ run held it. Migrate in this order:
    the operating parameters the run will use, so a policy the CLI rejects
    surfaces here rather than at the first claim.
 
-   Until `@mento-protocol/issues@0.1.0` is published, keep the fallback under
+   `@mento-protocol/issues@0.1.0` is published, so the pin resolves through
+   `pnpm dlx`. If a future pin is not yet published, keep the fallback under
    the wrapper rather than running the package checkout's binary directly. Name
    the checkout in `DEPENDABOT_CLAIM_PACKAGE_DIR` and run the same commands:
 
@@ -429,15 +431,18 @@ run held it. Migrate in this order:
    ssh giskard 'rm -rf /home/molt/.local/state/mento-dependabot/active'
    ```
 
-8. Record where the cron reads its prompt. The giskard job either reads
-   `scripts/prompts/dependabot-weekly.md` from a live clone of `main`, in which
-   case this merge already refreshed it, or it holds a copy that the operator
-   refreshes to `trusted-agent-v2` and `dependabot-prep-policy:v4`. Record the
-   answer here.
+8. Record where the cron reads its prompt. The giskard job holds a copy of
+   `scripts/prompts/dependabot-weekly.md` in its `payload.message`; the
+   operator refreshes it from `main` and verifies it is byte-identical to the
+   file (a copied prompt otherwise keeps an old revision, policy schema or
+   Slack destination), and sets the job's delivery destination to match the
+   prompt in the same edit. See _Schedule and activation_.
 9. Run one supervised interactive preparation on a single PR end to end, with the
    claim held through CI. Confirm the ref chain, the label and one summary
    comment.
-10. Re-enabling the weekly cron remains a separate operator decision.
+10. The weekly cron is enabled (operator decision, 2026-09-11) and reports to
+    `#engineering`; the first scheduled run is the acceptance run. Enabling or
+    disabling it stays an operator decision outside this playbook.
 
 Rollback runs in reverse, in this order:
 
@@ -607,21 +612,34 @@ End: `No approval, merge, close, auto-merge, or thread-state action was performe
 ## Schedule and activation
 
 Existing job: `1b1cad5e-fa4e-48b3-a1f0-10bca3628175`, agent `coding`,
-Monday `15 10 * * 1` UTC, stagger zero, unchanged Slack destination.
+Monday `15 10 * * 1` UTC, stagger zero. The job's `delivery.to` and
+`failureAlert.to` are the `#engineering` channel (`C0AP4BCR396`), the same
+destination the prompt names; when the prompt's destination changes, change
+the job's delivery setting in the same edit, because the prompt alone does not
+move the scheduler's fallback delivery. The job's stored prompt must be
+byte-identical to `scripts/prompts/dependabot-weekly.md` on `main`; verify
+that after every refresh and before enabling.
 Use an ordinary `agentTurn` with the checked-in prompt, isolated session and
 seven-hour timeout (six-hour budget plus reporting margin). Keep the normal
 coding model configuration, with no nested authorized-run invocation.
 Enable failure alerts after one operational error. Inspect CLI help, back up
 the current job, and read it back after editing; never print gateway credentials.
 
-Activation requires merged policy, a supervised ordinary-agent run producing a
-genuinely ready PR, visible progress/recovery evidence and separate operator
-confirmation. Keep the job disabled until then. A manual pilot uses the same
-prompt/lock/policy narrowed to an explicitly selected PR.
-Preparation sessions must not change the scheduler or their own policy.
+Activation is complete: the package and policy merged on 2026-09-10, the skill
+on 2026-09-11, the rollout checks passed, and the operator enabled the job on
+2026-09-11 after this prompt revision reached `main`, with the stored prompt
+refreshed from `main` and verified byte-identical first. The job never ran
+with the earlier direct-message prompt or with unmerged prompt bytes. The
+first scheduled run is the supervised acceptance run; the operator reads its
+report and evidence, and disabling the job again is an operator decision, not
+a preparation session's.
+Any future reactivation (after a disable, a prompt or policy change, or a new
+skill revision) repeats the same sequence: refresh the stored prompt, verify it
+byte-identical, confirm the delivery destination, then enable. Preparation
+sessions must not change the scheduler or their own policy.
 
-After these instructions are merged and the disabled job's prompt is refreshed,
-the operator can manually run it once without enabling the weekly schedule:
+To run the job once outside its schedule, for example as a manual pilot on an
+explicitly selected PR, use:
 
 ```sh
 openclaw cron run 1b1cad5e-fa4e-48b3-a1f0-10bca3628175

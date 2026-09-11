@@ -373,8 +373,9 @@ approves, dismisses reviews, merges, closes, changes auto-merge or thread state,
 force-pushes, or weakens validation. Sensitive automation/security changes need
 a human decision. Dependabot CI remains secretless.
 
-The Monday 10:15 UTC job stays disabled until merged policy, a successful
-supervised preparation and separate operator activation confirmation.
+The Monday 10:15 UTC job was enabled on 2026-09-11 by operator confirmation
+after the policy merged and the rollout checks passed; its first live run is the
+supervised acceptance run, and it reports to `#engineering`.
 See [ADR 0010](docs/adr/0010-trusted-agent-dependabot-preparation.md).
 
 #### When to Use Catalog vs Direct Versions
@@ -488,9 +489,10 @@ The repository is set up with GitHub Actions for CI:
   and the managed issue; run that workflow's
   `workflow_dispatch` from the Actions tab to smoke-test the Slack wiring.
 - **Dependabot preparation**: Native updates open Monday at 06:00 UTC.
-  The disabled 10:15 UTC OpenClaw job will use the ordinary coding agent and
-  [checked-in prompt](scripts/prompts/dependabot-weekly.md) after supervised
-  validation and operator activation. No custom launcher is required. Every
+  The 10:15 UTC OpenClaw job, enabled on 2026-09-11, uses the ordinary coding
+  agent and the [checked-in prompt](scripts/prompts/dependabot-weekly.md); its
+  stored prompt must stay byte-identical to that file, and it reports to
+  `#engineering`. No custom launcher is required. Every
   writer holds a per-pull-request claim ref before it writes, and one heavy
   process tree per host, rather than one active batch, caps the work. See the
   [playbook](docs/dependabot-automation.md) and

@@ -54,9 +54,12 @@ Never approve, dismiss reviews, merge, close, alter auto-merge, or resolve or
 unresolve review threads. Publish only fast-forward updates to the authenticated
 existing PR branch. Human approval, thread resolution, and merge remain separate.
 
-The weekly OpenClaw job stays disabled until this policy is merged, a supervised
-preparation succeeds, and the operator separately confirms activation. Its
-reviewed entry prompt is `scripts/prompts/dependabot-weekly.md`. Never run the
+The weekly OpenClaw job (Mondays 10:15 UTC) was enabled on 2026-09-11 by
+operator confirmation, after this policy merged and the rollout checks passed;
+its first live run is the supervised acceptance run, and it reports to
+`#engineering`. Its reviewed entry prompt is
+`scripts/prompts/dependabot-weekly.md`, and the job's stored prompt must stay
+byte-identical to that file. Never run the
 legacy launcher and the ordinary workflow concurrently. Follow the playbook's
 per-pull-request claim coordination, recovery, budgets, progress, exact-head
 verification, and research requirements.
