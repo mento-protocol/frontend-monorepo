@@ -354,8 +354,8 @@ Nothing converts. The retired mechanism was a directory that existed only while 
 run held it. Migrate in this order:
 
 1. Merge this policy. Every host still at `trusted-agent-v1` then refuses to
-   write, because of the revision rule above. Keep the weekly cron disabled
-   until the steps below are done (merged 2026-09-10; enabled 2026-09-11).
+   write, because of the revision rule above. The steps below were completed
+   on 2026-09-10 and 2026-09-11, and the weekly cron is enabled.
 2. Confirm the pinned claims package resolves and reads this policy:
 
    ```sh
@@ -439,7 +439,9 @@ run held it. Migrate in this order:
 9. Run one supervised interactive preparation on a single PR end to end, with the
    claim held through CI. Confirm the ref chain, the label and one summary
    comment.
-10. Re-enabling the weekly cron remains a separate operator decision.
+10. The weekly cron is enabled (operator decision, 2026-09-11) and reports to
+    `#engineering`; the first scheduled run is the acceptance run. Enabling or
+    disabling it stays an operator decision outside this playbook.
 
 Rollback runs in reverse, in this order:
 
