@@ -14,9 +14,10 @@ supersedes:
 
 ## Status
 
-Accepted and rolled out. The package, policy and skill merged on 2026-09-10;
-the operator enabled the scheduled job on 2026-09-11, so its first live run is
-the supervised acceptance run. Reports go to `#engineering`.
+Accepted and rolled out. The package and policy merged on 2026-09-10 and the
+skill on 2026-09-11; the operator enabled the scheduled job on 2026-09-11,
+after this prompt revision reached `main`, so its first live run is the
+supervised acceptance run. Reports go to `#engineering`.
 
 ## Context
 

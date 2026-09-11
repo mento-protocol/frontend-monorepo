@@ -625,11 +625,14 @@ coding model configuration, with no nested authorized-run invocation.
 Enable failure alerts after one operational error. Inspect CLI help, back up
 the current job, and read it back after editing; never print gateway credentials.
 
-Activation is complete: the policy, package and skill merged on 2026-09-10,
-the rollout checks passed, and the operator enabled the job on 2026-09-11 with
-its stored prompt refreshed from `main`. The first scheduled run is the
-supervised acceptance run; the operator reads its report and evidence, and
-disabling the job again is an operator decision, not a preparation session's.
+Activation is complete: the package and policy merged on 2026-09-10, the skill
+on 2026-09-11, the rollout checks passed, and the operator enabled the job on
+2026-09-11 after this prompt revision reached `main`, with the stored prompt
+refreshed from `main` and verified byte-identical first. The job never ran
+with the earlier direct-message prompt or with unmerged prompt bytes. The
+first scheduled run is the supervised acceptance run; the operator reads its
+report and evidence, and disabling the job again is an operator decision, not
+a preparation session's.
 Any future reactivation (after a disable, a prompt or policy change, or a new
 skill revision) repeats the same sequence: refresh the stored prompt, verify it
 byte-identical, confirm the delivery destination, then enable. Preparation
