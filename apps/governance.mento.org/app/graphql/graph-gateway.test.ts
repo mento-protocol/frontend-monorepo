@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { getGraphAuthorization, isGraphGatewayUrl } from "./graph-gateway";
+import {
+  getGraphAuthorization,
+  isGraphGatewayUrl,
+  isPrimaryUnavailable,
+} from "./graph-gateway";
 
 const GATEWAY = "https://gateway.thegraph.com/api/subgraphs/id/abc123";
 const STUDIO =
@@ -51,5 +55,33 @@ describe("getGraphAuthorization", () => {
   it("sends nothing when no key is configured", () => {
     expect(getGraphAuthorization(GATEWAY, undefined)).toBeUndefined();
     expect(getGraphAuthorization(GATEWAY, "   ")).toBeUndefined();
+  });
+});
+
+describe("isPrimaryUnavailable", () => {
+  it("matches the gateway's errors-only shape", () => {
+    expect(
+      isPrimaryUnavailable({
+        errors: [{ message: "subgraph not found: no allocations" }],
+      }),
+    ).toBe(true);
+    expect(
+      isPrimaryUnavailable({
+        data: null,
+        errors: [{ message: "bad indexers" }],
+      }),
+    ).toBe(true);
+  });
+
+  it("does not match a served response, even a partial one", () => {
+    expect(isPrimaryUnavailable({ data: { proposals: [] } })).toBe(false);
+    expect(
+      isPrimaryUnavailable({
+        data: { proposals: [] },
+        errors: [{ message: "x" }],
+      }),
+    ).toBe(false);
+    expect(isPrimaryUnavailable({})).toBe(false);
+    expect(isPrimaryUnavailable({ errors: [] })).toBe(false);
   });
 });
