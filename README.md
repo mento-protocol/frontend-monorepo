@@ -491,7 +491,8 @@ The repository is set up with GitHub Actions for CI:
 - **Dependabot preparation**: Native updates open Monday at 06:00 UTC.
   The 10:15 UTC OpenClaw job, enabled on 2026-09-11, uses the ordinary coding
   agent and the [checked-in prompt](scripts/prompts/dependabot-weekly.md); its
-  stored prompt must stay byte-identical to that file, and it reports to
+  stored prompt must match that file apart from its final newline, which the
+  scheduler drops, and it reports to
   `#engineering`. No custom launcher is required. Every
   writer holds a per-pull-request claim ref before it writes, and one heavy
   process tree per host, rather than one active batch, caps the work. See the
