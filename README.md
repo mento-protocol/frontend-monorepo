@@ -489,9 +489,10 @@ The repository is set up with GitHub Actions for CI:
   and the managed issue; run that workflow's
   `workflow_dispatch` from the Actions tab to smoke-test the Slack wiring.
 - **Dependabot preparation**: Native updates open Monday at 06:00 UTC.
-  The disabled 10:15 UTC OpenClaw job will use the ordinary coding agent and
-  [checked-in prompt](scripts/prompts/dependabot-weekly.md) after supervised
-  validation and operator activation. No custom launcher is required. Every
+  The 10:15 UTC OpenClaw job, enabled on 2026-09-11, uses the ordinary coding
+  agent and the [checked-in prompt](scripts/prompts/dependabot-weekly.md); its
+  stored prompt must stay byte-identical to that file, and it reports to
+  `#engineering`. No custom launcher is required. Every
   writer holds a per-pull-request claim ref before it writes, and one heavy
   process tree per host, rather than one active batch, caps the work. See the
   [playbook](docs/dependabot-automation.md) and

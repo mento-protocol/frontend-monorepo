@@ -431,11 +431,12 @@ run held it. Migrate in this order:
    ssh giskard 'rm -rf /home/molt/.local/state/mento-dependabot/active'
    ```
 
-8. Record where the cron reads its prompt. The giskard job either reads
-   `scripts/prompts/dependabot-weekly.md` from a live clone of `main`, in which
-   case this merge already refreshed it, or it holds a copy that the operator
-   refreshes to `trusted-agent-v2` and `dependabot-prep-policy:v4`. Record the
-   answer here.
+8. Record where the cron reads its prompt. The giskard job holds a copy of
+   `scripts/prompts/dependabot-weekly.md` in its `payload.message`; the
+   operator refreshes it from `main` and verifies it is byte-identical to the
+   file (a copied prompt otherwise keeps an old revision, policy schema or
+   Slack destination), and sets the job's delivery destination to match the
+   prompt in the same edit. See _Schedule and activation_.
 9. Run one supervised interactive preparation on a single PR end to end, with the
    claim held through CI. Confirm the ref chain, the label and one summary
    comment.
@@ -611,7 +612,13 @@ End: `No approval, merge, close, auto-merge, or thread-state action was performe
 ## Schedule and activation
 
 Existing job: `1b1cad5e-fa4e-48b3-a1f0-10bca3628175`, agent `coding`,
-Monday `15 10 * * 1` UTC, stagger zero, unchanged Slack destination.
+Monday `15 10 * * 1` UTC, stagger zero. The job's `delivery.to` and
+`failureAlert.to` are the `#engineering` channel (`C0AP4BCR396`), the same
+destination the prompt names; when the prompt's destination changes, change
+the job's delivery setting in the same edit, because the prompt alone does not
+move the scheduler's fallback delivery. The job's stored prompt must be
+byte-identical to `scripts/prompts/dependabot-weekly.md` on `main`; verify
+that after every refresh and before enabling.
 Use an ordinary `agentTurn` with the checked-in prompt, isolated session and
 seven-hour timeout (six-hour budget plus reporting margin). Keep the normal
 coding model configuration, with no nested authorized-run invocation.
