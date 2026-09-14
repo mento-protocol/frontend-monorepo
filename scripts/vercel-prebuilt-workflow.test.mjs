@@ -67,7 +67,10 @@ import {
   validateSourceCheckout,
   withValidatedPrebuiltUpload,
 } from "./vercel-prebuilt-workflow.mjs";
-import { PINNED_VERCEL_CLI_VERSION } from "./vercel-cli-runtime-contract.mjs";
+import {
+  PINNED_VERCEL_CLI_VERSION,
+  REVIEWED_ROOT_PATCHED_DEPENDENCIES,
+} from "./vercel-cli-runtime-contract.mjs";
 import { sharpRuntimePlatform } from "./next-sharp-output-tracing.mjs";
 
 const SHA = "0123456789abcdef0123456789abcdef01234567";
@@ -2304,10 +2307,167 @@ test("standalone Vercel CLI runtime is exact, override-aligned, and independentl
       /manifest is not exact/,
     );
     assert.equal(existsSync(runtimeRoot), false);
+
+    const reviewedPatchMap = Object.fromEntries(
+      Object.entries(REVIEWED_ROOT_PATCHED_DEPENDENCIES).map(
+        ([name, reviewed]) => [name, reviewed.path],
+      ),
+    );
+    const reviewedRootPackage = structuredClone(originalRootPackage);
+    reviewedRootPackage.pnpm.patchedDependencies = reviewedPatchMap;
+    writeFileSync(
+      rootPackagePath,
+      `${JSON.stringify(reviewedRootPackage, null, 2)}\n`,
+    );
+    assert.throws(
+      () =>
+        stageTrustedVercelCliRuntimeManifest({
+          controllerRoot,
+          toolsRoot,
+        }),
+      /Trusted root patch jayson@4\.3\.0 is unreadable or unsafe/,
+      "reviewed map without the patch file",
+    );
+    assert.equal(existsSync(runtimeRoot), false);
+    const reviewedPatchPath = join(
+      controllerRoot,
+      REVIEWED_ROOT_PATCHED_DEPENDENCIES["jayson@4.3.0"].path,
+    );
+    mkdirSync(dirname(reviewedPatchPath), { recursive: true });
+    copyFileSync(
+      join(
+        REPOSITORY_ROOT,
+        "scripts",
+        "fixtures",
+        "reviewed-root-patches",
+        "jayson@4.3.0.patch",
+      ),
+      reviewedPatchPath,
+    );
+    const reviewedRuntimeRoot = stageTrustedVercelCliRuntimeManifest({
+      controllerRoot,
+      toolsRoot,
+    });
+    assert.equal(reviewedRuntimeRoot, runtimeRoot);
+    rmSync(reviewedRuntimeRoot, { force: true, recursive: true });
+
+    const reviewedPatchBytes = readFileSync(reviewedPatchPath);
+    writeFileSync(
+      reviewedPatchPath,
+      Buffer.concat([reviewedPatchBytes, Buffer.from("\n")]),
+    );
+    assert.throws(
+      () =>
+        stageTrustedVercelCliRuntimeManifest({
+          controllerRoot,
+          toolsRoot,
+        }),
+      /Trusted root patch jayson@4\.3\.0 is not exact/,
+      "reviewed map with changed patch bytes",
+    );
+    assert.equal(existsSync(runtimeRoot), false);
+    writeFileSync(reviewedPatchPath, reviewedPatchBytes);
+
+    const workspaceManifestPath = join(controllerRoot, "pnpm-workspace.yaml");
+    writeFileSync(
+      workspaceManifestPath,
+      "packages:\n  - apps/*\npatchedDependencies:\n  is-odd@3.0.1: patches/is-odd@3.0.1.patch\n",
+    );
+    assert.throws(
+      () =>
+        stageTrustedVercelCliRuntimeManifest({
+          controllerRoot,
+          toolsRoot,
+        }),
+      /Trusted root workspace manifest declares patchedDependencies or overrides/,
+      "workspace manifest patch home",
+    );
+    assert.equal(existsSync(runtimeRoot), false);
+    writeFileSync(
+      workspaceManifestPath,
+      'packages:\n  - apps/*\n"patchedDependencies":\n  "jayson@4.3.0": patches/unreviewed.patch\n',
+    );
+    assert.throws(
+      () =>
+        stageTrustedVercelCliRuntimeManifest({
+          controllerRoot,
+          toolsRoot,
+        }),
+      /Trusted root workspace manifest uses unsupported top-level syntax/,
+      "workspace manifest quoted patch home",
+    );
+    assert.equal(existsSync(runtimeRoot), false);
+    writeFileSync(
+      workspaceManifestPath,
+      "  packages:\n    - apps/*\n  patchedDependencies:\n    is-odd@3.0.1: patches/unreviewed.patch\n",
+    );
+    assert.throws(
+      () =>
+        stageTrustedVercelCliRuntimeManifest({
+          controllerRoot,
+          toolsRoot,
+        }),
+      /Trusted root workspace manifest uses unsupported top-level syntax/,
+      "workspace manifest indented patch home",
+    );
+    assert.equal(existsSync(runtimeRoot), false);
+    writeFileSync(
+      workspaceManifestPath,
+      'packages: []\rpatchedDependencies:\r  "jayson@4.3.0": patches/unreviewed.patch\r',
+    );
+    assert.throws(
+      () =>
+        stageTrustedVercelCliRuntimeManifest({
+          controllerRoot,
+          toolsRoot,
+        }),
+      /Trusted root workspace manifest uses unsupported top-level syntax/,
+      "workspace manifest carriage-return patch home",
+    );
+    assert.equal(existsSync(runtimeRoot), false);
+    rmSync(workspaceManifestPath);
+
+    for (const [name, unreviewedPatches] of [
+      [
+        "reviewed map plus an unreviewed entry",
+        {
+          ...reviewedPatchMap,
+          "brace-expansion@2.1.2": "patches/brace-expansion@2.1.2.patch",
+        },
+      ],
+      [
+        "reviewed key with a different patch path",
+        Object.fromEntries(
+          Object.keys(REVIEWED_ROOT_PATCHED_DEPENDENCIES).map((key) => [
+            key,
+            "patches/unreviewed.patch",
+          ]),
+        ),
+      ],
+      ["empty map", {}],
+    ]) {
+      const unreviewedRootPackage = structuredClone(originalRootPackage);
+      unreviewedRootPackage.pnpm.patchedDependencies = unreviewedPatches;
+      writeFileSync(
+        rootPackagePath,
+        `${JSON.stringify(unreviewedRootPackage, null, 2)}\n`,
+      );
+      assert.throws(
+        () =>
+          stageTrustedVercelCliRuntimeManifest({
+            controllerRoot,
+            toolsRoot,
+          }),
+        /manifest is not exact/,
+        name,
+      );
+      assert.equal(existsSync(runtimeRoot), false, name);
+    }
     writeFileSync(
       rootPackagePath,
       `${JSON.stringify(originalRootPackage, null, 2)}\n`,
     );
+    rmSync(dirname(reviewedPatchPath), { force: true, recursive: true });
 
     const retiredPatchDirectory = join(sourceRoot, "patches");
     mkdirSync(retiredPatchDirectory, { mode: 0o755 });
