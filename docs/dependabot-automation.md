@@ -595,19 +595,38 @@ thread resolution and merge remain. Do not publish an ALL CLEAR authority check.
 Readiness describes the exact reported head/base and verification time; subsequent
 pushes, base changes or substantive feedback invalidate it. Recheck on demand.
 
-Include exact SHAs, actual edits, CI/review links, risk/confidence/source links,
-remaining human actions and report path. Distinguish a completed inventory with
-blocked PRs from an interrupted/incomplete batch. An agent exit is not readiness.
-Deliver the full readable per-PR final report to Slack, with clickable PR and
-decision-comment links: ready/selected count, each outcome and reason, critical
-agent choices, remaining failures, and the next action. A local filesystem path
-is never delivery. Send the report as an attachment if necessary, with the useful
-summary in the message; if attachments are unavailable, send numbered sections.
-Retain the delivery receipt. On ambiguous delivery, reconcile before retrying;
-on failure preserve the report and surface an operational delivery error.
-Return the same useful final report from the agent for scheduler fallback, not
-just a receipt or local path; avoid duplicating an already confirmed delivery.
-End: `No approval, merge, close, auto-merge, or thread-state action was performed.`
+Distinguish a completed inventory with blocked PRs from an
+interrupted/incomplete batch. An agent exit is not readiness.
+Deliver the final report to Slack in two tiers. A local filesystem path is
+never delivery.
+
+- **Digest, the channel message.** Its first line is bold and names the
+  repository, the run date, the ready/selected count and the verdict split.
+  Group PRs by verdict under bold headers. Give each PR one identity line
+  (status emoji, named PR link, dependency and target version, check state,
+  review state, risk) and one blockquote ask of at most two sentences, opened
+  with `Accept or close:` or `Unblock:`; a needs-decision ask ends with the
+  research recommendation. Links in the digest are PR links only. The digest
+  holds no SHAs, claim tokens, run ids, raw build, review or release URLs, or
+  write counts. Point to the evidence tier, then end the digest with its last
+  line: `No approval, merge, close, auto-merge, or thread-state action was performed.`
+  Write bold as `**text**` and italic as `_text_`, in standard Markdown. The
+  OpenClaw Slack connector converts Markdown to Slack formatting, so the
+  Slack-native single-asterisk bold (`*text*`) is read as Markdown italic and
+  the headers render italic ([openclaw/openclaw#34609](https://github.com/openclaw/openclaw/issues/34609)).
+- **Evidence, a reply in the digest's thread.** Per PR: exact head and base
+  SHAs, old→new transitions, actual edits, check and review evidence with
+  links, upstream and source links, auto-merge state, risk and confidence, the
+  decision-comment link, claim token, owner run id, the write inventory and the
+  local report path. If the connector cannot thread, post the evidence tier as
+  the next channel message with its own dated header. Never replace the digest
+  with an attachment or numbered sections.
+
+Verify delivery of both tiers and retain both receipts. On ambiguous delivery,
+reconcile before retrying; on failure preserve the report and surface an
+operational delivery error. Return the same two tiers from the agent for
+scheduler fallback, digest first, not just a receipt or local path; avoid
+duplicating an already confirmed delivery.
 
 ## Schedule and activation
 

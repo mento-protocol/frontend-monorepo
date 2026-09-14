@@ -91,7 +91,7 @@
   "reporting": {
     "slack": ["start", "actionable-exception", "final-report"],
     "periodicStatusMessages": false,
-    "finalDelivery": "full-readable-report-not-local-path-only",
+    "finalDelivery": "digest-message-plus-threaded-evidence-not-local-path-only",
     "requireDeliveryReceipt": true,
     "prCommentMarker": "<!-- mento-dependabot-preparation:v1 -->",
     "prCommentClaimMarkerSchema": "mento-dependabot-preparation:v2"

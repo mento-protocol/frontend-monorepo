@@ -104,8 +104,6 @@ function firstDependabotGroup(groups, dependency, dependencyType, updateType) {
   )?.[0];
 }
 
-const CLAUDE_ACTION =
-  "anthropics/claude-code-action@fa2b2666b747000bf42767d1f332065b375e3c8f";
 const CLAUDE_PLUGIN_MARKETPLACE = "./.claude-code-plugin-marketplace";
 const CLAUDE_CODE_REVIEW_PLUGIN = `${CLAUDE_PLUGIN_MARKETPLACE}/plugins/code-review`;
 const CLAUDE_PLUGIN_MARKETPLACE_REF =
@@ -523,7 +521,7 @@ test("agent decisions, delivered reports and serialized heavy work are the defau
   assert.equal(policy.reporting.periodicStatusMessages, false);
   assert.equal(
     policy.reporting.finalDelivery,
-    "full-readable-report-not-local-path-only",
+    "digest-message-plus-threaded-evidence-not-local-path-only",
   );
   assert.equal(policy.reporting.requireDeliveryReceipt, true);
   assert.deepEqual(policy.hostResources, {
@@ -542,7 +540,7 @@ test("agent decisions, delivered reports and serialized heavy work are the defau
   assert.ok(playbook.includes(policy.reporting.prCommentMarker));
   assert.ok(playbook.includes("Input welcome"));
   assert.ok(playbook.includes("lowest-numbered eligible PR"));
-  assert.ok(playbook.includes("Retain the delivery receipt"));
+  assert.ok(playbook.includes("retain both receipts"));
   assert.ok(playbook.includes("--concurrency=1"));
   assert.doesNotMatch(prompt + playbook, /at-least-five-minute/);
   assert.ok(
@@ -907,8 +905,10 @@ test("human Claude review keeps its same-repository marketplace boundary", () =>
     /git -C "\$marketplace_path" rev-parse HEAD/u,
   );
 
-  const review = job.steps.find((step) => step.uses === CLAUDE_ACTION);
+  const review = job.steps.find((step) => step.id === "claude-review-human");
   assert.ok(review);
+  // Action Pin Policy checks immutable revisions separately.
+  assert.match(review.uses, /^anthropics\/claude-code-action@/u);
   assert.equal(
     review.with.claude_args,
     `--plugin-dir ${CLAUDE_CODE_REVIEW_PLUGIN}`,
