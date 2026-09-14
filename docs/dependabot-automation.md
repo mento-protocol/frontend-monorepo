@@ -454,7 +454,7 @@ run held it. Migrate in this order:
    claim held through CI. Confirm the ref chain, the label and one summary
    comment.
 10. The weekly cron is enabled (operator decision, 2026-09-11) and reports to
-    `#engineering`; the first scheduled run is the acceptance run. Enabling or
+    `#dependabot`; the first scheduled run is the acceptance run. Enabling or
     disabling it stays an operator decision outside this playbook.
 
 Rollback runs in reverse, in this order:
@@ -635,9 +635,15 @@ never delivery.
   the next channel message with its own dated header. Never replace the digest
   with an attachment or numbered sections.
 
-Verify delivery of both tiers and retain both receipts. On ambiguous delivery,
-reconcile before retrying; on failure preserve the report and surface an
-operational delivery error. Return the same two tiers from the agent for
+When no Dependabot PR is open, drafts and held updates included, the final
+report is one line with no evidence tier:
+`frontend-monorepo: [No open Dependabot pull requests](https://github.com/mento-protocol/frontend-monorepo/pulls?q=is%3Apr+is%3Aopen+author%3Aapp%2Fdependabot)`.
+It omits the owner, the verdict counts, the digest's last line and the run
+date; the message timestamp carries the date.
+
+Verify delivery of each report message and retain its receipt. On ambiguous
+delivery, reconcile before retrying; on failure preserve the report and surface
+an operational delivery error. Return the same report from the agent for
 scheduler fallback, digest first, not just a receipt or local path; avoid
 duplicating an already confirmed delivery.
 
@@ -645,7 +651,7 @@ duplicating an already confirmed delivery.
 
 Existing job: `1b1cad5e-fa4e-48b3-a1f0-10bca3628175`, agent `coding`,
 Monday `15 10 * * 1` UTC, stagger zero. The job's `delivery.to` and
-`failureAlert.to` are the `#engineering` channel (`C0AP4BCR396`), the same
+`failureAlert.to` are the `#dependabot` channel (`C0C1W20C536`), the same
 destination the prompt names; when the prompt's destination changes, change
 the job's delivery setting in the same edit, because the prompt alone does not
 move the scheduler's fallback delivery. The job's stored prompt must match

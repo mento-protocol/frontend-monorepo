@@ -34,12 +34,13 @@ per PR, cumulative across resume. Use the current coding runtime; no nested CLI
 or provider/configuration changes.
 
 Deliver start, actionable exceptions and the two-tier final report to the
-configured Slack destination #engineering (channel:C0AP4BCR396): the digest as
+configured Slack destination #dependabot (channel:C0C1W20C536): the digest as
 the channel message and the evidence tier as a reply in its thread; if the
 connector cannot thread, post the evidence tier as the next channel message.
-No periodic status chatter. Verify delivery of both tiers and retain both
-receipts; return useful fallback report text without duplicating confirmed
-delivery. No local-path-only handoff.
+When no Dependabot PR is open, the final report is instead the playbook's
+one-line zero state. No periodic status chatter. Verify delivery of each
+final-report message and retain its receipt; return useful fallback report
+text without duplicating confirmed delivery. No local-path-only handoff.
 
 Do not start another active batch, alter the scheduler or enable the cron.
 No approval, merge, close, auto-merge, or thread-state action is permitted.
