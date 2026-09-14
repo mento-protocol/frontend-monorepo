@@ -610,6 +610,10 @@ never delivery.
   holds no SHAs, claim tokens, run ids, raw build, review or release URLs, or
   write counts. Point to the evidence tier, then end the digest with its last
   line: `No approval, merge, close, auto-merge, or thread-state action was performed.`
+  Write bold as `**text**` and italic as `_text_`, in standard Markdown. The
+  OpenClaw Slack connector converts Markdown to Slack formatting, so the
+  Slack-native single-asterisk bold (`*text*`) is read as Markdown italic and
+  the headers render italic ([openclaw/openclaw#34609](https://github.com/openclaw/openclaw/issues/34609)).
 - **Evidence, a reply in the digest's thread.** Per PR: exact head and base
   SHAs, old→new transitions, actual edits, check and review evidence with
   links, upstream and source links, auto-merge state, risk and confidence, the
