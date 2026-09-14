@@ -367,6 +367,19 @@ run held it. Migrate in this order:
    the operating parameters the run will use, so a policy the CLI rejects
    surfaces here rather than at the first claim.
 
+   The wrapper reads the policy from the default branch, as above, so on a
+   branch that edits `.github/dependabot-prep-policy.json` this command
+   validates `main`'s copy and reports `ok` whatever the branch says. Commit
+   the edit, then validate the branch's own copy:
+
+   ```sh
+   DEPENDABOT_CLAIM_POLICY_REF=HEAD pnpm dependabot:claim -- config validate --json
+   ```
+
+   Use that override for `config validate` only. Every claim-acquiring command
+   must keep reading the default branch; that is what stops a candidate branch
+   from choosing its own namespace, TTLs, gates and pin.
+
    `@mento-protocol/issues@0.1.0` is published, so the pin resolves through
    `pnpm dlx`. If a future pin is not yet published, keep the fallback under
    the wrapper rather than running the package checkout's binary directly. Name
