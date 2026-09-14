@@ -1319,7 +1319,7 @@ native Vercel:
   main-deployment jobs install only the standalone runtime. The project owner approved the dependency as part of delivering the
   epic. The stable npm version was re-queried on 2026-07-14 before it was
   pinned.
-- Resolved Next.js: `16.2.11` in `pnpm-lock.yaml`.
+- Resolved Next.js: `16.3.4` in `pnpm-lock.yaml`.
 - Root `pnpm.patchedDependencies`: absent, or exactly the map that
   `scripts/vercel-cli-runtime-contract.mjs` records as
   `REVIEWED_ROOT_PATCHED_DEPENDENCIES` (currently the `jayson@4.3.0` patch),
@@ -1337,9 +1337,14 @@ native Vercel:
   first a checker-only change that records the exact map and digest, then the
   PR that adds or changes the patch and the lockfile entry. A candidate that
   carries any other map, or a patch file that is missing, a symlink, or not
-  byte-exact, fails `check-candidate-versions` before it builds. The reviewed
-  bytes are kept under `scripts/fixtures/reviewed-root-patches/` for the
-  checker tests.
+  byte-exact, fails the check before it builds. In the preview workflow the
+  check reads the materialized candidate copy and runs before the candidate
+  install of that copy as well, so pnpm never applies a rejected patch
+  there. On main the source is the admitted default-branch
+  SHA, the runner-level install of it precedes the check, and the isolated
+  candidate install inside the build action follows it. The reviewed bytes
+  are kept under `scripts/fixtures/reviewed-root-patches/` for the checker
+  tests.
 
 Both exceed Vercel's custom deployment-ID prerequisites: Next.js newer than
 `16.2.0-canary.15` and Vercel CLI newer than `50.3.3`. Verify this invariant

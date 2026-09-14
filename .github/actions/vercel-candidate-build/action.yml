@@ -482,6 +482,7 @@ runs:
           "$PNPM_BIN" --dir "$CANDIDATE_SOURCE_PATH" install \
           --frozen-lockfile \
           --ignore-scripts \
+          --ignore-pnpmfile \
           2>&1
         candidate_status=$?
         set -e
