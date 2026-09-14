@@ -25,7 +25,7 @@
   },
   "devDependencies": {
     "@argos-ci/playwright": "7.4.2",
-    "@playwright/test": "1.62.1",
+    "@playwright/test": "1.63.0",
     "@repo/eslint-config": "workspace:*",
     "@repo/typescript-config": "workspace:*",
     "@tailwindcss/postcss": "catalog:",
