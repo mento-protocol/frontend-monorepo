@@ -104,8 +104,6 @@ function firstDependabotGroup(groups, dependency, dependencyType, updateType) {
   )?.[0];
 }
 
-const CLAUDE_ACTION =
-  "anthropics/claude-code-action@9c5ddab2e6d17b83ea679153b31f1d5f023cf636";
 const CLAUDE_PLUGIN_MARKETPLACE = "./.claude-code-plugin-marketplace";
 const CLAUDE_CODE_REVIEW_PLUGIN = `${CLAUDE_PLUGIN_MARKETPLACE}/plugins/code-review`;
 const CLAUDE_PLUGIN_MARKETPLACE_REF =
@@ -907,8 +905,10 @@ test("human Claude review keeps its same-repository marketplace boundary", () =>
     /git -C "\$marketplace_path" rev-parse HEAD/u,
   );
 
-  const review = job.steps.find((step) => step.uses === CLAUDE_ACTION);
+  const review = job.steps.find((step) => step.id === "claude-review-human");
   assert.ok(review);
+  // Action Pin Policy checks immutable revisions separately.
+  assert.match(review.uses, /^anthropics\/claude-code-action@/u);
   assert.equal(
     review.with.claude_args,
     `--plugin-dir ${CLAUDE_CODE_REVIEW_PLUGIN}`,
