@@ -26,9 +26,126 @@ const MAX_CONTRACT_BYTES = 64 * 1024;
 const MAX_ROOT_MANIFEST_BYTES = 1024 * 1024;
 const MAX_RUNTIME_MANIFEST_BYTES = 256 * 1024;
 const MAX_RUNTIME_LOCKFILE_BYTES = 8 * 1024 * 1024;
-const REVIEWED_ROOT_PATCHED_DEPENDENCIES = Object.freeze({
-  "jayson@4.3.0": "patches/jayson@4.3.0.patch",
+const MAX_ROOT_PATCH_BYTES = 64 * 1024;
+// Root `pnpm.patchedDependencies` entries that trusted controller code has
+// reviewed: the pnpm key, the patch path the root manifest must name, and the
+// sha256 of the patch file's exact bytes. A candidate root manifest may carry
+// no patches or exactly this map, and each named patch file must hash to its
+// reviewed digest. pnpm also reads `patchedDependencies` and `overrides` from
+// `pnpm-workspace.yaml`, so a candidate workspace manifest may declare
+// neither; the root `package.json` is the only admitted home. Anything else
+// fails closed, so a candidate cannot declare a patch, a patch path, or patch
+// contents through the checked manifests that the default branch has not
+// admitted here first. The standalone runtime manifest never carries patches;
+// `assertVercelCliRuntimeContract` rejects those separately.
+export const REVIEWED_ROOT_PATCHED_DEPENDENCIES = Object.freeze({
+  "jayson@4.3.0": Object.freeze({
+    path: "patches/jayson@4.3.0.patch",
+    sha256: "676ed9e5cc54f4cd3565f5541d77c5b3d948f75ce6476dc37b614cd7d9b23869",
+  }),
 });
+const REVIEWED_ROOT_PATCHED_DEPENDENCY_PATHS = Object.freeze(
+  Object.fromEntries(
+    Object.entries(REVIEWED_ROOT_PATCHED_DEPENDENCIES).map(
+      ([name, reviewed]) => [name, reviewed.path],
+    ),
+  ),
+);
+
+function isReviewedRootPatchedDependencyMap(patchedDependencies) {
+  return (
+    patchedDependencies === undefined ||
+    isDeepStrictEqual(
+      patchedDependencies,
+      REVIEWED_ROOT_PATCHED_DEPENDENCY_PATHS,
+    )
+  );
+}
+
+const MAX_WORKSPACE_MANIFEST_BYTES = 256 * 1024;
+const WORKSPACE_PATCH_HOME_KEYS = Object.freeze([
+  "overrides",
+  "patchedDependencies",
+]);
+// A top-level workspace key is read with a deliberately narrow grammar: a
+// plain unquoted identifier at column zero followed by a colon. Quoted keys,
+// flow mappings, explicit `?` keys, anchors, tags, directives, document
+// markers and tab indentation are not decoded; they fail closed, so YAML
+// syntax cannot spell a forbidden key in a form this check does not read.
+// The first content line must sit at column zero, which pins the document's
+// top-level mapping there; a uniformly indented document, which YAML also
+// accepts, would otherwise hide every key from this check. After that, an
+// indented line is nested content and cannot declare a top-level setting.
+const WORKSPACE_PLAIN_TOP_LEVEL_KEY = /^([A-Za-z][A-Za-z0-9_-]*):(?:\s|$)/u;
+
+// YAML also breaks lines on a bare carriage return, NEL, LS and PS. Only a
+// line feed is decoded here; any other line break fails closed, so a key
+// cannot hide behind a break this scanner does not split on.
+const WORKSPACE_UNSUPPORTED_LINE_BREAK = /[\r\u0085\u2028\u2029]/u;
+
+function assertWorkspaceManifestTopLevelKeys(contents, label) {
+  if (WORKSPACE_UNSUPPORTED_LINE_BREAK.test(contents)) {
+    throw new Error(`${label} uses unsupported top-level syntax`);
+  }
+  let sawTopLevelKey = false;
+  for (const line of contents.split("\n")) {
+    if (line.length === 0 || line.startsWith("#")) {
+      continue;
+    }
+    if (line.startsWith(" ")) {
+      if (!sawTopLevelKey) {
+        throw new Error(`${label} uses unsupported top-level syntax`);
+      }
+      continue;
+    }
+    const match = WORKSPACE_PLAIN_TOP_LEVEL_KEY.exec(line);
+    if (match === null) {
+      throw new Error(`${label} uses unsupported top-level syntax`);
+    }
+    if (WORKSPACE_PATCH_HOME_KEYS.includes(match[1])) {
+      throw new Error(`${label} declares patchedDependencies or overrides`);
+    }
+    sawTopLevelKey = true;
+  }
+}
+
+function assertNoWorkspaceManifestPatchHome(repositoryRoot) {
+  const workspaceManifestPath = resolve(repositoryRoot, "pnpm-workspace.yaml");
+  let entry;
+  try {
+    entry = lstatSync(workspaceManifestPath);
+  } catch {
+    return;
+  }
+  const label = "Trusted root workspace manifest";
+  if (!entry.isFile() || entry.isSymbolicLink()) {
+    throw new Error(`${label} is unreadable or unsafe`);
+  }
+  const contents = readBoundedRegularFile(workspaceManifestPath, {
+    label,
+    maximumBytes: MAX_WORKSPACE_MANIFEST_BYTES,
+    rootPath: repositoryRoot,
+  });
+  assertWorkspaceManifestTopLevelKeys(contents.toString("utf8"), label);
+}
+
+function assertReviewedRootPatchContents(patchedDependencies, repositoryRoot) {
+  if (patchedDependencies === undefined) {
+    return;
+  }
+  for (const [name, reviewed] of Object.entries(
+    REVIEWED_ROOT_PATCHED_DEPENDENCIES,
+  )) {
+    const label = `Trusted root patch ${name}`;
+    const contents = readBoundedRegularFile(
+      resolve(repositoryRoot, reviewed.path),
+      { label, maximumBytes: MAX_ROOT_PATCH_BYTES, rootPath: repositoryRoot },
+    );
+    if (sha256(contents) !== reviewed.sha256) {
+      throw new Error(`${label} is not exact`);
+    }
+  }
+}
 
 function hasExactObjectKeys(value, expectedKeys) {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
@@ -349,14 +466,13 @@ export function assertVercelCliRuntimeContract({
     !hasExactObjectKeys(packageMetadata.pnpm, ["overrides"]) ||
     !isDeepStrictEqual(packageMetadata.pnpm.overrides, rootOverrides) ||
     packageMetadata.pnpm.patchedDependencies !== undefined ||
-    !isDeepStrictEqual(
-      rootPnpm.patchedDependencies,
-      REVIEWED_ROOT_PATCHED_DEPENDENCIES,
-    ) ||
+    !isReviewedRootPatchedDependencyMap(rootPnpm.patchedDependencies) ||
     packageMetadata.dependencies?.vercel !== contract.vercelVersion
   ) {
     throw new Error("Trusted Vercel CLI runtime manifest is not exact");
   }
+  assertNoWorkspaceManifestPatchHome(repositoryRoot);
+  assertReviewedRootPatchContents(rootPnpm.patchedDependencies, repositoryRoot);
   let runtimeDependenciesSha256;
   try {
     runtimeDependenciesSha256 = canonicalStringMapSha256(
