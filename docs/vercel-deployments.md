@@ -1333,8 +1333,8 @@ Do not replace the pinned CLI with `npx vercel@latest` in automation.
 
 ## Temporary sharp 0.35 output-tracing guard
 
-The root conditional override forces vulnerable `sharp >=0.34.0 <0.35.0`
-consumers to `0.35.3`, which includes libvips 8.18.3. Stable Next.js 16.2.11
+The root conditional override forces vulnerable `sharp >=0.34.0 <0.35.4`
+consumers to `0.35.4`, which includes libvips 8.18.6. Stable Next.js 16.3.4
 does not yet recognize sharp 0.35's versioned native-addon filename during
 Turbopack output tracing. A build can otherwise succeed while omitting the
 native addon or matching libvips shared library from the deployed function.
@@ -1345,8 +1345,8 @@ platform and architecture packages to `outputFileTracingIncludes`; it must not
 fall back to another optional platform package that happens to exist in the
 pnpm store. Each app's `postbuild` lifecycle then runs
 `scripts/assert-next-sharp-trace.mjs` and fails unless one output trace contains
-the exact sharp 0.35.3 manifest, host-native versioned addon, libvips shared
-library, and libvips 8.18.3 manifest.
+the exact sharp 0.35.4 manifest, host-native versioned addon, libvips shared
+library, and libvips 8.18.6 manifest.
 
 The trusted prebuilt workflow independently scans the final
 `.vercel/output` tree before upload. It rejects an output that lacks the exact

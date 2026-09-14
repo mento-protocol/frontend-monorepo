@@ -26,6 +26,9 @@ const MAX_CONTRACT_BYTES = 64 * 1024;
 const MAX_ROOT_MANIFEST_BYTES = 1024 * 1024;
 const MAX_RUNTIME_MANIFEST_BYTES = 256 * 1024;
 const MAX_RUNTIME_LOCKFILE_BYTES = 8 * 1024 * 1024;
+const REVIEWED_ROOT_PATCHED_DEPENDENCIES = Object.freeze({
+  "jayson@4.3.0": "patches/jayson@4.3.0.patch",
+});
 
 function hasExactObjectKeys(value, expectedKeys) {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
@@ -346,7 +349,10 @@ export function assertVercelCliRuntimeContract({
     !hasExactObjectKeys(packageMetadata.pnpm, ["overrides"]) ||
     !isDeepStrictEqual(packageMetadata.pnpm.overrides, rootOverrides) ||
     packageMetadata.pnpm.patchedDependencies !== undefined ||
-    rootPnpm.patchedDependencies !== undefined ||
+    !isDeepStrictEqual(
+      rootPnpm.patchedDependencies,
+      REVIEWED_ROOT_PATCHED_DEPENDENCIES,
+    ) ||
     packageMetadata.dependencies?.vercel !== contract.vercelVersion
   ) {
     throw new Error("Trusted Vercel CLI runtime manifest is not exact");

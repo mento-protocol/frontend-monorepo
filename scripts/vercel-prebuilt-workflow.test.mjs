@@ -87,7 +87,7 @@ function writeSharpRuntimeArtifactsInFunction(
     functionDirectory,
     "node_modules",
     ".pnpm",
-    `@img+sharp-${platform}@0.35.3`,
+    `@img+sharp-${platform}@0.35.4`,
     "node_modules",
     "@img",
     `sharp-${platform}`,
@@ -97,20 +97,20 @@ function writeSharpRuntimeArtifactsInFunction(
     functionDirectory,
     "node_modules",
     ".pnpm",
-    `@img+sharp-libvips-${platform}@1.3.2`,
+    `@img+sharp-libvips-${platform}@1.3.3`,
     "node_modules",
     "@img",
     `sharp-libvips-${platform}`,
   );
   mkdirSync(nativeDirectory, { recursive: true });
   mkdirSync(join(libvipsDirectory, "lib"), { recursive: true });
-  const nativeAddon = join(nativeDirectory, `sharp-${platform}-0.35.3.node`);
+  const nativeAddon = join(nativeDirectory, `sharp-${platform}-0.35.4.node`);
   const sharedLibrary = join(
     libvipsDirectory,
     "lib",
     platform.startsWith("darwin-")
-      ? "libvips-cpp.8.18.3.dylib"
-      : "libvips-cpp.so.8.18.3",
+      ? "libvips-cpp.8.18.6.dylib"
+      : "libvips-cpp.so.8.18.6",
   );
   const versionsManifest = join(libvipsDirectory, "versions.json");
   if (writeFunctionConfig) {
@@ -121,7 +121,7 @@ function writeSharpRuntimeArtifactsInFunction(
   }
   writeFileSync(nativeAddon, "native");
   writeFileSync(sharedLibrary, "libvips");
-  writeFileSync(versionsManifest, JSON.stringify({ vips: "8.18.3" }));
+  writeFileSync(versionsManifest, JSON.stringify({ vips: "8.18.6" }));
   return { nativeAddon, sharedLibrary, versionsManifest };
 }
 
@@ -3579,7 +3579,7 @@ test("prebuilt output requires matching sharp and libvips runtime artifacts", ()
         assertSharpPrebuiltArtifacts(directory, {
           runtimePlatform: "linux-x64",
         }),
-      /missing sharp 0\.35\.3.*libvips 8\.18\.3/,
+      /missing sharp 0\.35\.4.*libvips 8\.18\.6/,
     );
   } finally {
     rmSync(directory, { force: true, recursive: true });
@@ -3608,7 +3608,7 @@ test("prebuilt output rejects sharp artifacts split across functions", () => {
         assertSharpPrebuiltArtifacts(directory, {
           runtimePlatform: "linux-x64",
         }),
-      /missing sharp 0\.35\.3.*libvips 8\.18\.3/,
+      /missing sharp 0\.35\.4.*libvips 8\.18\.6/,
     );
   } finally {
     rmSync(directory, { force: true, recursive: true });
@@ -3633,7 +3633,7 @@ test("prebuilt output ignores sharp artifacts outside configured physical functi
         assertSharpPrebuiltArtifacts(directory, {
           runtimePlatform: "linux-x64",
         }),
-      /missing sharp 0\.35\.3.*libvips 8\.18\.3/,
+      /missing sharp 0\.35\.4.*libvips 8\.18\.6/,
     );
   } finally {
     rmSync(directory, { force: true, recursive: true });

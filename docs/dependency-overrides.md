@@ -298,6 +298,15 @@ override resolves cleanly, installs cleanly, and then throws
 `TypeError: <name> is not a function` at runtime, because `require()` of an ESM
 module yields the namespace object rather than the default export.
 
+`stream-json` is one such major-version exception. Its first release containing
+the GHSA-528h-pc64-c93x fix is ESM-only, while `jayson@4.3.0` still imports the
+old CommonJS subpaths used by `stream-json@1`. The reviewed root-only Jayson
+patch updates those imports and stream constructors for `stream-json@3.5.0`.
+Keep `scripts/jayson-stream-json-compat.test.mjs` passing until Jayson ships
+native stream-json 3 support, then remove the patch and its exact contract
+allowlist together. The standalone Vercel runtime does not resolve Jayson and
+must continue to reject all `patchedDependencies` entries.
+
 `decode-uri-component` (GHSA-vcc3-ghjq-m6fr) is the worked example. Its only
 fixed release, 0.5.0, is ESM-only; its only consumer, `query-string@7.1.3`
 under `@walletconnect/utils`, is CommonJS and requires it. Upgrading

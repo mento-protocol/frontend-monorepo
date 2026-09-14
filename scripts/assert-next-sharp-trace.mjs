@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   sharpRuntimePlatform,
+  SHARP_LIBVIPS_RUNTIME_VERSION,
   SHARP_RUNTIME_VERSION,
 } from "./next-sharp-output-tracing.mjs";
 
@@ -127,11 +128,11 @@ export function assertSharpOutputTrace(
         (file) =>
           file.includes(libvipsPackageSegment) &&
           basename(file) === "versions.json" &&
-          libvipsVersion(file) === "8.18.3",
+          libvipsVersion(file) === SHARP_LIBVIPS_RUNTIME_VERSION,
       );
       if (sharedLibrary && versionsManifest) {
         return {
-          libvipsVersion: "8.18.3",
+          libvipsVersion: SHARP_LIBVIPS_RUNTIME_VERSION,
           nativeAddon,
           sharpManifest,
           sharedLibrary,
@@ -143,7 +144,7 @@ export function assertSharpOutputTrace(
   }
 
   throw new Error(
-    `No single Next output trace contains sharp ${SHARP_RUNTIME_VERSION}'s ${runtimePlatform} native addon and its matching libvips 8.18.3 shared library`,
+    `No single Next output trace contains sharp ${SHARP_RUNTIME_VERSION}'s ${runtimePlatform} native addon and its matching libvips ${SHARP_LIBVIPS_RUNTIME_VERSION} shared library`,
   );
 }
 
