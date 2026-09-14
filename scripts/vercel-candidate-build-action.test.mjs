@@ -343,7 +343,7 @@ test("candidate install and build resolve the same isolated pnpm store", () => {
 
   assert.match(
     install.run,
-    /"\$PNPM_BIN" --dir "\$CANDIDATE_SOURCE_PATH" install \\\n\s+--frozen-lockfile \\\n\s+--ignore-scripts \\\n\s+2>&1\n/,
+    /"\$PNPM_BIN" --dir "\$CANDIDATE_SOURCE_PATH" install \\\n\s+--frozen-lockfile \\\n\s+--ignore-scripts \\\n\s+--ignore-pnpmfile \\\n\s+2>&1\n/,
   );
   assert.doesNotMatch(
     candidateActionSource,
