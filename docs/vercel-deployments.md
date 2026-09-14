@@ -1320,6 +1320,26 @@ native Vercel:
   epic. The stable npm version was re-queried on 2026-07-14 before it was
   pinned.
 - Resolved Next.js: `16.2.11` in `pnpm-lock.yaml`.
+- Root `pnpm.patchedDependencies`: absent, or exactly the map that
+  `scripts/vercel-cli-runtime-contract.mjs` records as
+  `REVIEWED_ROOT_PATCHED_DEPENDENCIES` (currently the `jayson@4.3.0` patch),
+  with each named patch file hashing to the sha256 recorded there. The root
+  `package.json` is the only admitted home: a candidate `pnpm-workspace.yaml`
+  that declares `patchedDependencies` or `overrides` is rejected, because pnpm
+  reads both settings from that file as well. That check reads top-level keys
+  with a narrow grammar (a plain identifier at column zero followed by a
+  colon); quoted keys, flow mappings, explicit `?` keys, anchors, tags,
+  document markers and tab indentation are rejected as unsupported syntax
+  rather than decoded. The
+  standalone runtime manifest never carries patches. Previews and main
+  deployments run the default-branch checker against the candidate, so a new
+  root patch, a changed patch path, or changed patch bytes lands in two steps:
+  first a checker-only change that records the exact map and digest, then the
+  PR that adds or changes the patch and the lockfile entry. A candidate that
+  carries any other map, or a patch file that is missing, a symlink, or not
+  byte-exact, fails `check-candidate-versions` before it builds. The reviewed
+  bytes are kept under `scripts/fixtures/reviewed-root-patches/` for the
+  checker tests.
 
 Both exceed Vercel's custom deployment-ID prerequisites: Next.js newer than
 `16.2.0-canary.15` and Vercel CLI newer than `50.3.3`. Verify this invariant
