@@ -81,6 +81,25 @@ const BUILD_ENVIRONMENT_SCRIPT = fileURLToPath(
   new URL("./vercel-build-environment.mjs", import.meta.url),
 );
 
+function writeReviewedRootPatches(controllerRoot) {
+  for (const [name, reviewed] of Object.entries(
+    REVIEWED_ROOT_PATCHED_DEPENDENCIES,
+  )) {
+    const destination = join(controllerRoot, reviewed.path);
+    mkdirSync(dirname(destination), { recursive: true, mode: 0o755 });
+    copyFileSync(
+      join(
+        REPOSITORY_ROOT,
+        "scripts",
+        "fixtures",
+        "reviewed-root-patches",
+        `${name}.patch`,
+      ),
+      destination,
+    );
+  }
+}
+
 function writeSharpRuntimeArtifactsInFunction(
   functionDirectory,
   platform = sharpRuntimePlatform(),
@@ -90,7 +109,7 @@ function writeSharpRuntimeArtifactsInFunction(
     functionDirectory,
     "node_modules",
     ".pnpm",
-    `@img+sharp-${platform}@0.35.3`,
+    `@img+sharp-${platform}@0.35.4`,
     "node_modules",
     "@img",
     `sharp-${platform}`,
@@ -100,20 +119,20 @@ function writeSharpRuntimeArtifactsInFunction(
     functionDirectory,
     "node_modules",
     ".pnpm",
-    `@img+sharp-libvips-${platform}@1.3.2`,
+    `@img+sharp-libvips-${platform}@1.3.3`,
     "node_modules",
     "@img",
     `sharp-libvips-${platform}`,
   );
   mkdirSync(nativeDirectory, { recursive: true });
   mkdirSync(join(libvipsDirectory, "lib"), { recursive: true });
-  const nativeAddon = join(nativeDirectory, `sharp-${platform}-0.35.3.node`);
+  const nativeAddon = join(nativeDirectory, `sharp-${platform}-0.35.4.node`);
   const sharedLibrary = join(
     libvipsDirectory,
     "lib",
     platform.startsWith("darwin-")
-      ? "libvips-cpp.8.18.3.dylib"
-      : "libvips-cpp.so.8.18.3",
+      ? "libvips-cpp.8.18.6.dylib"
+      : "libvips-cpp.so.8.18.6",
   );
   const versionsManifest = join(libvipsDirectory, "versions.json");
   if (writeFunctionConfig) {
@@ -124,7 +143,7 @@ function writeSharpRuntimeArtifactsInFunction(
   }
   writeFileSync(nativeAddon, "native");
   writeFileSync(sharedLibrary, "libvips");
-  writeFileSync(versionsManifest, JSON.stringify({ vips: "8.18.3" }));
+  writeFileSync(versionsManifest, JSON.stringify({ vips: "8.18.6" }));
   return { nativeAddon, sharedLibrary, versionsManifest };
 }
 
@@ -2120,6 +2139,7 @@ test("standalone Vercel CLI runtime is exact, override-aligned, and independentl
     mkdirSync(sourceRoot, { recursive: true });
     mkdirSync(toolsRoot, { mode: 0o755 });
     copyFileSync(join(REPOSITORY_ROOT, "package.json"), rootPackagePath);
+    writeReviewedRootPatches(controllerRoot);
     for (const file of ["contract.json", "package.json", "pnpm-lock.yaml"]) {
       copyFileSync(
         join(REPOSITORY_ROOT, "scripts", "vercel-cli-runtime", file),
@@ -2319,6 +2339,9 @@ test("standalone Vercel CLI runtime is exact, override-aligned, and independentl
       rootPackagePath,
       `${JSON.stringify(reviewedRootPackage, null, 2)}\n`,
     );
+    for (const reviewed of Object.values(REVIEWED_ROOT_PATCHED_DEPENDENCIES)) {
+      rmSync(join(controllerRoot, reviewed.path));
+    }
     assert.throws(
       () =>
         stageTrustedVercelCliRuntimeManifest({
@@ -2532,6 +2555,7 @@ test("standalone Vercel CLI resolver enforces and executes the exact protected l
       join(REPOSITORY_ROOT, "package.json"),
       join(controllerRoot, "package.json"),
     );
+    writeReviewedRootPatches(controllerRoot);
     for (const file of ["contract.json", "package.json", "pnpm-lock.yaml"]) {
       copyFileSync(
         join(REPOSITORY_ROOT, "scripts", "vercel-cli-runtime", file),
@@ -3739,7 +3763,7 @@ test("prebuilt output requires matching sharp and libvips runtime artifacts", ()
         assertSharpPrebuiltArtifacts(directory, {
           runtimePlatform: "linux-x64",
         }),
-      /missing sharp 0\.35\.3.*libvips 8\.18\.3/,
+      /missing sharp 0\.35\.4.*libvips 8\.18\.6/,
     );
   } finally {
     rmSync(directory, { force: true, recursive: true });
@@ -3768,7 +3792,7 @@ test("prebuilt output rejects sharp artifacts split across functions", () => {
         assertSharpPrebuiltArtifacts(directory, {
           runtimePlatform: "linux-x64",
         }),
-      /missing sharp 0\.35\.3.*libvips 8\.18\.3/,
+      /missing sharp 0\.35\.4.*libvips 8\.18\.6/,
     );
   } finally {
     rmSync(directory, { force: true, recursive: true });
@@ -3793,7 +3817,7 @@ test("prebuilt output ignores sharp artifacts outside configured physical functi
         assertSharpPrebuiltArtifacts(directory, {
           runtimePlatform: "linux-x64",
         }),
-      /missing sharp 0\.35\.3.*libvips 8\.18\.3/,
+      /missing sharp 0\.35\.4.*libvips 8\.18\.6/,
     );
   } finally {
     rmSync(directory, { force: true, recursive: true });

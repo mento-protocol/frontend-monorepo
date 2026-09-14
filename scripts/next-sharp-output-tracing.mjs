@@ -2,8 +2,9 @@ import { dirname, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
-export const SHARP_RUNTIME_VERSION = "0.35.3";
-export const SHARP_LIBVIPS_PACKAGE_VERSION = "1.3.2";
+export const SHARP_RUNTIME_VERSION = "0.35.4";
+export const SHARP_LIBVIPS_PACKAGE_VERSION = "1.3.3";
+export const SHARP_LIBVIPS_RUNTIME_VERSION = "8.18.6";
 
 export function sharpRuntimePlatform() {
   let platform = process.platform;

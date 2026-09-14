@@ -66,7 +66,9 @@ function deploymentId(overrides = {}) {
   });
 }
 
-function createVersionContractFixture() {
+function createVersionContractFixture({
+  includeReviewedRootPatches = true,
+} = {}) {
   const fixtureRoot = mkdtempSync(join(tmpdir(), "vercel-versions-"));
   const runtimeRoot = join(fixtureRoot, "scripts", "vercel-cli-runtime");
   mkdirSync(runtimeRoot, { recursive: true });
@@ -81,6 +83,9 @@ function createVersionContractFixture() {
     join(repoRoot, "scripts", "vercel-cli-runtime", "contract.json"),
     join(runtimeRoot, "contract.json"),
   );
+  if (includeReviewedRootPatches) {
+    writeReviewedRootPatches(fixtureRoot);
+  }
   return fixtureRoot;
 }
 
@@ -696,7 +701,9 @@ test("version check rejects standalone pin, override, patch, and lockfile drift"
 });
 
 test("version check accepts the reviewed root patched dependencies with exact patch bytes and nothing else", () => {
-  const fixtureRoot = createVersionContractFixture();
+  const fixtureRoot = createVersionContractFixture({
+    includeReviewedRootPatches: false,
+  });
   try {
     const path = join(fixtureRoot, "package.json");
     const packageMetadata = JSON.parse(readFileSync(path, "utf8"));
@@ -884,7 +891,7 @@ test("sharp postbuild assertion requires one complete runtime trace", () => {
     directory,
     "node_modules",
     ".pnpm",
-    "sharp@0.35.3",
+    "sharp@0.35.4",
     "node_modules",
     "sharp",
     "package.json",
@@ -893,34 +900,34 @@ test("sharp postbuild assertion requires one complete runtime trace", () => {
     directory,
     "node_modules",
     ".pnpm",
-    "@img+sharp-linux-x64@0.35.3",
+    "@img+sharp-linux-x64@0.35.4",
     "node_modules",
     "@img",
     "sharp-linux-x64",
     "lib",
-    "sharp-linux-x64-0.35.3.node",
+    "sharp-linux-x64-0.35.4.node",
   );
   const unrelatedNativeAddon = join(
     directory,
     "node_modules",
     ".pnpm",
-    "@img+sharp-win32-arm64@0.35.3",
+    "@img+sharp-win32-arm64@0.35.4",
     "node_modules",
     "@img",
     "sharp-win32-arm64",
     "lib",
-    "sharp-win32-arm64-0.35.3.node",
+    "sharp-win32-arm64-0.35.4.node",
   );
   const libvipsDirectory = join(
     directory,
     "node_modules",
     ".pnpm",
-    "@img+sharp-libvips-linux-x64@1.3.2",
+    "@img+sharp-libvips-linux-x64@1.3.3",
     "node_modules",
     "@img",
     "sharp-libvips-linux-x64",
   );
-  const sharedLibrary = join(libvipsDirectory, "lib", "libvips-cpp.so.8.18.3");
+  const sharedLibrary = join(libvipsDirectory, "lib", "libvips-cpp.so.8.18.6");
   const versionsManifest = join(libvipsDirectory, "versions.json");
   const tracePath = join(traceDirectory, "route.js.nft.json");
 
@@ -935,11 +942,11 @@ test("sharp postbuild assertion requires one complete runtime trace", () => {
       mkdirSync(join(path, ".."), { recursive: true });
     }
     mkdirSync(traceDirectory, { recursive: true });
-    writeFileSync(sharpManifest, JSON.stringify({ version: "0.35.3" }));
+    writeFileSync(sharpManifest, JSON.stringify({ version: "0.35.4" }));
     writeFileSync(nativeAddon, "native");
     writeFileSync(unrelatedNativeAddon, "unrelated native");
     writeFileSync(sharedLibrary, "libvips");
-    writeFileSync(versionsManifest, JSON.stringify({ vips: "8.18.3" }));
+    writeFileSync(versionsManifest, JSON.stringify({ vips: "8.18.6" }));
     writeFileSync(
       tracePath,
       JSON.stringify({
@@ -959,7 +966,7 @@ test("sharp postbuild assertion requires one complete runtime trace", () => {
         runtimePlatform: "linux-x64",
       }),
       {
-        libvipsVersion: "8.18.3",
+        libvipsVersion: "8.18.6",
         nativeAddon,
         sharpManifest,
         sharedLibrary,
@@ -973,7 +980,7 @@ test("sharp postbuild assertion requires one complete runtime trace", () => {
         assertSharpOutputTrace(buildDirectory, {
           runtimePlatform: "linux-x64",
         }),
-      /No single Next output trace contains sharp 0\.35\.3.*libvips 8\.18\.3/,
+      /No single Next output trace contains sharp 0\.35\.4.*libvips 8\.18\.6/,
     );
   } finally {
     rmSync(directory, { force: true, recursive: true });
