@@ -105,7 +105,7 @@ function firstDependabotGroup(groups, dependency, dependencyType, updateType) {
 }
 
 const CLAUDE_ACTION =
-  "anthropics/claude-code-action@fa2b2666b747000bf42767d1f332065b375e3c8f";
+  "anthropics/claude-code-action@9c5ddab2e6d17b83ea679153b31f1d5f023cf636";
 const CLAUDE_PLUGIN_MARKETPLACE = "./.claude-code-plugin-marketplace";
 const CLAUDE_CODE_REVIEW_PLUGIN = `${CLAUDE_PLUGIN_MARKETPLACE}/plugins/code-review`;
 const CLAUDE_PLUGIN_MARKETPLACE_REF =
