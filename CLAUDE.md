@@ -358,7 +358,7 @@ knowing:
   Treat it as good enough to run and debug a suite, and never as evidence about
   pixel output or about behaviour that depends on the browser revision. This does
   not weaken CI: every Playwright job in `visual.yml` and `e2e.yml` runs inside
-  the pinned `mcr.microsoft.com/playwright:v1.62.1-noble` container, so Argos
+  the pinned `mcr.microsoft.com/playwright:v1.63.0-noble` container, so Argos
   baselines and the fork E2E suites never see the approximation. A local pixel
   diff against an Argos baseline is therefore not a regression on its own.
 
@@ -370,9 +370,9 @@ knowing:
   run `playwright install` expecting it to work.
 
   Two more things if it ever stops working: more than one revision can be wanted
-  at once, because workspaces pin different Playwright versions (the apps are on
-  1.62.1, wanting 1234, while the root catalog resolves 1.61.1, wanting 1228, and
-  both get aliased); and `launch()` naming a path under a revision that does not
+  at once, if workspaces pin different Playwright versions (today the apps and
+  the root catalog both resolve 1.63.0, wanting 1243, but every wanted revision
+  gets aliased); and `launch()` naming a path under a revision that does not
   exist means the alias was not built — check `ls /opt/pw-browsers` against the
   `revision` fields in
   `node_modules/.pnpm/playwright-core@*/node_modules/playwright-core/browsers.json`.
