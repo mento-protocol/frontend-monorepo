@@ -33,11 +33,13 @@ Budget six hours including waits, 45 active repair minutes and three attempts
 per PR, cumulative across resume. Use the current coding runtime; no nested CLI
 or provider/configuration changes.
 
-Deliver start, actionable exceptions and the full readable final report to the
-configured Slack destination #engineering (channel:C0AP4BCR396). No periodic
-status chatter. Verify final
-delivery and retain its receipt; return useful fallback report text without
-duplicating confirmed delivery. No local-path-only handoff.
+Deliver start, actionable exceptions and the two-tier final report to the
+configured Slack destination #engineering (channel:C0AP4BCR396): the digest as
+the channel message and the evidence tier as a reply in its thread; if the
+connector cannot thread, post the evidence tier as the next channel message.
+No periodic status chatter. Verify delivery of both tiers and retain both
+receipts; return useful fallback report text without duplicating confirmed
+delivery. No local-path-only handoff.
 
 Do not start another active batch, alter the scheduler or enable the cron.
 No approval, merge, close, auto-merge, or thread-state action is permitted.

@@ -523,7 +523,7 @@ test("agent decisions, delivered reports and serialized heavy work are the defau
   assert.equal(policy.reporting.periodicStatusMessages, false);
   assert.equal(
     policy.reporting.finalDelivery,
-    "full-readable-report-not-local-path-only",
+    "digest-message-plus-threaded-evidence-not-local-path-only",
   );
   assert.equal(policy.reporting.requireDeliveryReceipt, true);
   assert.deepEqual(policy.hostResources, {
@@ -542,7 +542,7 @@ test("agent decisions, delivered reports and serialized heavy work are the defau
   assert.ok(playbook.includes(policy.reporting.prCommentMarker));
   assert.ok(playbook.includes("Input welcome"));
   assert.ok(playbook.includes("lowest-numbered eligible PR"));
-  assert.ok(playbook.includes("Retain the delivery receipt"));
+  assert.ok(playbook.includes("retain both receipts"));
   assert.ok(playbook.includes("--concurrency=1"));
   assert.doesNotMatch(prompt + playbook, /at-least-five-minute/);
   assert.ok(
