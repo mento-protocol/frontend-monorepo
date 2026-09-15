@@ -540,7 +540,11 @@ test("agent decisions, delivered reports and serialized heavy work are the defau
   assert.ok(playbook.includes(policy.reporting.prCommentMarker));
   assert.ok(playbook.includes("Input welcome"));
   assert.ok(playbook.includes("lowest-numbered eligible PR"));
-  assert.ok(playbook.includes("retain its receipt"));
+  assert.ok(
+    playbook.includes(
+      "Verify delivery of each report message and retain its receipt",
+    ),
+  );
   assert.ok(playbook.includes("--concurrency=1"));
   assert.doesNotMatch(prompt + playbook, /at-least-five-minute/);
   assert.ok(
