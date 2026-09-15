@@ -280,6 +280,33 @@ test("excludes blockquoted fenced code from the word count", () => {
   assertPass(body);
 });
 
+test("excludes a list-nested fence from the word count", () => {
+  // One filler word makes room for the list item's own text.
+  const body = `${bodyWithFiller(fillerForCeiling - 1)}
+- item
+    ~~~text
+    ${filler(200)}
+    ~~~
+`;
+  assert.equal(authoredWordCount(body), 400);
+  assertPass(body);
+});
+
+test("stops an inline-code span at a list-item boundary", () => {
+  const withoutList = authoredWordCount(
+    validBody("\n## Details\n\nContext.\n"),
+  );
+  const body = validBody(`
+## Details
+
+Context \`
+- ${filler(250)}
+- ${filler(250)} \`
+`);
+  assert.equal(authoredWordCount(body), withoutList + 500);
+  assertFail(body, /authored words; the ceiling is 400/);
+});
+
 test("excludes blockquoted indented code from the word count", () => {
   const afterPlainBlankLine = `${bodyWithFiller(fillerForCeiling)}
 >     ${filler(200)}

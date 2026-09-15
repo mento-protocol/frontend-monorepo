@@ -18,9 +18,16 @@ const BOT_SUMMARY_HEADING_RES = [/^##\s+Summary by CodeRabbit\s*$/];
 // Code stays code when it is quoted, e.g. "> ```" around a pasted log.
 const BLOCKQUOTE_PREFIX = String.raw`(?:[ \t]{0,3}>[ \t]?)*`;
 const BLOCKQUOTE_PREFIX_RE = new RegExp(`^${BLOCKQUOTE_PREFIX}`);
+// A fence nested under a list item carries that item's indentation, four
+// spaces or more, so the indent before a fence is not capped at three.
+// Indented code is recognized first, so the wider indent cannot hide prose.
+const FENCE_INDENT = String.raw`[ \t]*`;
 const FENCE_OPENING_RE = new RegExp(
-  String.raw`^${BLOCKQUOTE_PREFIX}[ \t]{0,3}(\`{3,}|~{3,})`,
+  String.raw`^${BLOCKQUOTE_PREFIX}${FENCE_INDENT}(\`{3,}|~{3,})`,
 );
+// A list item starts a new block, so an unmatched backtick above one must not
+// pair with a backtick inside the list and swallow every word between them.
+const LIST_ITEM_RE = /^\s{0,3}(?:[-*+]|\d+[.)])\s/;
 const PLACEHOLDER_RE =
   /\[(?:Two to four plain sentences|Describe the problem|Explain how this PR solves|One line per check|List commands and results)/;
 const CODE_BLOCK_MARKER = "PR_DESCRIPTION_FENCED_CODE";
@@ -42,7 +49,8 @@ function isInlineBlockBoundary(line) {
   return (
     /^\s*$/.test(line) ||
     /^[ \t]{0,3}(?:#{1,6}(?:[ \t]+|$)|`{3,}|~{3,}|>|<!--)/.test(line) ||
-    /^[ \t]{0,3}(?:=+|-+)[ \t]*$/.test(line)
+    /^[ \t]{0,3}(?:=+|-+)[ \t]*$/.test(line) ||
+    LIST_ITEM_RE.test(line)
   );
 }
 
@@ -113,7 +121,7 @@ function maskNonStructuralMarkdown(body) {
       const rawLine = body.slice(cursor, lineEnd);
       const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
       const closing = new RegExp(
-        `^${BLOCKQUOTE_PREFIX}[ \\t]{0,3}${fence.character}{${fence.length},}[ \\t]*$`,
+        `^${BLOCKQUOTE_PREFIX}${FENCE_INDENT}${fence.character}{${fence.length},}[ \\t]*$`,
       );
       if (closing.test(line)) fence = null;
       if (newline !== -1) output += "\n";
