@@ -659,7 +659,17 @@ and Knip steps follow the planner, while Trunk remains mandatory for every diff.
 Failures, cancellations, unexpected skips, and invalid planner outputs remain blocking.
 Rename detection is disabled for the planning diff so both the old and new
 paths are classified; moving source into `docs/**` cannot masquerade as a
-documentation-only change. Until the target branch contains a trusted planner
+documentation-only change. Markdown that tests assert on is still classified as
+documentation. Several unit suites read repository markdown and match phrases in
+it: `scripts/dependency-policy.test.mjs` reads `AGENTS.md`, `CLAUDE.md`,
+`README.md`, `docs/dependabot-automation.md`, `docs/dependency-overrides.md`,
+and `scripts/prompts/dependabot-weekly.md`; `scripts/check-adr-reminder.test.mjs`
+reads `AGENTS.md`, `CLAUDE.md`, `README.md`, and
+`.github/pull_request_template.md`; and the Vercel contract suites read
+`docs/vercel-deployments.md`. A documentation-only pull request skips both unit
+shards, so an edit to one of those files can land a stale assertion on `main`
+(#969 did on 2026-09-15; fixed in #970). Run `pnpm test` locally before pushing
+such a change. Until the target branch contains a trusted planner
 (including the workflow's bootstrap PR), CI runs the full quality suite instead
 of executing planner code from the pull-request checkout. Default-branch pushes
 also bypass changed-file planning and always run the full build, unit-test,
