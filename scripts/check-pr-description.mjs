@@ -10,8 +10,15 @@ const PROBLEM_HEADING_RE = /^##\s+The Problem\s*$/;
 const SOLUTION_HEADING_RE = /^##\s+The Solution\s*$/;
 const H2_HEADING_RE = /^##\s/;
 const CHECKLIST_HEADING_RE = /^##\s+Ship Checklist\s*$/;
-// Review bots append their own summary section to the body; it is not authored here.
-const BOT_SUMMARY_HEADING_RE = /^##\s+Summary by\b/i;
+// Only exact headings that a review bot appends itself. A generic "Summary
+// by …" prefix would let an author name a section after the ceiling and hide
+// unlimited text behind it, so each known bot heading is listed in full.
+const BOT_SUMMARY_HEADING_RES = [/^##\s+Summary by CodeRabbit\s*$/i];
+// A fenced block stays code when it is quoted, e.g. "> ```" around a pasted log.
+const BLOCKQUOTE_PREFIX = String.raw`(?:[ \t]{0,3}>[ \t]?)*`;
+const FENCE_OPENING_RE = new RegExp(
+  String.raw`^${BLOCKQUOTE_PREFIX}[ \t]{0,3}(\`{3,}|~{3,})`,
+);
 const PLACEHOLDER_RE =
   /\[(?:Two to four plain sentences|Describe the problem|Explain how this PR solves|One line per check|List commands and results)/;
 const CODE_BLOCK_MARKER = "PR_DESCRIPTION_FENCED_CODE";
@@ -92,7 +99,7 @@ function maskNonStructuralMarkdown(body) {
       const rawLine = body.slice(cursor, lineEnd);
       const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
       const closing = new RegExp(
-        `^[ \\t]{0,3}${fence.character}{${fence.length},}[ \\t]*$`,
+        `^${BLOCKQUOTE_PREFIX}[ \\t]{0,3}${fence.character}{${fence.length},}[ \\t]*$`,
       );
       if (closing.test(line)) fence = null;
       if (newline !== -1) output += "\n";
@@ -136,7 +143,7 @@ function maskNonStructuralMarkdown(body) {
         continue;
       }
 
-      const opening = /^[ \t]{0,3}(`{3,}|~{3,})/.exec(line);
+      const opening = FENCE_OPENING_RE.exec(line);
       if (opening) {
         fence = { character: opening[1][0], length: opening[1].length };
         output += CODE_BLOCK_MARKER;
@@ -190,10 +197,19 @@ function h2Headings(body) {
 }
 
 // Fenced and indented code are replaced by a marker line, so dropping the
-// marker drops the whole block. One inline-code span stays as a single word.
+// marker drops the whole block. An inline-code span counts as one word: a
+// command or an identifier is a single token to the reader however many
+// spaces it holds. Back-to-back spans are separated first so a run of them
+// counts once each instead of collapsing into one token.
+const ADJACENT_INLINE_CODE_RE = new RegExp(
+  `${INLINE_CODE_MARKER}(?=${INLINE_CODE_MARKER})`,
+  "g",
+);
+
 function countWords(text) {
   return text
     .replaceAll(CODE_BLOCK_MARKER, " ")
+    .replace(ADJACENT_INLINE_CODE_RE, `${INLINE_CODE_MARKER} `)
     .split(/\s+/)
     .filter((token) => /[\p{L}\p{N}]/u.test(token)).length;
 }
@@ -208,16 +224,19 @@ function tldrSection(structure) {
   return (end === -1 ? rest : rest.slice(0, end)).join("\n");
 }
 
+function isBotSummaryHeading(line) {
+  return BOT_SUMMARY_HEADING_RES.some((heading) => heading.test(line));
+}
+
 // The ceiling measures what the author wrote: the ship checklist, HTML
-// comments, code, and bot-appended summary sections do not count.
+// comments, code, and the known bot-appended summary sections do not count.
 function authoredBody(structure) {
   const kept = [];
   let skipping = false;
 
   for (const line of linesOf(structure)) {
     if (H2_HEADING_RE.test(line)) {
-      skipping =
-        CHECKLIST_HEADING_RE.test(line) || BOT_SUMMARY_HEADING_RE.test(line);
+      skipping = CHECKLIST_HEADING_RE.test(line) || isBotSummaryHeading(line);
     }
     if (!skipping) kept.push(line);
   }

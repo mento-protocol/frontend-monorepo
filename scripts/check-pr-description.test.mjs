@@ -250,6 +250,64 @@ test("excludes the ship checklist and bot summaries from the word count", () => 
   assertPass(body);
 });
 
+test("counts a section that only looks like a bot summary", () => {
+  const body = `${bodyWithFiller(fillerForCeiling)}
+## Summary by me
+
+${filler(200)}
+`;
+  assert.equal(authoredWordCount(body), 603);
+  assertFail(body, /is 603 authored words; the ceiling is 400/);
+});
+
+test("excludes blockquoted fenced code from the word count", () => {
+  const body = `${bodyWithFiller(fillerForCeiling)}
+> \`\`\`text
+> ${filler(200)}
+> \`\`\`
+`;
+  assert.equal(authoredWordCount(body), 400);
+  assertPass(body);
+});
+
+test("does not count a blockquoted fenced heading as The Solution", () => {
+  assertFail(
+    `## tl;dr
+
+Plain summary of the change.
+
+## The Problem
+
+Context.
+
+> \`\`\`md
+> ## The Solution
+> \`\`\`
+
+## Validation
+
+- Tests pass.
+`,
+    /then '## The Solution'/,
+  );
+});
+
+test("counts an inline-code span as one word, not its contents", () => {
+  const plain = authoredWordCount(validBody("\n## Details\n\nalpha\n"));
+  const spanned = authoredWordCount(
+    validBody("\n## Details\n\n`alpha beta gamma`\n"),
+  );
+  assert.equal(spanned, plain);
+});
+
+test("counts inline-code spans left adjacent by a comment as two words", () => {
+  const one = authoredWordCount(validBody("\n## Details\n\n`alpha`\n"));
+  const two = authoredWordCount(
+    validBody("\n## Details\n\n`alpha`<!-- note -->`beta`\n"),
+  );
+  assert.equal(two - one, 1);
+});
+
 test("fails when The Solution is not the third H2 section", () => {
   assertFail(
     validBody().replace(
