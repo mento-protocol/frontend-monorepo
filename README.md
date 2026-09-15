@@ -375,7 +375,7 @@ a human decision. Dependabot CI remains secretless.
 
 The Monday 10:15 UTC job was enabled on 2026-09-11 by operator confirmation
 after the policy merged and the rollout checks passed; its first live run is the
-supervised acceptance run, and it reports to `#dependabot`.
+supervised acceptance run, and it reports to the channel the playbook names.
 See [ADR 0010](docs/adr/0010-trusted-agent-dependabot-preparation.md).
 
 #### When to Use Catalog vs Direct Versions
@@ -492,8 +492,7 @@ The repository is set up with GitHub Actions for CI:
   The 10:15 UTC OpenClaw job, enabled on 2026-09-11, uses the ordinary coding
   agent and the [checked-in prompt](scripts/prompts/dependabot-weekly.md); its
   stored prompt must match that file apart from its final newline, which the
-  scheduler drops, and it reports to
-  `#dependabot`. No custom launcher is required. Every
+  scheduler drops. No custom launcher is required. Every
   writer holds a per-pull-request claim ref before it writes, and one heavy
   process tree per host, rather than one active batch, caps the work. See the
   [playbook](docs/dependabot-automation.md) and

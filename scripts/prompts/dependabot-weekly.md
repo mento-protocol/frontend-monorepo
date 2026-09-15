@@ -33,12 +33,9 @@ Budget six hours including waits, 45 active repair minutes and three attempts
 per PR, cumulative across resume. Use the current coding runtime; no nested CLI
 or provider/configuration changes.
 
-Deliver start, actionable exceptions and the two-tier final report to the
-configured Slack destination #dependabot (channel:C0C1W20C536): the digest as
-the channel message and the evidence tier as a reply in its thread; if the
-connector cannot thread, post the evidence tier as the next channel message.
-When no Dependabot PR is open, the final report is instead the playbook's
-one-line zero state. No periodic status chatter. Verify delivery of each
+Deliver start, actionable exceptions and the final report to the configured
+Slack destination #dependabot (channel:C0C1W20C536), in the form the skill and
+the playbook define. No periodic status chatter. Verify delivery of each
 final-report message and retain its receipt; return useful fallback report
 text without duplicating confirmed delivery. No local-path-only handoff.
 

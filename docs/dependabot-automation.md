@@ -27,6 +27,9 @@ Do not run it concurrently or invoke the archived sealed skill procedure.
 
 Use the installed portable `dependabot-prep` skill at revision `trusted-agent-v2`
 as the shared workflow, with this playbook and v4 policy as repository overrides.
+The skill is published in
+[mento-protocol/agents](https://github.com/mento-protocol/agents), so its rules
+are readable from here and this playbook states only what differs.
 Your installed `dependabot-prep` skill must declare revision `trusted-agent-v2`.
 If your installed skill declares any other revision, stop before any write,
 report the mismatch and the incomplete rollout, and do not fall back to an older
@@ -610,36 +613,13 @@ pushes, base changes or substantive feedback invalidate it. Recheck on demand.
 
 Distinguish a completed inventory with blocked PRs from an
 interrupted/incomplete batch. An agent exit is not readiness.
-Deliver the final report to Slack in two tiers. A local filesystem path is
-never delivery.
-
-- **Digest, the channel message.** Its first line is bold and names the
-  repository, the run date, the ready/selected count and the verdict split.
-  Group PRs by verdict under bold headers. Give each PR one identity line
-  (status emoji, named PR link, dependency and target version, check state,
-  review state, risk) and one blockquote ask of at most two sentences, opened
-  with `Accept or close:` or `Unblock:`; a needs-decision ask ends with the
-  research recommendation. Links in the digest are PR links only. The digest
-  holds no SHAs, claim tokens, run ids, raw build, review or release URLs, or
-  write counts. Point to the evidence tier, then end the digest with its last
-  line: `No approval, merge, close, auto-merge, or thread-state action was performed.`
-  Write bold as `**text**` and italic as `_text_`, in standard Markdown. The
-  OpenClaw Slack connector converts Markdown to Slack formatting, so the
-  Slack-native single-asterisk bold (`*text*`) is read as Markdown italic and
-  the headers render italic ([openclaw/openclaw#34609](https://github.com/openclaw/openclaw/issues/34609)).
-- **Evidence, a reply in the digest's thread.** Per PR: exact head and base
-  SHAs, old→new transitions, actual edits, check and review evidence with
-  links, upstream and source links, auto-merge state, risk and confidence, the
-  decision-comment link, claim token, owner run id, the write inventory and the
-  local report path. If the connector cannot thread, post the evidence tier as
-  the next channel message with its own dated header. Never replace the digest
-  with an attachment or numbered sections.
-
-When no Dependabot PR is open, drafts and held updates included, the final
-report is one line with no evidence tier:
-`frontend-monorepo: [No open Dependabot pull requests](https://github.com/mento-protocol/frontend-monorepo/pulls?q=is%3Apr+is%3Aopen+author%3Aapp%2Fdependabot)`.
-It omits the owner, the verdict counts, the digest's last line and the run
-date; the message timestamp carries the date.
+Deliver the final report to Slack in the form the skill's delivery rules
+define: a digest as the channel message, an evidence tier in its thread, and
+the skill's one-line zero state when no Dependabot PR is open. A local
+filesystem path is never delivery. This repository changes two things only. The
+digest's last line is exactly
+`No approval, merge, close, auto-merge, or thread-state action was performed.`,
+and the destination is the channel named in _Schedule and activation_.
 
 Verify delivery of each report message and retain its receipt. On ambiguous
 delivery, reconcile before retrying; on failure preserve the report and surface

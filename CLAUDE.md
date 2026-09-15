@@ -498,8 +498,9 @@ existing PR branch. Human approval, thread resolution, and merge remain separate
 
 The weekly OpenClaw job (Mondays 10:15 UTC) was enabled on 2026-09-11 by
 operator confirmation, after this policy merged and the rollout checks passed;
-its first live run is the supervised acceptance run, and it reports to
-`#dependabot`. Its reviewed entry prompt is
+its first live run is the supervised acceptance run, and it reports to the
+channel named in the playbook's _Schedule and activation_ section. Its reviewed
+entry prompt is
 `scripts/prompts/dependabot-weekly.md`, and the job's stored prompt must match
 that file apart from its final newline, which the scheduler drops. Never run the
 legacy launcher and the ordinary workflow concurrently. Follow the playbook's
