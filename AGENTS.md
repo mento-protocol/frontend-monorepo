@@ -252,9 +252,11 @@ the next two H2 sections. Only HTML comments may appear before `## tl;dr`.
 Write the tl;dr as two to four plain-language sentences, about 60 words and 80
 at most, with no file names, flags, or SHAs. Keep the whole authored body near
 250 words and never above 400; the ship checklist, HTML comments, code blocks
-(blockquoted ones included), and the bot-appended `## Summary by CodeRabbit`
-section do not count toward that ceiling, and an inline-code span counts as one
-word. Excluding another bot's section means adding that exact heading to the
+(blockquoted fenced and blockquoted indented ones included), and the
+bot-appended `## Summary by CodeRabbit` section do not count toward that
+ceiling, and an inline-code span counts as one word. That heading is matched
+exactly, capitalization included, so a hand-written variant still counts.
+Excluding another bot's section means adding its exact heading to the
 validator's allowlist.
 Write `## Validation` as one line per check: group the passes on one line with
 their counts, and give every skipped, failed, or not-proven item its own line.

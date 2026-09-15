@@ -10,12 +10,14 @@ const PROBLEM_HEADING_RE = /^##\s+The Problem\s*$/;
 const SOLUTION_HEADING_RE = /^##\s+The Solution\s*$/;
 const H2_HEADING_RE = /^##\s/;
 const CHECKLIST_HEADING_RE = /^##\s+Ship Checklist\s*$/;
-// Only exact headings that a review bot appends itself. A generic "Summary
-// by …" prefix would let an author name a section after the ceiling and hide
-// unlimited text behind it, so each known bot heading is listed in full.
-const BOT_SUMMARY_HEADING_RES = [/^##\s+Summary by CodeRabbit\s*$/i];
-// A fenced block stays code when it is quoted, e.g. "> ```" around a pasted log.
+// Only exact headings that a review bot appends itself, matched case
+// sensitively. A loose match would let an author name a section after the
+// ceiling and hide unlimited text behind it, so each known bot heading is
+// listed exactly as the bot writes it.
+const BOT_SUMMARY_HEADING_RES = [/^##\s+Summary by CodeRabbit\s*$/];
+// Code stays code when it is quoted, e.g. "> ```" around a pasted log.
 const BLOCKQUOTE_PREFIX = String.raw`(?:[ \t]{0,3}>[ \t]?)*`;
+const BLOCKQUOTE_PREFIX_RE = new RegExp(`^${BLOCKQUOTE_PREFIX}`);
 const FENCE_OPENING_RE = new RegExp(
   String.raw`^${BLOCKQUOTE_PREFIX}[ \t]{0,3}(\`{3,}|~{3,})`,
 );
@@ -74,15 +76,27 @@ function findClosingBackticks(body, start, length, end) {
   return -1;
 }
 
+// A quoted line carries its blockquote markers before the content, so the
+// code checks below read the line with those markers removed. One space after
+// each ">" belongs to the marker, so a quoted "> " plus four spaces is still
+// indented code once the prefix is gone.
+function withoutBlockquotePrefix(line) {
+  return line.replace(BLOCKQUOTE_PREFIX_RE, "");
+}
+
+function isBlankLine(line) {
+  return /^\s*$/.test(withoutBlockquotePrefix(line));
+}
+
 function previousLineIsBlank(body, lineStart) {
   if (lineStart === 0) return true;
   const previousLineEnd = lineStart - 1;
   const previousLineStart = body.lastIndexOf("\n", previousLineEnd - 1) + 1;
-  return /^\s*$/.test(body.slice(previousLineStart, previousLineEnd));
+  return isBlankLine(body.slice(previousLineStart, previousLineEnd));
 }
 
 function isIndentedCodeLine(line) {
-  return /^(?: {4}|\t)/.test(line);
+  return /^(?: {4}|\t)/.test(withoutBlockquotePrefix(line));
 }
 
 function maskNonStructuralMarkdown(body) {
@@ -126,8 +140,8 @@ function maskNonStructuralMarkdown(body) {
       const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
 
       if (inIndentedCode) {
-        if (/^\s*$/.test(line) || isIndentedCodeLine(line)) {
-          if (!/^\s*$/.test(line)) output += CODE_BLOCK_MARKER;
+        if (isBlankLine(line) || isIndentedCodeLine(line)) {
+          if (!isBlankLine(line)) output += CODE_BLOCK_MARKER;
           if (newline !== -1) output += "\n";
           cursor = newline === -1 ? body.length : newline + 1;
           continue;

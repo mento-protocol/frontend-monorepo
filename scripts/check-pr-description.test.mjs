@@ -250,6 +250,16 @@ test("excludes the ship checklist and bot summaries from the word count", () => 
   assertPass(body);
 });
 
+test("counts a casing variant of the bot-summary heading", () => {
+  const body = `${bodyWithFiller(fillerForCeiling)}
+## summary by coderabbit
+
+${filler(200)}
+`;
+  assert.equal(authoredWordCount(body), 603);
+  assertFail(body, /is 603 authored words; the ceiling is 400/);
+});
+
 test("counts a section that only looks like a bot summary", () => {
   const body = `${bodyWithFiller(fillerForCeiling)}
 ## Summary by me
@@ -268,6 +278,24 @@ test("excludes blockquoted fenced code from the word count", () => {
 `;
   assert.equal(authoredWordCount(body), 400);
   assertPass(body);
+});
+
+test("excludes blockquoted indented code from the word count", () => {
+  const afterPlainBlankLine = `${bodyWithFiller(fillerForCeiling)}
+>     ${filler(200)}
+`;
+  assert.equal(authoredWordCount(afterPlainBlankLine), 400);
+  assertPass(afterPlainBlankLine);
+
+  // The blank line that opens the block carries the blockquote marker too.
+  // Two filler words make room for the quoted lead-in line.
+  const afterQuotedBlankLine = `${bodyWithFiller(fillerForCeiling - 2)}
+> Quoted log:
+>
+>     ${filler(200)}
+`;
+  assert.equal(authoredWordCount(afterQuotedBlankLine), 400);
+  assertPass(afterQuotedBlankLine);
 });
 
 test("does not count a blockquoted fenced heading as The Solution", () => {
