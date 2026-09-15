@@ -139,30 +139,34 @@ async function fetchProposalData(id: string) {
       env.NEXT_PUBLIC_GRAPH_API_KEY,
     );
 
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Origin: origin,
-        ...(authorization && { Authorization: authorization }),
-      },
-      body,
-    });
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: origin,
+          ...(authorization && { Authorization: authorization }),
+        },
+        body,
+      });
 
-    if (!response.ok) {
-      lastFailure = new Error(`HTTP error! status: ${response.status}`);
-      continue;
+      if (!response.ok) {
+        lastFailure = new Error(`HTTP error! status: ${response.status}`);
+        continue;
+      }
+
+      const result = await response.json();
+      if (isPrimaryUnavailable(result)) {
+        lastFailure = new Error(
+          `Subgraph unavailable: ${JSON.stringify(result.errors)}`,
+        );
+        continue;
+      }
+
+      return result.data;
+    } catch (error) {
+      lastFailure = error instanceof Error ? error : new Error(String(error));
     }
-
-    const result = await response.json();
-    if (isPrimaryUnavailable(result)) {
-      lastFailure = new Error(
-        `Subgraph unavailable: ${JSON.stringify(result.errors)}`,
-      );
-      continue;
-    }
-
-    return result.data;
   }
 
   throw lastFailure ?? new Error("Subgraph request failed");
