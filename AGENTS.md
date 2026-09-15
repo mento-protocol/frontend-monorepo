@@ -247,9 +247,15 @@ The full contract and commands live in `docs/vercel-deployments.md`.
 ## Pull request descriptions
 
 Every non-draft, non-Dependabot pull request body must start with the exact
-top-level headings `## The Problem` then `## The Solution` as its first two H2
-sections. Only HTML comments may appear before `## The Problem`. Validate the
-current PR with
+top-level heading `## tl;dr`, then `## The Problem` and `## The Solution` as
+the next two H2 sections. Only HTML comments may appear before `## tl;dr`.
+Write the tl;dr as two to four plain-language sentences, about 60 words and 80
+at most, with no file names, flags, or SHAs. Keep the whole authored body near
+250 words and never above 400; the ship checklist, HTML comments, code blocks,
+and bot-appended `Summary by …` sections do not count toward that ceiling.
+Write `## Validation` as one line per check: group the passes on one line with
+their counts, and give every skipped, failed, or not-proven item its own line.
+Validate the current PR with
 `gh pr view --json body --jq .body | pnpm pr:description:check`; run the
 validator tests with `pnpm pr:description:test`. The `PR description format`
 job is designed to be a required status and therefore must keep running without

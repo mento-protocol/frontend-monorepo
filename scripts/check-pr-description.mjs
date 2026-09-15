@@ -5,12 +5,19 @@ import { resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
+const TLDR_HEADING_RE = /^##\s+tl;dr\s*$/;
 const PROBLEM_HEADING_RE = /^##\s+The Problem\s*$/;
 const SOLUTION_HEADING_RE = /^##\s+The Solution\s*$/;
+const H2_HEADING_RE = /^##\s/;
+const CHECKLIST_HEADING_RE = /^##\s+Ship Checklist\s*$/;
+// Review bots append their own summary section to the body; it is not authored here.
+const BOT_SUMMARY_HEADING_RE = /^##\s+Summary by\b/i;
 const PLACEHOLDER_RE =
-  /\[(?:Describe the problem|Explain how this PR solves|List commands and results)/;
+  /\[(?:Two to four plain sentences|Describe the problem|Explain how this PR solves|One line per check|List commands and results)/;
 const CODE_BLOCK_MARKER = "PR_DESCRIPTION_FENCED_CODE";
 const INLINE_CODE_MARKER = "PR_DESCRIPTION_INLINE_CODE";
+const TLDR_WORD_LIMIT = 80;
+const BODY_WORD_LIMIT = 400;
 
 function linesOf(body) {
   return body.split(/\r?\n/);
@@ -179,7 +186,43 @@ function firstNonBlankLine(body) {
 }
 
 function h2Headings(body) {
-  return linesOf(body).filter((line) => /^##\s/.test(line));
+  return linesOf(body).filter((line) => H2_HEADING_RE.test(line));
+}
+
+// Fenced and indented code are replaced by a marker line, so dropping the
+// marker drops the whole block. One inline-code span stays as a single word.
+function countWords(text) {
+  return text
+    .replaceAll(CODE_BLOCK_MARKER, " ")
+    .split(/\s+/)
+    .filter((token) => /[\p{L}\p{N}]/u.test(token)).length;
+}
+
+function tldrSection(structure) {
+  const lines = linesOf(structure);
+  const start = lines.findIndex((line) => TLDR_HEADING_RE.test(line));
+  if (start === -1) return "";
+
+  const rest = lines.slice(start + 1);
+  const end = rest.findIndex((line) => H2_HEADING_RE.test(line));
+  return (end === -1 ? rest : rest.slice(0, end)).join("\n");
+}
+
+// The ceiling measures what the author wrote: the ship checklist, HTML
+// comments, code, and bot-appended summary sections do not count.
+function authoredBody(structure) {
+  const kept = [];
+  let skipping = false;
+
+  for (const line of linesOf(structure)) {
+    if (H2_HEADING_RE.test(line)) {
+      skipping =
+        CHECKLIST_HEADING_RE.test(line) || BOT_SUMMARY_HEADING_RE.test(line);
+    }
+    if (!skipping) kept.push(line);
+  }
+
+  return kept.join("\n");
 }
 
 export function validatePrDescription(body) {
@@ -187,7 +230,7 @@ export function validatePrDescription(body) {
     return {
       ok: false,
       message:
-        "PR description is empty. It must start with '## The Problem' then '## The Solution'.",
+        "PR description is empty. It must start with '## tl;dr', then '## The Problem' and '## The Solution'.",
     };
   }
 
@@ -213,22 +256,53 @@ export function validatePrDescription(body) {
   }
 
   const firstLine = firstNonBlankLine(structure);
-  const secondHeading = h2Headings(structure)[1] ?? "";
+  if (!TLDR_HEADING_RE.test(firstLine)) {
+    return {
+      ok: false,
+      message:
+        "PR description must start with '## tl;dr' as its first section, written exactly like that. Only HTML comments may precede it.",
+    };
+  }
+
+  const headings = h2Headings(structure);
   if (
-    !PROBLEM_HEADING_RE.test(firstLine) ||
-    !SOLUTION_HEADING_RE.test(secondHeading)
+    !PROBLEM_HEADING_RE.test(headings[1] ?? "") ||
+    !SOLUTION_HEADING_RE.test(headings[2] ?? "")
   ) {
     return {
       ok: false,
       message:
-        "PR description must start with exact '## The Problem' then '## The Solution' headings as its first two sections. Only HTML comments may precede '## The Problem'.",
+        "PR description must place exact '## The Problem' then '## The Solution' headings as the two sections after '## tl;dr'.",
+    };
+  }
+
+  const tldrWords = countWords(tldrSection(structure));
+  if (tldrWords === 0) {
+    return {
+      ok: false,
+      message:
+        "tl;dr section is empty. Write two to four plain-language sentences under '## tl;dr'.",
+    };
+  }
+
+  if (tldrWords > TLDR_WORD_LIMIT) {
+    return {
+      ok: false,
+      message: `tl;dr is ${tldrWords} words; keep it to ${TLDR_WORD_LIMIT}.`,
+    };
+  }
+
+  const bodyWords = countWords(authoredBody(structure));
+  if (bodyWords > BODY_WORD_LIMIT) {
+    return {
+      ok: false,
+      message: `PR description is ${bodyWords} authored words; the ceiling is ${BODY_WORD_LIMIT} (checklist, comments, code and bot summaries excluded).`,
     };
   }
 
   return {
     ok: true,
-    message:
-      "PR description OK: it starts with '## The Problem' then '## The Solution' and has no template placeholders.",
+    message: `PR description OK: it starts with '## tl;dr' (${tldrWords} words), then '## The Problem' and '## The Solution', runs ${bodyWords} authored words, and has no template placeholders.`,
   };
 }
 
