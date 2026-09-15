@@ -17,7 +17,7 @@ supersedes:
 Accepted and rolled out. The package and policy merged on 2026-09-10 and the
 skill on 2026-09-11; the operator enabled the scheduled job on 2026-09-11,
 after this prompt revision reached `main`, so its first live run is the
-supervised acceptance run. Reports go to `#dependabot`.
+supervised acceptance run. Reports go to the channel the playbook names.
 
 ## Context
 
@@ -156,8 +156,11 @@ merged 2026-09-10 and published as `@mento-protocol/issues@0.1.0`), this
 repository's `dependabot-prep-policy:v4`
 ([#948](https://github.com/mento-protocol/frontend-monorepo/pull/948), merged
 2026-09-10), and the portable skill at revision `trusted-agent-v2`
-(chapati23/agent-skills#19, a private repository, merged 2026-09-11 and
-installed on giskard and the Mac). The rollout checks (`config validate`,
+(merged 2026-09-11 in the maintainer's private library and installed on giskard
+and the Mac, then promoted on 2026-09-15 to
+[mento-protocol/agents](https://github.com/mento-protocol/agents), where
+contributors and their agents can read the shared workflow this playbook
+overrides). The rollout checks (`config validate`,
 `claims doctor`, `claims label ensure`, `claims list`) passed against the
 merged policy on 2026-09-11, and the weekly job was enabled the same day. The
 drop-in adoption in monitoring-monorepo is tracked in
