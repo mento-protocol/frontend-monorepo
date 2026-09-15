@@ -58,7 +58,7 @@ pnpm fork:mainnet                    # Local anvil fork of Celo mainnet (--celo 
 pnpm fork:seed                       # Select a safe FX-open clock, fund fork accounts, and re-report oracles
 pnpm fork:monad                      # Local anvil fork of Monad mainnet (chain 143, port 8546; no --celo)
 pnpm fork:seed:monad                 # Same safe clock; Reserve collateral + real swap-to-seed
-pnpm pr:description:test             # Test the required PR-description format validator
+pnpm pr:description:test             # Test the PR-description validator: `## tl;dr` first, then The Problem/The Solution, 400-word ceiling
 pnpm vercel:deployment-state:test    # Test canonical read-only Vercel state and alias-drift evidence
 pnpm vercel:primitives:test          # Test affected planning, custom deployment IDs, and build-env contracts
 pnpm vercel:workflow:test            # Test Vercel preview and main workflows, exact-main gating, transactions, and smoke
@@ -66,7 +66,7 @@ pnpm vercel:preview:test             # Test preview state plus reusable smoke tr
 pnpm vercel:production-shadow:test   # Test the staged-candidate toolkit and shared candidate-build actions
 pnpm vercel:versions:check           # Verify pinned Next.js/Vercel CLI custom-ID prerequisites
 pnpm vercel:plan --base <sha> --head <sha>  # Emit the fail-closed Vercel target plan
-gh pr view --json body --jq .body | pnpm pr:description:check  # Validate the current PR body
+gh pr view --json body --jq .body | pnpm pr:description:check  # Validate the current PR body; `## Validation` is one line per check
 ```
 
 The full custom-CI primitive contract, environment matrix, and prebuilt-output
