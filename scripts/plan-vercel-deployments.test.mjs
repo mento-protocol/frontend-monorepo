@@ -227,6 +227,7 @@ test("the exact dependency policy files are proven non-runtime", () => {
     "README.md",
     ".github/dependabot.yml",
     ".github/dependabot-prep-policy.json",
+    "scripts/dependabot-claim.mjs",
     "scripts/dependency-policy.test.mjs",
   ]);
 });
@@ -236,6 +237,8 @@ for (const path of [
   ".github/dependabot.yml.bak",
   ".github/dependabot-prep-policy.yaml",
   ".github/dependabot-prep-policy.json.bak",
+  "scripts/dependabot-claim.mjs.bak",
+  "scripts/dependabot-claim.test.mjs",
   "scripts/dependency-policy.mjs",
   "scripts/dependency-policy.test.mjs.bak",
 ]) {
@@ -281,6 +284,7 @@ test("the exact dependency policy files are non-runtime-only together", () => {
   const fixture = createFixture([
     ".github/dependabot.yml",
     ".github/dependabot-prep-policy.json",
+    "scripts/dependabot-claim.mjs",
     "scripts/dependency-policy.test.mjs",
   ]);
   try {

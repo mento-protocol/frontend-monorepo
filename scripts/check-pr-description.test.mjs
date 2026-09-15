@@ -19,7 +19,11 @@ const pullRequestTemplate = readFileSync(
 );
 
 function validBody(extra = "") {
-  return `## The Problem
+  return `## tl;dr
+
+Reviewers had no quick summary at the top of a PR. Every description now opens with a short plain-language recap.
+
+## The Problem
 
 - Reviewers need consistent context for every change.
 
@@ -28,6 +32,30 @@ function validBody(extra = "") {
 - Validate the two required opening sections in CI.
 ${extra}`;
 }
+
+function filler(words) {
+  return Array.from({ length: words }, () => "word").join(" ");
+}
+
+function bodyWithFiller(words) {
+  return validBody(`
+## Details
+
+${filler(words)}
+`);
+}
+
+// The validator reports the authored word count in both its pass and its
+// over-ceiling message, so these fixtures size themselves against the real
+// counter instead of hard-coding a count that drifts with the sample text.
+function authoredWordCount(body) {
+  const { message } = validatePrDescription(body);
+  const match = /(\d+) authored words/.exec(message);
+  assert.ok(match, `expected an authored word count in: ${message}`);
+  return Number(match[1]);
+}
+
+const fillerForCeiling = 400 - (authoredWordCount(bodyWithFiller(1)) - 1);
 
 function assertPass(body) {
   const result = validatePrDescription(body);
@@ -43,7 +71,6 @@ function assertFail(body, expected) {
 test("passes the required headings followed by optional sections", () => {
   assertPass(
     validBody(`
-
 ## Validation
 
 - node scripts/check-pr-description.test.mjs
@@ -56,6 +83,10 @@ test("keeps the repository template aligned with the validator", () => {
   assertPass(
     pullRequestTemplate
       .replace(
+        "[Two to four plain sentences: who had which problem, what changes, what to expect. About 60 words, no identifiers.]",
+        "Reviewers had no quick summary at the top of a PR. Every description now opens with a short plain-language recap.",
+      )
+      .replace(
         "[Describe the problem, user impact, or maintenance risk this PR addresses.]",
         "Existing PR descriptions do not provide consistent context.",
       )
@@ -64,7 +95,7 @@ test("keeps the repository template aligned with the validator", () => {
         "Validate the required opening sections in CI.",
       )
       .replace(
-        "[List commands and results, plus any manual verification.]",
+        "[One line per check. Group passes: `pnpm test` 42 ✓, `pnpm lint` ✓. Skipped, failed, or not-proven items each get their own line.]",
         "node scripts/check-pr-description.test.mjs",
       ),
   );
@@ -76,7 +107,10 @@ test("allows HTML comments before the opening heading", () => {
 
 test("allows trailing heading whitespace and CRLF newlines", () => {
   assertPass(
-    validBody().replaceAll("\n", "\r\n").replace("Problem\r", "Problem  \r"),
+    validBody()
+      .replaceAll("\n", "\r\n")
+      .replace("tl;dr\r", "tl;dr  \r")
+      .replace("Problem\r", "Problem  \r"),
   );
 });
 
@@ -85,22 +119,21 @@ test("fails an empty body", () => {
 });
 
 test("fails unfilled template placeholders", () => {
-  assertFail(
-    validBody(`
-
-- [List commands and results, plus any manual verification.]
-`),
-    /template placeholders/,
-  );
+  for (const placeholder of [
+    "- [Two to four plain sentences: who had which problem, what changes, what to expect. About 60 words, no identifiers.]",
+    "- [One line per check. Group passes: `pnpm test` 42 ✓, `pnpm lint` ✓. Skipped, failed, or not-proven items each get their own line.]",
+    "- [List commands and results, plus any manual verification.]",
+  ]) {
+    assertFail(validBody(`\n${placeholder}\n`), /template placeholders/);
+  }
 });
 
 test("allows template prompt text when rendered as code or hidden in a comment", () => {
   assertPass(
     validBody(`
-
 ## Validation
 
-- Example: \`[List commands and results, plus any manual verification.]\`
+- Example: \`[One line per check. Group passes: 42 ✓.]\`
 
 \`\`\`md
 [Describe the problem, user impact, or maintenance risk this PR addresses.]
@@ -111,14 +144,226 @@ test("allows template prompt text when rendered as code or hidden in a comment",
   );
 });
 
-test("fails content before The Problem", () => {
+test("fails a body without a tl;dr", () => {
   assertFail(
-    `# Summary\n\n${validBody()}`,
-    /must start with exact '## The Problem'/,
+    `## The Problem
+
+- Reviewers need consistent context for every change.
+
+## The Solution
+
+- Validate the two required opening sections in CI.
+`,
+    /must start with '## tl;dr'/,
   );
 });
 
-test("fails when The Solution is not the second H2 section", () => {
+test("fails a tl;dr that is not the first section", () => {
+  assertFail(
+    `## The Problem
+
+- Reviewers need consistent context for every change.
+
+## tl;dr
+
+Plain summary of the change.
+
+## The Solution
+
+- Validate the two required opening sections in CI.
+`,
+    /must start with '## tl;dr'/,
+  );
+});
+
+test("fails content before the tl;dr", () => {
+  assertFail(`# Summary\n\n${validBody()}`, /must start with '## tl;dr'/);
+});
+
+test("fails near-miss tl;dr headings", () => {
+  for (const heading of [
+    "### tl;dr",
+    "# tl;dr",
+    "## TL;DR",
+    "## tl;dr:",
+    "## tldr",
+  ]) {
+    assertFail(
+      validBody().replace("## tl;dr", heading),
+      /must start with '## tl;dr'/,
+    );
+  }
+});
+
+test("fails an empty tl;dr section", () => {
+  assertFail(
+    `## tl;dr
+
+<!-- nothing written yet -->
+
+## The Problem
+
+- Reviewers need consistent context for every change.
+
+## The Solution
+
+- Validate the two required opening sections in CI.
+`,
+    /tl;dr section is empty/,
+  );
+});
+
+test("fails a tl;dr over 80 words", () => {
+  assertFail(
+    validBody().replace(
+      "Reviewers had no quick summary at the top of a PR. Every description now opens with a short plain-language recap.",
+      filler(81),
+    ),
+    /tl;dr is 81 words; keep it to 80/,
+  );
+});
+
+test("passes a body at exactly the 400-word ceiling", () => {
+  const body = bodyWithFiller(fillerForCeiling);
+  assert.equal(authoredWordCount(body), 400);
+  assertPass(body);
+});
+
+test("fails a body one word over the 400-word ceiling", () => {
+  assertFail(
+    bodyWithFiller(fillerForCeiling + 1),
+    /is 401 authored words; the ceiling is 400/,
+  );
+});
+
+test("excludes the ship checklist and bot summaries from the word count", () => {
+  const body = `${bodyWithFiller(fillerForCeiling)}
+## Ship Checklist
+
+- [ ] ${filler(200)}
+
+## Summary by CodeRabbit
+
+- ${filler(200)}
+`;
+  assert.equal(authoredWordCount(body), 400);
+  assertPass(body);
+});
+
+test("counts a casing variant of the bot-summary heading", () => {
+  const body = `${bodyWithFiller(fillerForCeiling)}
+## summary by coderabbit
+
+${filler(200)}
+`;
+  assert.equal(authoredWordCount(body), 603);
+  assertFail(body, /is 603 authored words; the ceiling is 400/);
+});
+
+test("counts a section that only looks like a bot summary", () => {
+  const body = `${bodyWithFiller(fillerForCeiling)}
+## Summary by me
+
+${filler(200)}
+`;
+  assert.equal(authoredWordCount(body), 603);
+  assertFail(body, /is 603 authored words; the ceiling is 400/);
+});
+
+test("excludes blockquoted fenced code from the word count", () => {
+  const body = `${bodyWithFiller(fillerForCeiling)}
+> \`\`\`text
+> ${filler(200)}
+> \`\`\`
+`;
+  assert.equal(authoredWordCount(body), 400);
+  assertPass(body);
+});
+
+test("excludes a list-nested fence from the word count", () => {
+  // One filler word makes room for the list item's own text.
+  const body = `${bodyWithFiller(fillerForCeiling - 1)}
+- item
+    ~~~text
+    ${filler(200)}
+    ~~~
+`;
+  assert.equal(authoredWordCount(body), 400);
+  assertPass(body);
+});
+
+test("stops an inline-code span at a list-item boundary", () => {
+  const withoutList = authoredWordCount(
+    validBody("\n## Details\n\nContext.\n"),
+  );
+  const body = validBody(`
+## Details
+
+Context \`
+- ${filler(250)}
+- ${filler(250)} \`
+`);
+  assert.equal(authoredWordCount(body), withoutList + 500);
+  assertFail(body, /authored words; the ceiling is 400/);
+});
+
+test("excludes blockquoted indented code from the word count", () => {
+  const afterPlainBlankLine = `${bodyWithFiller(fillerForCeiling)}
+>     ${filler(200)}
+`;
+  assert.equal(authoredWordCount(afterPlainBlankLine), 400);
+  assertPass(afterPlainBlankLine);
+
+  // The blank line that opens the block carries the blockquote marker too.
+  // Two filler words make room for the quoted lead-in line.
+  const afterQuotedBlankLine = `${bodyWithFiller(fillerForCeiling - 2)}
+> Quoted log:
+>
+>     ${filler(200)}
+`;
+  assert.equal(authoredWordCount(afterQuotedBlankLine), 400);
+  assertPass(afterQuotedBlankLine);
+});
+
+test("does not count a blockquoted fenced heading as The Solution", () => {
+  assertFail(
+    `## tl;dr
+
+Plain summary of the change.
+
+## The Problem
+
+Context.
+
+> \`\`\`md
+> ## The Solution
+> \`\`\`
+
+## Validation
+
+- Tests pass.
+`,
+    /then '## The Solution'/,
+  );
+});
+
+test("counts an inline-code span as one word, not its contents", () => {
+  const plain = authoredWordCount(validBody("\n## Details\n\nalpha\n"));
+  const spanned = authoredWordCount(
+    validBody("\n## Details\n\n`alpha beta gamma`\n"),
+  );
+  assert.equal(spanned, plain);
+});
+
+test("counts inline-code spans left adjacent by a comment as two words", () => {
+  const one = authoredWordCount(validBody("\n## Details\n\n`alpha`\n"));
+  const two = authoredWordCount(
+    validBody("\n## Details\n\n`alpha`<!-- note -->`beta`\n"),
+  );
+  assert.equal(two - one, 1);
+});
+
+test("fails when The Solution is not the third H2 section", () => {
   assertFail(
     validBody().replace(
       "## The Solution",
@@ -130,8 +375,19 @@ test("fails when The Solution is not the second H2 section", () => {
 
 test("fails swapped opening sections", () => {
   assertFail(
-    `## The Solution\n\nFirst.\n\n## The Problem\n\nSecond.\n`,
-    /must start with exact '## The Problem'/,
+    `## tl;dr
+
+Plain summary of the change.
+
+## The Solution
+
+First.
+
+## The Problem
+
+Second.
+`,
+    /'## The Problem' then '## The Solution'/,
   );
 });
 
@@ -144,14 +400,18 @@ test("fails near-miss required headings", () => {
   ]) {
     assertFail(
       validBody().replace("## The Problem", heading),
-      /must start with exact '## The Problem'/,
+      /'## The Problem' then '## The Solution'/,
     );
   }
 });
 
 test("does not count a fenced heading as The Solution", () => {
   assertFail(
-    `## The Problem
+    `## tl;dr
+
+Plain summary of the change.
+
+## The Problem
 
 Context.
 
@@ -169,7 +429,11 @@ Context.
 
 test("does not treat a t-prefixed fence as fenced code", () => {
   assertFail(
-    `## The Problem
+    `## tl;dr
+
+Plain summary of the change.
+
+## The Problem
 
 Context.
 
@@ -187,7 +451,11 @@ Implementation.
 
 test("does not treat HTML comment markers rendered as inline code as comments", () => {
   assertFail(
-    `## The Problem
+    `## tl;dr
+
+Plain summary of the change.
+
+## The Problem
 
 Context.
 
@@ -209,7 +477,11 @@ Implementation.
 
 test("does not pair inline-code delimiters across Markdown blocks", () => {
   assertFail(
-    `## The Problem
+    `## tl;dr
+
+Plain summary of the change.
+
+## The Problem
 
 Context \`
 
@@ -227,7 +499,11 @@ Implementation.
 
 test("allows inline code to span soft line breaks within one block", () => {
   assertPass(
-    `## The Problem
+    `## tl;dr
+
+Plain summary of the change.
+
+## The Problem
 
 \`<!--
 still rendered as code -->\`
@@ -241,7 +517,11 @@ Implementation.
 
 test("allows inline code to span an indented paragraph continuation", () => {
   assertFail(
-    `## The Problem
+    `## tl;dr
+
+Plain summary of the change.
+
+## The Problem
 
 \`code begins
     <!--
@@ -261,7 +541,11 @@ Implementation.
 
 test("does not interpret comment markers in indented code as HTML comments", () => {
   assertFail(
-    `## The Problem
+    `## tl;dr
+
+Plain summary of the change.
+
+## The Problem
 
 Context.
 
@@ -289,14 +573,13 @@ test("closes HTML comments before interpreting backticks inside them", () => {
 -->
 
 ${validBody()}`,
-    /must start with exact '## The Problem'/,
+    /must start with '## tl;dr'/,
   );
 });
 
 test("ignores HTML comment markers and headings inside fenced code", () => {
   assertPass(
     validBody(`
-
 ## Details
 
 \`\`\`md
@@ -311,7 +594,6 @@ test("ignores HTML comment markers and headings inside fenced code", () => {
 test("fails an unclosed fenced block", () => {
   assertFail(
     validBody(`
-
 ## Details
 
 \`\`\`text
@@ -324,13 +606,14 @@ unfinished
 test("ignores required headings inside HTML comments", () => {
   assertFail(
     `<!--
+## tl;dr
 ## The Problem
 ## The Solution
 -->
 
 ## Summary
 `,
-    /must start with exact '## The Problem'/,
+    /must start with '## tl;dr'/,
   );
 });
 
@@ -346,7 +629,7 @@ test("CLI guard rejects an invalid body from a relative script path", () => {
     error = caught;
   }
   assert.ok(error instanceof Error, "expected CLI validation to fail");
-  assert.match(error.stdout, /must start with exact '## The Problem'/);
+  assert.match(error.stdout, /must start with '## tl;dr'/);
 });
 
 test("CLI guard accepts a valid body from a relative script path", () => {

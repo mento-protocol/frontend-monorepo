@@ -5,12 +5,35 @@ import { resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
+const TLDR_HEADING_RE = /^##\s+tl;dr\s*$/;
 const PROBLEM_HEADING_RE = /^##\s+The Problem\s*$/;
 const SOLUTION_HEADING_RE = /^##\s+The Solution\s*$/;
+const H2_HEADING_RE = /^##\s/;
+const CHECKLIST_HEADING_RE = /^##\s+Ship Checklist\s*$/;
+// Only exact headings that a review bot appends itself, matched case
+// sensitively. A loose match would let an author name a section after the
+// ceiling and hide unlimited text behind it, so each known bot heading is
+// listed exactly as the bot writes it.
+const BOT_SUMMARY_HEADING_RES = [/^##\s+Summary by CodeRabbit\s*$/];
+// Code stays code when it is quoted, e.g. "> ```" around a pasted log.
+const BLOCKQUOTE_PREFIX = String.raw`(?:[ \t]{0,3}>[ \t]?)*`;
+const BLOCKQUOTE_PREFIX_RE = new RegExp(`^${BLOCKQUOTE_PREFIX}`);
+// A fence nested under a list item carries that item's indentation, four
+// spaces or more, so the indent before a fence is not capped at three.
+// Indented code is recognized first, so the wider indent cannot hide prose.
+const FENCE_INDENT = String.raw`[ \t]*`;
+const FENCE_OPENING_RE = new RegExp(
+  String.raw`^${BLOCKQUOTE_PREFIX}${FENCE_INDENT}(\`{3,}|~{3,})`,
+);
+// A list item starts a new block, so an unmatched backtick above one must not
+// pair with a backtick inside the list and swallow every word between them.
+const LIST_ITEM_RE = /^\s{0,3}(?:[-*+]|\d+[.)])\s/;
 const PLACEHOLDER_RE =
-  /\[(?:Describe the problem|Explain how this PR solves|List commands and results)/;
+  /\[(?:Two to four plain sentences|Describe the problem|Explain how this PR solves|One line per check|List commands and results)/;
 const CODE_BLOCK_MARKER = "PR_DESCRIPTION_FENCED_CODE";
 const INLINE_CODE_MARKER = "PR_DESCRIPTION_INLINE_CODE";
+const TLDR_WORD_LIMIT = 80;
+const BODY_WORD_LIMIT = 400;
 
 function linesOf(body) {
   return body.split(/\r?\n/);
@@ -26,7 +49,8 @@ function isInlineBlockBoundary(line) {
   return (
     /^\s*$/.test(line) ||
     /^[ \t]{0,3}(?:#{1,6}(?:[ \t]+|$)|`{3,}|~{3,}|>|<!--)/.test(line) ||
-    /^[ \t]{0,3}(?:=+|-+)[ \t]*$/.test(line)
+    /^[ \t]{0,3}(?:=+|-+)[ \t]*$/.test(line) ||
+    LIST_ITEM_RE.test(line)
   );
 }
 
@@ -60,15 +84,27 @@ function findClosingBackticks(body, start, length, end) {
   return -1;
 }
 
+// A quoted line carries its blockquote markers before the content, so the
+// code checks below read the line with those markers removed. One space after
+// each ">" belongs to the marker, so a quoted "> " plus four spaces is still
+// indented code once the prefix is gone.
+function withoutBlockquotePrefix(line) {
+  return line.replace(BLOCKQUOTE_PREFIX_RE, "");
+}
+
+function isBlankLine(line) {
+  return /^\s*$/.test(withoutBlockquotePrefix(line));
+}
+
 function previousLineIsBlank(body, lineStart) {
   if (lineStart === 0) return true;
   const previousLineEnd = lineStart - 1;
   const previousLineStart = body.lastIndexOf("\n", previousLineEnd - 1) + 1;
-  return /^\s*$/.test(body.slice(previousLineStart, previousLineEnd));
+  return isBlankLine(body.slice(previousLineStart, previousLineEnd));
 }
 
 function isIndentedCodeLine(line) {
-  return /^(?: {4}|\t)/.test(line);
+  return /^(?: {4}|\t)/.test(withoutBlockquotePrefix(line));
 }
 
 function maskNonStructuralMarkdown(body) {
@@ -85,7 +121,7 @@ function maskNonStructuralMarkdown(body) {
       const rawLine = body.slice(cursor, lineEnd);
       const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
       const closing = new RegExp(
-        `^[ \\t]{0,3}${fence.character}{${fence.length},}[ \\t]*$`,
+        `^${BLOCKQUOTE_PREFIX}${FENCE_INDENT}${fence.character}{${fence.length},}[ \\t]*$`,
       );
       if (closing.test(line)) fence = null;
       if (newline !== -1) output += "\n";
@@ -112,8 +148,8 @@ function maskNonStructuralMarkdown(body) {
       const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
 
       if (inIndentedCode) {
-        if (/^\s*$/.test(line) || isIndentedCodeLine(line)) {
-          if (!/^\s*$/.test(line)) output += CODE_BLOCK_MARKER;
+        if (isBlankLine(line) || isIndentedCodeLine(line)) {
+          if (!isBlankLine(line)) output += CODE_BLOCK_MARKER;
           if (newline !== -1) output += "\n";
           cursor = newline === -1 ? body.length : newline + 1;
           continue;
@@ -129,7 +165,7 @@ function maskNonStructuralMarkdown(body) {
         continue;
       }
 
-      const opening = /^[ \t]{0,3}(`{3,}|~{3,})/.exec(line);
+      const opening = FENCE_OPENING_RE.exec(line);
       if (opening) {
         fence = { character: opening[1][0], length: opening[1].length };
         output += CODE_BLOCK_MARKER;
@@ -179,7 +215,55 @@ function firstNonBlankLine(body) {
 }
 
 function h2Headings(body) {
-  return linesOf(body).filter((line) => /^##\s/.test(line));
+  return linesOf(body).filter((line) => H2_HEADING_RE.test(line));
+}
+
+// Fenced and indented code are replaced by a marker line, so dropping the
+// marker drops the whole block. An inline-code span counts as one word: a
+// command or an identifier is a single token to the reader however many
+// spaces it holds. Back-to-back spans are separated first so a run of them
+// counts once each instead of collapsing into one token.
+const ADJACENT_INLINE_CODE_RE = new RegExp(
+  `${INLINE_CODE_MARKER}(?=${INLINE_CODE_MARKER})`,
+  "g",
+);
+
+function countWords(text) {
+  return text
+    .replaceAll(CODE_BLOCK_MARKER, " ")
+    .replace(ADJACENT_INLINE_CODE_RE, `${INLINE_CODE_MARKER} `)
+    .split(/\s+/)
+    .filter((token) => /[\p{L}\p{N}]/u.test(token)).length;
+}
+
+function tldrSection(structure) {
+  const lines = linesOf(structure);
+  const start = lines.findIndex((line) => TLDR_HEADING_RE.test(line));
+  if (start === -1) return "";
+
+  const rest = lines.slice(start + 1);
+  const end = rest.findIndex((line) => H2_HEADING_RE.test(line));
+  return (end === -1 ? rest : rest.slice(0, end)).join("\n");
+}
+
+function isBotSummaryHeading(line) {
+  return BOT_SUMMARY_HEADING_RES.some((heading) => heading.test(line));
+}
+
+// The ceiling measures what the author wrote: the ship checklist, HTML
+// comments, code, and the known bot-appended summary sections do not count.
+function authoredBody(structure) {
+  const kept = [];
+  let skipping = false;
+
+  for (const line of linesOf(structure)) {
+    if (H2_HEADING_RE.test(line)) {
+      skipping = CHECKLIST_HEADING_RE.test(line) || isBotSummaryHeading(line);
+    }
+    if (!skipping) kept.push(line);
+  }
+
+  return kept.join("\n");
 }
 
 export function validatePrDescription(body) {
@@ -187,7 +271,7 @@ export function validatePrDescription(body) {
     return {
       ok: false,
       message:
-        "PR description is empty. It must start with '## The Problem' then '## The Solution'.",
+        "PR description is empty. It must start with '## tl;dr', then '## The Problem' and '## The Solution'.",
     };
   }
 
@@ -213,22 +297,53 @@ export function validatePrDescription(body) {
   }
 
   const firstLine = firstNonBlankLine(structure);
-  const secondHeading = h2Headings(structure)[1] ?? "";
+  if (!TLDR_HEADING_RE.test(firstLine)) {
+    return {
+      ok: false,
+      message:
+        "PR description must start with '## tl;dr' as its first section, written exactly like that. Only HTML comments may precede it.",
+    };
+  }
+
+  const headings = h2Headings(structure);
   if (
-    !PROBLEM_HEADING_RE.test(firstLine) ||
-    !SOLUTION_HEADING_RE.test(secondHeading)
+    !PROBLEM_HEADING_RE.test(headings[1] ?? "") ||
+    !SOLUTION_HEADING_RE.test(headings[2] ?? "")
   ) {
     return {
       ok: false,
       message:
-        "PR description must start with exact '## The Problem' then '## The Solution' headings as its first two sections. Only HTML comments may precede '## The Problem'.",
+        "PR description must place exact '## The Problem' then '## The Solution' headings as the two sections after '## tl;dr'.",
+    };
+  }
+
+  const tldrWords = countWords(tldrSection(structure));
+  if (tldrWords === 0) {
+    return {
+      ok: false,
+      message:
+        "tl;dr section is empty. Write two to four plain-language sentences under '## tl;dr'.",
+    };
+  }
+
+  if (tldrWords > TLDR_WORD_LIMIT) {
+    return {
+      ok: false,
+      message: `tl;dr is ${tldrWords} words; keep it to ${TLDR_WORD_LIMIT}.`,
+    };
+  }
+
+  const bodyWords = countWords(authoredBody(structure));
+  if (bodyWords > BODY_WORD_LIMIT) {
+    return {
+      ok: false,
+      message: `PR description is ${bodyWords} authored words; the ceiling is ${BODY_WORD_LIMIT} (checklist, comments, code and bot summaries excluded).`,
     };
   }
 
   return {
     ok: true,
-    message:
-      "PR description OK: it starts with '## The Problem' then '## The Solution' and has no template placeholders.",
+    message: `PR description OK: it starts with '## tl;dr' (${tldrWords} words), then '## The Problem' and '## The Solution', runs ${bodyWords} authored words, and has no template placeholders.`,
   };
 }
 

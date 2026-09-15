@@ -41,7 +41,7 @@ Use [the preparation playbook](docs/dependabot-automation.md) and
 `.github/dependabot-prep-policy.json` from the live default branch. The
 `trusted-openclaw-agent` workflow uses the ordinary coding session and existing
 GitHub authentication; its prohibitions are procedural, not a credential sandbox.
-Use the portable `dependabot-prep` skill, revision `trusted-agent-v1`, with that
+Use the portable `dependabot-prep` skill, revision `trusted-agent-v2`, with that
 playbook's repository overrides in OpenClaw, Codex or Claude. The historical
 execution-model identifier remains for compatibility. Never invoke the retired
 `/opt/dependabot-prep` launcher or the archived sealed skill procedure.
@@ -54,12 +54,16 @@ Never approve, dismiss reviews, merge, close, alter auto-merge, or resolve or
 unresolve review threads. Publish only fast-forward updates to the authenticated
 existing PR branch. Human approval, thread resolution, and merge remain separate.
 
-The weekly OpenClaw job stays disabled until this policy is merged, a supervised
-preparation succeeds, and the operator separately confirms activation. Its
-reviewed entry prompt is `scripts/prompts/dependabot-weekly.md`. Never run the
+The weekly OpenClaw job (Mondays 10:15 UTC) was enabled on 2026-09-11 by
+operator confirmation, after this policy merged and the rollout checks passed;
+its first live run is the supervised acceptance run, and it reports to the
+channel named in the playbook's _Schedule and activation_ section. Its reviewed
+entry prompt is
+`scripts/prompts/dependabot-weekly.md`, and the job's stored prompt must match
+that file apart from its final newline, which the scheduler drops. Never run the
 legacy launcher and the ordinary workflow concurrently. Follow the playbook's
-single-batch lock, recovery, budgets, progress, exact-head verification, and
-research requirements.
+per-pull-request claim coordination, recovery, budgets, progress, exact-head
+verification, and research requirements.
 
 Dependabot CI remains secretless. Do not admit these PRs to credentialed Vercel
 Preview workers or broaden the existing author/sender rules.
@@ -244,9 +248,20 @@ The full contract and commands live in `docs/vercel-deployments.md`.
 ## Pull request descriptions
 
 Every non-draft, non-Dependabot pull request body must start with the exact
-top-level headings `## The Problem` then `## The Solution` as its first two H2
-sections. Only HTML comments may appear before `## The Problem`. Validate the
-current PR with
+top-level heading `## tl;dr`, then `## The Problem` and `## The Solution` as
+the next two H2 sections. Only HTML comments may appear before `## tl;dr`.
+Write the tl;dr as two to four plain-language sentences, about 60 words and 80
+at most, with no file names, flags, or SHAs. Keep the whole authored body near
+250 words and never above 400; the ship checklist, HTML comments, code blocks
+(blockquoted fenced and blockquoted indented ones included), and the
+bot-appended `## Summary by CodeRabbit` section do not count toward that
+ceiling, and an inline-code span counts as one word. That heading is matched
+exactly, capitalization included, so a hand-written variant still counts.
+Excluding another bot's section means adding its exact heading to the
+validator's allowlist.
+Write `## Validation` as one line per check: group the passes on one line with
+their counts, and give every skipped, failed, or not-proven item its own line.
+Validate the current PR with
 `gh pr view --json body --jq .body | pnpm pr:description:check`; run the
 validator tests with `pnpm pr:description:test`. The `PR description format`
 job is designed to be a required status and therefore must keep running without

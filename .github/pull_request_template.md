@@ -1,5 +1,9 @@
 <!-- markdownlint-disable MD041 -->
 
+## tl;dr
+
+- [Two to four plain sentences: who had which problem, what changes, what to expect. About 60 words, no identifiers.]
+
 ## The Problem
 
 - [Describe the problem, user impact, or maintenance risk this PR addresses.]
@@ -10,7 +14,7 @@
 
 ## Validation
 
-- [List commands and results, plus any manual verification.]
+- [One line per check. Group passes: `pnpm test` 42 ✓, `pnpm lint` ✓. Skipped, failed, or not-proven items each get their own line.]
 
 ## Ship Checklist
 
@@ -18,3 +22,4 @@
 - [ ] Performed a self-review of my own changes
 - [ ] Relevant automated checks and smoke tests pass
 - [ ] Architecture decision? Link the ADR under `docs/adr/`, or state `Not applicable — <reason>` in the PR body (see `docs/pr-checklists/architecture-decisions.md`).
+- [ ] Body is about 250 words, 400 at most, excluding this checklist

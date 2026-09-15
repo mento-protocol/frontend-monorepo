@@ -5,7 +5,7 @@ packages:
 catalog:
   "@eslint/js": ^9.39.2
   "@mento-protocol/mento-sdk": 3.4.0
-  "@playwright/test": 1.62.1
+  "@playwright/test": 1.63.0
   "@rainbow-me/rainbowkit": ^2.2.11
   "@sentry/nextjs": ^10.35.0
   "@t3-oss/env-nextjs": ^0.13.11
@@ -36,8 +36,8 @@ catalog:
   viem: ^2.55.10
   wagmi: ^2.16.9
   zod: ^4.5.4
-  vitest: 4.1.10
-  "@vitest/coverage-v8": 4.1.10
+  vitest: 4.1.11
+  "@vitest/coverage-v8": 4.1.11
 
 # Dependabot maps its seven-day npm cooldown to pnpm minimumReleaseAge.
 minimumReleaseAgeExclude:

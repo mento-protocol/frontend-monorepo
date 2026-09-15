@@ -42,6 +42,7 @@ pnpm check-types                     # TypeScript type checking; builds workspac
 pnpm ci:action-pins                  # Verify third-party GitHub Actions use documented SHA pins
 pnpm ci:action-pins:test             # Test the action-pin scanner and REST materializer
 pnpm dependency:policy:test          # Test Dependabot schedule, grouping, and dependency policy
+pnpm dependabot:claim -- claims <command> [--pr <n>] ...  # Claim a Dependabot PR before writing to it
 pnpm ci:change-plan:test             # Test PR scoping, full main pushes, mandatory Trunk, and fail-closed behavior
 pnpm adr:check                       # Advisory reminder for new architecture-significant workflows/workspaces
 pnpm adr:check:test                  # Test the offline ADR trigger and repository wiring
@@ -57,7 +58,7 @@ pnpm fork:mainnet                    # Local anvil fork of Celo mainnet (--celo 
 pnpm fork:seed                       # Select a safe FX-open clock, fund fork accounts, and re-report oracles
 pnpm fork:monad                      # Local anvil fork of Monad mainnet (chain 143, port 8546; no --celo)
 pnpm fork:seed:monad                 # Same safe clock; Reserve collateral + real swap-to-seed
-pnpm pr:description:test             # Test the required PR-description format validator
+pnpm pr:description:test             # Test the PR-description validator: `## tl;dr` first, then The Problem/The Solution, 400-word ceiling
 pnpm vercel:deployment-state:test    # Test canonical read-only Vercel state and alias-drift evidence
 pnpm vercel:primitives:test          # Test affected planning, custom deployment IDs, and build-env contracts
 pnpm vercel:workflow:test            # Test Vercel preview and main workflows, exact-main gating, transactions, and smoke
@@ -65,7 +66,7 @@ pnpm vercel:preview:test             # Test preview state plus reusable smoke tr
 pnpm vercel:production-shadow:test   # Test the staged-candidate toolkit and shared candidate-build actions
 pnpm vercel:versions:check           # Verify pinned Next.js/Vercel CLI custom-ID prerequisites
 pnpm vercel:plan --base <sha> --head <sha>  # Emit the fail-closed Vercel target plan
-gh pr view --json body --jq .body | pnpm pr:description:check  # Validate the current PR body
+gh pr view --json body --jq .body | pnpm pr:description:check  # Validate the current PR body; `## Validation` is one line per check
 ```
 
 The full custom-CI primitive contract, environment matrix, and prebuilt-output
@@ -357,7 +358,7 @@ knowing:
   Treat it as good enough to run and debug a suite, and never as evidence about
   pixel output or about behaviour that depends on the browser revision. This does
   not weaken CI: every Playwright job in `visual.yml` and `e2e.yml` runs inside
-  the pinned `mcr.microsoft.com/playwright:v1.62.1-noble` container, so Argos
+  the pinned `mcr.microsoft.com/playwright:v1.63.0-noble` container, so Argos
   baselines and the fork E2E suites never see the approximation. A local pixel
   diff against an Argos baseline is therefore not a regression on its own.
 
@@ -369,9 +370,9 @@ knowing:
   run `playwright install` expecting it to work.
 
   Two more things if it ever stops working: more than one revision can be wanted
-  at once, because workspaces pin different Playwright versions (the apps are on
-  1.62.1, wanting 1234, while the root catalog resolves 1.61.1, wanting 1228, and
-  both get aliased); and `launch()` naming a path under a revision that does not
+  at once, if workspaces pin different Playwright versions (today the apps and
+  the root catalog both resolve 1.63.0, wanting 1243, but every wanted revision
+  gets aliased); and `launch()` naming a path under a revision that does not
   exist means the alias was not built — check `ls /opt/pw-browsers` against the
   `revision` fields in
   `node_modules/.pnpm/playwright-core@*/node_modules/playwright-core/browsers.json`.
@@ -482,7 +483,7 @@ Use [the preparation playbook](docs/dependabot-automation.md) and
 `.github/dependabot-prep-policy.json` from the live default branch. The
 `trusted-openclaw-agent` workflow uses the ordinary coding session and existing
 GitHub authentication; its prohibitions are procedural, not a credential sandbox.
-Use the portable `dependabot-prep` skill, revision `trusted-agent-v1`, with that
+Use the portable `dependabot-prep` skill, revision `trusted-agent-v2`, with that
 playbook's repository overrides in OpenClaw, Codex or Claude. The historical
 execution-model identifier remains for compatibility. Never invoke the retired
 `/opt/dependabot-prep` launcher or the archived sealed skill procedure.
@@ -495,12 +496,16 @@ Never approve, dismiss reviews, merge, close, alter auto-merge, or resolve or
 unresolve review threads. Publish only fast-forward updates to the authenticated
 existing PR branch. Human approval, thread resolution, and merge remain separate.
 
-The weekly OpenClaw job stays disabled until this policy is merged, a supervised
-preparation succeeds, and the operator separately confirms activation. Its
-reviewed entry prompt is `scripts/prompts/dependabot-weekly.md`. Never run the
+The weekly OpenClaw job (Mondays 10:15 UTC) was enabled on 2026-09-11 by
+operator confirmation, after this policy merged and the rollout checks passed;
+its first live run is the supervised acceptance run, and it reports to the
+channel named in the playbook's _Schedule and activation_ section. Its reviewed
+entry prompt is
+`scripts/prompts/dependabot-weekly.md`, and the job's stored prompt must match
+that file apart from its final newline, which the scheduler drops. Never run the
 legacy launcher and the ordinary workflow concurrently. Follow the playbook's
-single-batch lock, recovery, budgets, progress, exact-head verification, and
-research requirements.
+per-pull-request claim coordination, recovery, budgets, progress, exact-head
+verification, and research requirements.
 
 Dependabot CI remains secretless. Do not admit these PRs to credentialed Vercel
 Preview workers or broaden the existing author/sender rules.

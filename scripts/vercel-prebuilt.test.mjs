@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { Buffer } from "node:buffer";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
@@ -11,7 +12,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import process from "node:process";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -31,6 +32,7 @@ import {
 import {
   assertVercelCliRuntimeContract,
   PINNED_VERCEL_CLI_VERSION,
+  REVIEWED_ROOT_PATCHED_DEPENDENCIES,
 } from "./vercel-cli-runtime-contract.mjs";
 import {
   assertSharpOutputTrace,
@@ -64,7 +66,9 @@ function deploymentId(overrides = {}) {
   });
 }
 
-function createVersionContractFixture() {
+function createVersionContractFixture({
+  includeReviewedRootPatches = true,
+} = {}) {
   const fixtureRoot = mkdtempSync(join(tmpdir(), "vercel-versions-"));
   const runtimeRoot = join(fixtureRoot, "scripts", "vercel-cli-runtime");
   mkdirSync(runtimeRoot, { recursive: true });
@@ -79,7 +83,37 @@ function createVersionContractFixture() {
     join(repoRoot, "scripts", "vercel-cli-runtime", "contract.json"),
     join(runtimeRoot, "contract.json"),
   );
+  if (includeReviewedRootPatches) {
+    writeReviewedRootPatches(fixtureRoot);
+  }
   return fixtureRoot;
+}
+
+function reviewedRootPatchedDependencyMap() {
+  return Object.fromEntries(
+    Object.entries(REVIEWED_ROOT_PATCHED_DEPENDENCIES).map(
+      ([name, reviewed]) => [name, reviewed.path],
+    ),
+  );
+}
+
+function writeReviewedRootPatches(fixtureRoot) {
+  for (const [name, reviewed] of Object.entries(
+    REVIEWED_ROOT_PATCHED_DEPENDENCIES,
+  )) {
+    const destination = join(fixtureRoot, reviewed.path);
+    mkdirSync(dirname(destination), { recursive: true });
+    copyFileSync(
+      join(
+        repoRoot,
+        "scripts",
+        "fixtures",
+        "reviewed-root-patches",
+        `${name}.patch`,
+      ),
+      destination,
+    );
+  }
 }
 
 function formerNanoidOverrides(overrides) {
@@ -607,6 +641,33 @@ test("version check rejects standalone pin, override, patch, and lockfile drift"
       mutate(fixtureRoot) {
         const path = join(fixtureRoot, "package.json");
         const packageMetadata = JSON.parse(readFileSync(path, "utf8"));
+        packageMetadata.pnpm.patchedDependencies = {
+          ...reviewedRootPatchedDependencyMap(),
+          "brace-expansion@2.1.2": "patches/brace-expansion@2.1.2.patch",
+        };
+        writeFileSync(path, `${JSON.stringify(packageMetadata, null, 2)}\n`);
+        writeReviewedRootPatches(fixtureRoot);
+      },
+    },
+    {
+      expected: /runtime manifest is not exact/,
+      mutate(fixtureRoot) {
+        const path = join(fixtureRoot, "package.json");
+        const packageMetadata = JSON.parse(readFileSync(path, "utf8"));
+        packageMetadata.pnpm.patchedDependencies = Object.fromEntries(
+          Object.keys(REVIEWED_ROOT_PATCHED_DEPENDENCIES).map((key) => [
+            key,
+            "patches/unreviewed.patch",
+          ]),
+        );
+        writeFileSync(path, `${JSON.stringify(packageMetadata, null, 2)}\n`);
+      },
+    },
+    {
+      expected: /runtime manifest is not exact/,
+      mutate(fixtureRoot) {
+        const path = join(fixtureRoot, "package.json");
+        const packageMetadata = JSON.parse(readFileSync(path, "utf8"));
         packageMetadata.pnpm.overrides["axios@<1.18.0"] = ">=1.18.1";
         writeFileSync(path, `${JSON.stringify(packageMetadata, null, 2)}\n`);
       },
@@ -636,6 +697,149 @@ test("version check rejects standalone pin, override, patch, and lockfile drift"
     } finally {
       rmSync(fixtureRoot, { force: true, recursive: true });
     }
+  }
+});
+
+test("version check accepts the reviewed root patched dependencies with exact patch bytes and nothing else", () => {
+  const fixtureRoot = createVersionContractFixture({
+    includeReviewedRootPatches: false,
+  });
+  try {
+    const path = join(fixtureRoot, "package.json");
+    const packageMetadata = JSON.parse(readFileSync(path, "utf8"));
+    packageMetadata.pnpm.patchedDependencies =
+      reviewedRootPatchedDependencyMap();
+    writeFileSync(path, `${JSON.stringify(packageMetadata, null, 2)}\n`);
+
+    assert.throws(
+      () => assertCandidateDeploymentIdPrerequisites(fixtureRoot),
+      /Trusted root patch jayson@4\.3\.0 is unreadable or unsafe/,
+      "missing patch file",
+    );
+
+    writeReviewedRootPatches(fixtureRoot);
+    const candidate = assertCandidateDeploymentIdPrerequisites(fixtureRoot);
+    assert.equal(candidate.vercel, PINNED_VERCEL_CLI_VERSION);
+    assert.equal(candidate.vercelCliRuntime.vercel, PINNED_VERCEL_CLI_VERSION);
+
+    const patchPath = join(
+      fixtureRoot,
+      REVIEWED_ROOT_PATCHED_DEPENDENCIES["jayson@4.3.0"].path,
+    );
+    const reviewedBytes = readFileSync(patchPath);
+    writeFileSync(patchPath, Buffer.concat([reviewedBytes, Buffer.from("\n")]));
+    assert.throws(
+      () => assertCandidateDeploymentIdPrerequisites(fixtureRoot),
+      /Trusted root patch jayson@4\.3\.0 is not exact/,
+      "patch bytes changed",
+    );
+
+    rmSync(patchPath);
+    symlinkSync(join(fixtureRoot, "package.json"), patchPath);
+    assert.throws(
+      () => assertCandidateDeploymentIdPrerequisites(fixtureRoot),
+      /Trusted root patch jayson@4\.3\.0 is unreadable or unsafe/,
+      "symlinked patch file",
+    );
+
+    rmSync(patchPath);
+    writeFileSync(patchPath, reviewedBytes);
+    const workspacePath = join(fixtureRoot, "pnpm-workspace.yaml");
+    copyFileSync(join(repoRoot, "pnpm-workspace.yaml"), workspacePath);
+    assertCandidateDeploymentIdPrerequisites(fixtureRoot);
+    writeFileSync(
+      workspacePath,
+      "# leading comment\npackages:\n  - apps/*\n  # overrides: {}\nonlyBuiltDependencies: [] # patchedDependencies:\n",
+    );
+    assertCandidateDeploymentIdPrerequisites(fixtureRoot);
+    for (const [name, workspaceManifest] of [
+      [
+        "workspace patchedDependencies",
+        "packages:\n  - apps/*\npatchedDependencies:\n  is-odd@3.0.1: patches/is-odd@3.0.1.patch\n",
+      ],
+      [
+        "workspace overrides",
+        "packages:\n  - apps/*\noverrides:\n  is-odd: 3.0.1\n",
+      ],
+    ]) {
+      writeFileSync(workspacePath, workspaceManifest);
+      assert.throws(
+        () => assertCandidateDeploymentIdPrerequisites(fixtureRoot),
+        /Trusted root workspace manifest declares patchedDependencies or overrides/,
+        name,
+      );
+    }
+    for (const [name, workspaceManifest] of [
+      [
+        "double-quoted key",
+        'packages:\n  - apps/*\n"patchedDependencies":\n  "jayson@4.3.0": patches/unreviewed.patch\n',
+      ],
+      [
+        "single-quoted key",
+        "packages:\n  - apps/*\n'overrides':\n  is-odd: 3.0.1\n",
+      ],
+      [
+        "escaped double-quoted key",
+        'packages:\n  - apps/*\n"patched\\x44ependencies":\n  "jayson@4.3.0": patches/unreviewed.patch\n',
+      ],
+      [
+        "flow mapping",
+        '{ packages: ["apps/*"], patchedDependencies: { "jayson@4.3.0": patches/unreviewed.patch } }\n',
+      ],
+      ["explicit key", "packages:\n  - apps/*\n? patchedDependencies\n: {}\n"],
+      ["document marker", "---\npackages:\n  - apps/*\n"],
+      ["tab indentation", "packages:\n\t- apps/*\n"],
+      ["anchored key", "&p packages:\n  - apps/*\n"],
+      [
+        "uniformly indented document",
+        "  packages:\n    - apps/*\n  patchedDependencies:\n    is-odd@3.0.1: patches/unreviewed.patch\n",
+      ],
+      [
+        "indented document after a comment",
+        "# header\n\n  patchedDependencies:\n    is-odd@3.0.1: patches/unreviewed.patch\n",
+      ],
+      [
+        "carriage-return line breaks",
+        'packages: []\rpatchedDependencies:\r  "jayson@4.3.0": patches/unreviewed.patch\r',
+      ],
+      [
+        "CRLF line breaks",
+        "packages: []\r\npatchedDependencies:\r\n  is-odd@3.0.1: patches/unreviewed.patch\r\n",
+      ],
+      [
+        "NEL line breaks",
+        "packages: []\u0085patchedDependencies:\u0085  is-odd@3.0.1: patches/unreviewed.patch\u0085",
+      ],
+      [
+        "LS line breaks",
+        "packages: []\u2028patchedDependencies:\u2028  is-odd@3.0.1: patches/unreviewed.patch\u2028",
+      ],
+    ]) {
+      writeFileSync(workspacePath, workspaceManifest);
+      assert.throws(
+        () => assertCandidateDeploymentIdPrerequisites(fixtureRoot),
+        /Trusted root workspace manifest uses unsupported top-level syntax/,
+        name,
+      );
+    }
+    rmSync(workspacePath);
+    symlinkSync(join(fixtureRoot, "package.json"), workspacePath);
+    assert.throws(
+      () => assertCandidateDeploymentIdPrerequisites(fixtureRoot),
+      /Trusted root workspace manifest is unreadable or unsafe/,
+      "symlinked workspace manifest",
+    );
+    rmSync(workspacePath);
+
+    packageMetadata.pnpm.patchedDependencies = {};
+    writeFileSync(path, `${JSON.stringify(packageMetadata, null, 2)}\n`);
+    assert.throws(
+      () => assertCandidateDeploymentIdPrerequisites(fixtureRoot),
+      /runtime manifest is not exact/,
+      "empty map",
+    );
+  } finally {
+    rmSync(fixtureRoot, { force: true, recursive: true });
   }
 });
 
@@ -687,7 +891,7 @@ test("sharp postbuild assertion requires one complete runtime trace", () => {
     directory,
     "node_modules",
     ".pnpm",
-    "sharp@0.35.3",
+    "sharp@0.35.4",
     "node_modules",
     "sharp",
     "package.json",
@@ -696,34 +900,34 @@ test("sharp postbuild assertion requires one complete runtime trace", () => {
     directory,
     "node_modules",
     ".pnpm",
-    "@img+sharp-linux-x64@0.35.3",
+    "@img+sharp-linux-x64@0.35.4",
     "node_modules",
     "@img",
     "sharp-linux-x64",
     "lib",
-    "sharp-linux-x64-0.35.3.node",
+    "sharp-linux-x64-0.35.4.node",
   );
   const unrelatedNativeAddon = join(
     directory,
     "node_modules",
     ".pnpm",
-    "@img+sharp-win32-arm64@0.35.3",
+    "@img+sharp-win32-arm64@0.35.4",
     "node_modules",
     "@img",
     "sharp-win32-arm64",
     "lib",
-    "sharp-win32-arm64-0.35.3.node",
+    "sharp-win32-arm64-0.35.4.node",
   );
   const libvipsDirectory = join(
     directory,
     "node_modules",
     ".pnpm",
-    "@img+sharp-libvips-linux-x64@1.3.2",
+    "@img+sharp-libvips-linux-x64@1.3.3",
     "node_modules",
     "@img",
     "sharp-libvips-linux-x64",
   );
-  const sharedLibrary = join(libvipsDirectory, "lib", "libvips-cpp.so.8.18.3");
+  const sharedLibrary = join(libvipsDirectory, "lib", "libvips-cpp.so.8.18.6");
   const versionsManifest = join(libvipsDirectory, "versions.json");
   const tracePath = join(traceDirectory, "route.js.nft.json");
 
@@ -738,11 +942,11 @@ test("sharp postbuild assertion requires one complete runtime trace", () => {
       mkdirSync(join(path, ".."), { recursive: true });
     }
     mkdirSync(traceDirectory, { recursive: true });
-    writeFileSync(sharpManifest, JSON.stringify({ version: "0.35.3" }));
+    writeFileSync(sharpManifest, JSON.stringify({ version: "0.35.4" }));
     writeFileSync(nativeAddon, "native");
     writeFileSync(unrelatedNativeAddon, "unrelated native");
     writeFileSync(sharedLibrary, "libvips");
-    writeFileSync(versionsManifest, JSON.stringify({ vips: "8.18.3" }));
+    writeFileSync(versionsManifest, JSON.stringify({ vips: "8.18.6" }));
     writeFileSync(
       tracePath,
       JSON.stringify({
@@ -762,7 +966,7 @@ test("sharp postbuild assertion requires one complete runtime trace", () => {
         runtimePlatform: "linux-x64",
       }),
       {
-        libvipsVersion: "8.18.3",
+        libvipsVersion: "8.18.6",
         nativeAddon,
         sharpManifest,
         sharedLibrary,
@@ -776,7 +980,7 @@ test("sharp postbuild assertion requires one complete runtime trace", () => {
         assertSharpOutputTrace(buildDirectory, {
           runtimePlatform: "linux-x64",
         }),
-      /No single Next output trace contains sharp 0\.35\.3.*libvips 8\.18\.3/,
+      /No single Next output trace contains sharp 0\.35\.4.*libvips 8\.18\.6/,
     );
   } finally {
     rmSync(directory, { force: true, recursive: true });

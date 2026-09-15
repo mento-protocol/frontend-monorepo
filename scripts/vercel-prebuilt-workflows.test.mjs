@@ -689,22 +689,45 @@ test("main-only controller is restored after every candidate-code phase", () => 
   const install = steps.find(
     ({ name }) => name === "Install frozen dependencies",
   );
-  assert.match(install.run, /--ignore-scripts/);
-  assert.ok(
-    names.indexOf("Install frozen dependencies") <
-      names.indexOf("Restore trusted controller after source installation"),
-  );
-  assert.ok(
-    names.indexOf("Restore trusted controller after source installation") <
-      names.indexOf("Verify candidate Vercel prerequisite consistency"),
+  assert.match(install.run, /--ignore-scripts --ignore-pnpmfile/);
+  // pnpm applies patchedDependencies at install time, so the trusted checker
+  // must reject a candidate before its install runs, not only before its build.
+  const candidatePhase = [
+    "Prepare isolated exact-SHA source and protected Vercel CLI",
+    "Verify candidate Vercel prerequisite consistency",
+    "Install frozen dependencies",
+    "Restore trusted controller after source installation",
+  ].map((name) => {
+    const index = names.indexOf(name);
+    assert.notEqual(index, -1, name);
+    return index;
+  });
+  assert.deepEqual(
+    candidatePhase,
+    candidatePhase.toSorted((a, b) => a - b),
   );
   const versionCheck = steps.find(
     ({ name }) => name === "Verify candidate Vercel prerequisite consistency",
   );
-  assert.equal(versionCheck["working-directory"], "source");
+  // The checker reads the materialized candidate copy, the tree the install
+  // consumes, rather than the source checkout's working tree, so it carries the
+  // same no-live-candidate-process guard as the other steps that touch it.
+  assert.equal(versionCheck["working-directory"], undefined);
+  assert.equal(
+    versionCheck.env.CANDIDATE_SOURCE_PATH,
+    "${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-candidate-source",
+  );
+  assert.equal(
+    versionCheck.env.BUILD_UID,
+    "${{ steps.isolation.outputs.build_uid }}",
+  );
   assert.match(
     versionCheck.run,
-    /controller\/scripts\/vercel-prebuilt\.mjs" check-candidate-versions/,
+    /^set -euo pipefail\nif sudo --non-interactive \/usr\/bin\/pgrep -u "\$BUILD_UID" >\/dev\/null 2>&1; then\n/,
+  );
+  assert.match(
+    versionCheck.run,
+    /\nnode "\$GITHUB_WORKSPACE\/controller\/scripts\/vercel-prebuilt\.mjs" check-candidate-versions --repo-root "\$CANDIDATE_SOURCE_PATH"\n$/,
   );
   const contract = steps.find(
     ({ name }) =>
@@ -741,6 +764,9 @@ test("monorepo CLI and trusted env validation use their exact roots", () => {
   const prerequisites = steps.find(
     ({ name }) => name === "Verify candidate Vercel prerequisite consistency",
   );
+  const install = steps.find(
+    ({ name }) => name === "Install frozen dependencies",
+  );
   const environmentValidation = steps.find(
     ({ name }) =>
       name === "Validate runner-owned non-Governance preview build variables",
@@ -761,7 +787,11 @@ test("monorepo CLI and trusted env validation use their exact roots", () => {
     sourceValidation.env.SOURCE_PATH,
     "${{ github.workspace }}/source",
   );
-  assert.equal(prerequisites["working-directory"], "source");
+  assert.equal(prerequisites["working-directory"], undefined);
+  assert.equal(
+    prerequisites.env.CANDIDATE_SOURCE_PATH,
+    install.env.CANDIDATE_SOURCE_PATH,
+  );
   assert.equal(environmentValidation["working-directory"], undefined);
   assert.equal(
     environmentValidation.env.BUILD_ENVIRONMENT_PATH,

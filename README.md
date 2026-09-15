@@ -356,12 +356,15 @@ The ordinary OpenClaw coding agent prepares them using the
 `.github/dependabot-prep-policy.json` from live main. It can resolve conflicts,
 make dependency-related repairs, regenerate lockfiles, run tests/builds and
 address review feedback. Majors and documented runtime updates are not excluded
-just because they require engineering work.
+just because they require engineering work. Writers coordinate per pull request:
+each one holds a claim in `refs/mento-claims/v1/pr/<number>` before it writes to
+that PR, so different hosts prepare different PRs at the same time.
 
 This uses the same trusted-agent exposure as interactive coding, not a sealed
-credential sandbox. It does not invoke the retired custom launcher. One active
-batch, bounded attempts, durable progress and live-state recovery limit
-unattended repetition. The six-hour batch moves past waiting or blocked PRs.
+credential sandbox. It does not invoke the retired custom launcher. One claim
+per pull request, one heavy process tree per host, bounded attempts, durable
+progress and live-state recovery limit unattended repetition. The six-hour batch
+moves past waiting or blocked PRs.
 
 Every PR receives sourced risk research and exact-head CI/review verification.
 Outcomes are ready for maintainer decision, needs decision, or blocked.
@@ -370,8 +373,9 @@ approves, dismisses reviews, merges, closes, changes auto-merge or thread state,
 force-pushes, or weakens validation. Sensitive automation/security changes need
 a human decision. Dependabot CI remains secretless.
 
-The Monday 10:15 UTC job stays disabled until merged policy, a successful
-supervised preparation and separate operator activation confirmation.
+The Monday 10:15 UTC job was enabled on 2026-09-11 by operator confirmation
+after the policy merged and the rollout checks passed; its first live run is the
+supervised acceptance run, and it reports to the channel the playbook names.
 See [ADR 0010](docs/adr/0010-trusted-agent-dependabot-preparation.md).
 
 #### When to Use Catalog vs Direct Versions
@@ -485,9 +489,12 @@ The repository is set up with GitHub Actions for CI:
   and the managed issue; run that workflow's
   `workflow_dispatch` from the Actions tab to smoke-test the Slack wiring.
 - **Dependabot preparation**: Native updates open Monday at 06:00 UTC.
-  The disabled 10:15 UTC OpenClaw job will use the ordinary coding agent and
-  [checked-in prompt](scripts/prompts/dependabot-weekly.md) after supervised
-  validation and operator activation. No custom launcher is required. See the
+  The 10:15 UTC OpenClaw job, enabled on 2026-09-11, uses the ordinary coding
+  agent and the [checked-in prompt](scripts/prompts/dependabot-weekly.md); its
+  stored prompt must match that file apart from its final newline, which the
+  scheduler drops. No custom launcher is required. Every
+  writer holds a per-pull-request claim ref before it writes, and one heavy
+  process tree per host, rather than one active batch, caps the work. See the
   [playbook](docs/dependabot-automation.md) and
   [ADR 0010](docs/adr/0010-trusted-agent-dependabot-preparation.md).
 - **CD**: GitHub Actions automatically builds `app.mento.org`,
@@ -651,7 +658,17 @@ and Knip steps follow the planner, while Trunk remains mandatory for every diff.
 Failures, cancellations, unexpected skips, and invalid planner outputs remain blocking.
 Rename detection is disabled for the planning diff so both the old and new
 paths are classified; moving source into `docs/**` cannot masquerade as a
-documentation-only change. Until the target branch contains a trusted planner
+documentation-only change. Markdown that tests assert on is still classified as
+documentation. Several unit suites read repository markdown and match phrases in
+it: `scripts/dependency-policy.test.mjs` reads `AGENTS.md`, `CLAUDE.md`,
+`README.md`, `docs/dependabot-automation.md`, `docs/dependency-overrides.md`,
+and `scripts/prompts/dependabot-weekly.md`; `scripts/check-adr-reminder.test.mjs`
+reads `AGENTS.md`, `CLAUDE.md`, `README.md`, and
+`.github/pull_request_template.md`; and the Vercel contract suites read
+`docs/vercel-deployments.md`. A documentation-only pull request skips both unit
+shards, so an edit to one of those files can land a stale assertion on `main`
+(#969 did on 2026-09-15; fixed in #970). Run `pnpm test` locally before pushing
+such a change. Until the target branch contains a trusted planner
 (including the workflow's bootstrap PR), CI runs the full quality suite instead
 of executing planner code from the pull-request checkout. Default-branch pushes
 also bypass changed-file planning and always run the full build, unit-test,

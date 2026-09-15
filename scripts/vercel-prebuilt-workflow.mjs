@@ -54,6 +54,7 @@ import {
 } from "./vercel-build-environment.mjs";
 import {
   sharpRuntimePlatform,
+  SHARP_LIBVIPS_RUNTIME_VERSION,
   SHARP_RUNTIME_VERSION,
 } from "./next-sharp-output-tracing.mjs";
 import { PREVIEW_TARGET_CONFIG } from "./vercel-preview-targets.mjs";
@@ -3294,7 +3295,10 @@ export function assertSharpPrebuiltArtifacts(
     }
     if (basename(path) === "versions.json" && path.includes("sharp-libvips-")) {
       try {
-        if (JSON.parse(readFileSync(path, "utf8")).vips === "8.18.3") {
+        if (
+          JSON.parse(readFileSync(path, "utf8")).vips ===
+          SHARP_LIBVIPS_RUNTIME_VERSION
+        ) {
           artifacts.versionsManifests.push(path);
         }
       } catch {
@@ -3325,7 +3329,7 @@ export function assertSharpPrebuiltArtifacts(
   }
 
   throw new Error(
-    `Prebuilt output is missing sharp ${SHARP_RUNTIME_VERSION}'s ${runtimePlatform} native addon or its matching libvips 8.18.3 runtime`,
+    `Prebuilt output is missing sharp ${SHARP_RUNTIME_VERSION}'s ${runtimePlatform} native addon or its matching libvips ${SHARP_LIBVIPS_RUNTIME_VERSION} runtime`,
   );
 }
 

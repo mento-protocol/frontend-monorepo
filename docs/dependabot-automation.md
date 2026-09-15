@@ -3,7 +3,7 @@ title: Dependabot preparation with the ordinary OpenClaw coding agent
 status: active
 owner: eng
 canonical: true
-last_verified: 2026-09-08
+last_verified: 2026-09-09
 ---
 
 # Dependabot preparation
@@ -19,14 +19,21 @@ or copy production secrets into checkouts; use existing GitHub authentication.
 
 Read this playbook, AGENTS.md, CLAUDE.md and
 `.github/dependabot-prep-policy.json` from the live main branch before writes.
-Require `dependabot-prep-policy:v3` and `trusted-openclaw-agent`.
+Require `dependabot-prep-policy:v4` and `trusted-openclaw-agent`.
 [ADR 0010](adr/0010-trusted-agent-dependabot-preparation.md) supersedes the
 sealed launcher, no-exec lanes and model-authored receipt protocol of ADR 0009.
 The legacy installation is retained for diagnosis, not invoked or reconfigured.
 Do not run it concurrently or invoke the archived sealed skill procedure.
 
-Use the installed portable `dependabot-prep` skill at revision `trusted-agent-v1`
-as the shared workflow, with this playbook and v3 policy as repository overrides.
+Use the installed portable `dependabot-prep` skill at revision `trusted-agent-v2`
+as the shared workflow, with this playbook and v4 policy as repository overrides.
+The skill is published in
+[mento-protocol/agents](https://github.com/mento-protocol/agents), so its rules
+are readable from here and this playbook states only what differs.
+Your installed `dependabot-prep` skill must declare revision `trusted-agent-v2`.
+If your installed skill declares any other revision, stop before any write,
+report the mismatch and the incomplete rollout, and do not fall back to an older
+coordination mechanism.
 The `trusted-openclaw-agent` execution-model value is a historical compatibility
 identifier, not a runtime restriction. Require the policy's `workflow` binding;
 an older sealed skill cannot satisfy it. No second launcher or workflow is needed.
@@ -125,7 +132,7 @@ Prefer exact-head CI production-build evidence when local builds cannot fit;
 do not waive affected browser, review or other readiness gates. Use standard umask
 `0022` for repository tests whose permission fixtures require it.
 
-## Start, lock and resume
+## Start, claim and resume
 
 The [checked-in entry prompt](../scripts/prompts/dependabot-weekly.md) is the
 giskard-only scheduled-job adapter; it checks the host before writes. The cron
@@ -136,48 +143,190 @@ of copying the scheduled prompt. Use the current runtime and this playbook's
 host profile/delivery rules. Do not change routing or credentials during a batch.
 
 On macOS or another operator-approved development host, follow the portable skill's
-local state-path and serialized-resource guidance instead of Linux systemd commands
-or local `/home/molt` paths. The numeric `hostResources` caps apply on giskard; other hosts
-retain one heavy tree and explicit worker limits, with memory monitoring but no
-claim of cgroup enforcement. Every host must acquire the shared coordinator lock
-below; a host-local lock or exact-head lease is not a substitute. Exact-head leases
-still protect against unrelated writers outside this workflow. No gate or hook may be bypassed. Interactive final reports
-go to the invoking session unless another destination is explicitly requested;
-the Slack instructions below apply to the configured scheduled run.
+local state-path and serialized-resource guidance instead of Linux systemd commands.
+The numeric `hostResources` caps apply on giskard; other hosts retain one heavy
+tree and explicit worker limits, with memory monitoring but no claim of cgroup
+enforcement. The host-local heavy-tree lock at `coordination.hostLock.path`
+(`coordination.hostLock.pathMacos` on macOS) caps process trees on one machine.
+It never serializes writers across hosts, and it
+never substitutes for the per-PR claim below. Exact-head leases still protect
+against unrelated writers outside this workflow. No gate or hook may be bypassed.
+Interactive final reports go to the invoking session unless another destination
+is explicitly requested; the Slack instructions below apply to the configured
+scheduled run.
 
-On giskard, keep state outside checkouts at
-`/home/molt/.local/state/mento-dependabot`. Create that parent if absent.
-Acquire a single-batch lock with one atomic `mkdir` of its `active` child.
-If it already exists, stop writes and report contention; do not clear it.
-Immediately write session ID, start time and report path into `active/owner.md`.
-Check for an active legacy launcher before starting. Manual and scheduled sweeps
-must share this lock. If ownership metadata cannot be written, stop before writes.
+### Claim a pull request before writing to it
 
-This existing giskard directory is the coordinator for **all** frontend preparation
-writers, not only jobs executing on giskard. Before any preparation write from a
-Mac/other host, use an operator-configured authenticated, encrypted connection (for
-example SSH to giskard as molt) to perform that same atomic acquisition on giskard.
-Verify encrypted transport before any remote write; otherwise remain read-only. Verify
-the destination machine/account and exact path; never create a substitute local
-directory or fall back to a second lock. Record a unique run ID, originating host,
-session, start/deadline and local report path in the shared owner file, and read it
-back before proceeding. Check legacy activity on the coordinator too. No new
-service, credential, SSH configuration or port is installed by the agent.
+The mutex is one Git ref per PR, `refs/mento-claims/v1/pr/<number>`, moved by
+compare-and-swap. Any host with repository write access can claim it. No shared
+machine, no remote connection and no operator step is involved. Claim the PR
+before its first write:
 
-An unavailable connection, existing lock or ambiguous acquisition means read-only
-until resolved. Before each remote mutation recheck shared ownership; on connection
-loss stop new writes and retain the lock. Stop owned local work before releasing
-the same remote lock, verify the unique owner ID again, and never clear another
-owner. A release failure leaves the lock held for operator recovery; age/deadline
-does not expire it. This is cooperative serialization among these workflows, not
-an enforced barrier against arbitrary token holders. Remote lock access needs its
-own runtime permission; a Mac without it can audit but cannot prepare this repo.
+```sh
+pnpm dependabot:claim -- claims claim --pr 872 --json
+```
 
-Keep a timestamped Markdown report in the state directory. Update it after each
-meaningful step: inventory, each PR's head/base, checkout, saved commit/patch,
-repair count, active minutes, pending CI/review, verified mutation IDs/SHAs,
-and next action. Record intended writes before attempting them. This is recovery
-state, not an authorization receipt. Never log secrets or raw environment.
+Every `claims …` command in this document runs through that wrapper: write
+`pnpm dependabot:claim -- claims <command>`. The wrapper reads
+`.github/dependabot-prep-policy.json` from the fetched default branch, never
+from the checkout it runs in. It resolves `refs/remotes/origin/main` in the
+local object store, reads the policy blob out of that revision, and passes a
+private copy of those bytes as `--config`. A candidate branch that edits the
+policy therefore cannot supply its own pin, TTLs, namespace or gates, whichever
+checkout the command runs from. The wrapper prints the ref and its object id on
+every run and never fetches, so refresh a stale ref with `git fetch origin main`.
+It stops with exit 3 when that ref is missing, when the policy is missing at
+that revision, or when `git` is unavailable.
+
+`pnpm` resolves the script from the nearest `package.json` above the working
+directory, so from inside a per-PR tree write
+`pnpm --dir <main-tracking-checkout> dependabot:claim -- claims <command>`.
+`--dir` locates the wrapper; it no longer decides which policy the wrapper reads.
+
+The wrapper gives its own working directory to the claim command, and the claim
+command gives it to a guarded child. A guarded command that must act on a per-PR
+tree therefore names that tree itself, with `git -C <pr-worktree>`. Make every
+per-PR tree a linked `git worktree` of the main-tracking clone; one object
+database then holds the prepared commit that the guarded push sends.
+
+`pnpm dependabot:claim -- claims read --pr <n>` inspects a claim without
+acquiring it. It writes nothing and needs no token.
+
+The printed `token` and `runId` are this run's credentials for that PR; keep both
+for every later command. The lease runs 30 minutes, renews after 10 minutes and
+keeps 10 minutes of grace after expiry, as `coordination.claims` states. Grace
+exceeds the 5-minute skew tolerance, so a host at the tolerated clock offset
+cannot judge a lease takeable while its owner still holds it. Hold the claim
+through CI and review waits. Release it with the outcome when this run stops
+acting on the PR:
+
+```sh
+pnpm dependabot:claim -- claims release --pr 872 --token <token> --run-id <runId> \
+  --outcome ready-for-maintainer-decision
+```
+
+Outcomes are `ready-for-maintainer-decision`, `needs-decision`, `blocked`,
+`skipped`, `budget-exhausted`, `family-rollback`, `rehearsal` and `completed`.
+Release whenever the run stops acting on the PR, terminal or not. Work in
+progress stays in the checkout, and the next writer claims the PR again.
+
+These eight slugs record why the claim was released. The final report keeps its
+own three verdicts below: `skipped` reports as needs decision, `budget-exhausted`
+and `family-rollback` report as blocked, and `rehearsal` and `completed` are not
+batch verdicts.
+
+Cloud coding sessions are refused, because `allowCloudWriters` is false and their
+GitHub proxy identity is unverified. Keep every writing host's clock
+synchronized by NTP; a skewed clock misjudges expiry. Run
+`pnpm dependabot:claim -- claims doctor` once per host and stop if it warns
+about the clock offset. Guard narrows the window between its claim check and the
+guarded command but never closes it. That residual window is why the push below
+also carries an exact-head lease.
+
+### Fence every publication
+
+Run every branch push and every review request under `claims guard`. Guard proves
+the claim is held at spawn time, renews it for the child's whole lifetime, and
+stops the child when the claim is lost. The fast-forward proof runs before the
+guard, unguarded, because it only reads the per-PR tree; the guard then carries
+the push alone:
+
+```sh
+pnpm --dir "$mainCheckout" dependabot:claim -- claims guard --pr 872 \
+  --token <token> --run-id <runId> --gate push -- git -C "$prWorktree" push \
+  --force-with-lease="$pushRef:$observedHead" "$pushRemote" "$preparedHead:$pushRef"
+
+pnpm --dir "$mainCheckout" dependabot:claim -- claims guard --pr 872 \
+  --token <token> --run-id <runId> --gate review-request \
+  -- gh pr comment 872 --body "@coderabbitai review"
+
+pnpm --dir "$mainCheckout" dependabot:claim -- claims guard --pr 872 \
+  --token <token> --run-id <runId> --gate wait -- gh pr checks 872 --watch
+```
+
+`--gate push` and `--gate review-request` are mandatory: guard refuses to spawn
+the child without a held claim, and kills it if the claim is lost mid-flight.
+`--gate wait` is advisory: guard runs the child either way and renews while the
+claim is held. Run any operation expected to exceed ten minutes under guard.
+Guard also reserves one host-local slot per run with an exclusive create, and it
+never takes a slot over. A slot left by a crashed guard refuses every later
+guard of that run with exit 3 and prints the recovery command,
+`claims slot clear --pr <n> --run-id <r>`, which removes the slot only once its
+recorded process is dead. Run one guard per run at a time. Clear a slot only
+after confirming that no guard of that run is alive; a clear that runs beside a
+live guard of the same run can displace it.
+Summary comments and inline replies are advisory; check the claim, but do not
+block on it.
+
+Neither mandatory gate carries the claim to GitHub, and the two publications
+end differently because of it. The push carries an exact-head lease, so a push
+overtaken by a takeover is refused at the remote: the gate is not the only
+fence. `gh pr comment` carries nothing comparable, because GitHub has no claim
+token and the request is not conditional on anything this run holds. A review
+request that starts inside the residual window between guard's check and the
+child's first byte can therefore still be published by a run that has just lost
+the claim. Guard bounds that window and kills the child, but it cannot retract a
+request already sent, so do not treat `--gate review-request` as proof that no
+stale request exists. Reconcile instead: record `reviewRequestedHead=<sha>` on
+the claim immediately after each request, and read that field before requesting
+a review, so a takeover inherits what the prior owner published. A stale request
+is then superseded rather than trusted, because `handoff.reviewCommit` is the
+exact final head — the next owner re-requests at its own head, and only a
+verdict bound to that SHA counts toward readiness.
+
+The policy names purposes and the CLI names flags. `branch-push` in
+`requiredBefore` is `--gate push`, `long-wait` in `advisoryBefore` is
+`--gate wait`, and `review-request`, `summary-comment` and `inline-reply` match
+their flag values. Check an advisory surface with
+`pnpm dependabot:claim -- claims verify --pr <n> --token <t> --run-id <r> --gate summary-comment`.
+Record what a takeover must inherit with
+`pnpm dependabot:claim -- claims renew --pr <n> --token <t> --run-id <r> --set lastPushedHead=<sha>`;
+`reviewRequestedHead=<sha>` and `summaryCommentUrl=<url>` take the same form, and
+`--if-due` renews only when the lease is due.
+
+Exit codes decide the next move: 0 proceed; 10/11/14/15 act as printed;
+12 run adopt; 13 stop publishing this PR and treat work in flight as forfeit;
+3/16/21 stop and report; 20 retry. `git` and `gh` never return 10-16 themselves,
+so those codes are the claim's.
+
+### Families, takeover and visibility
+
+Consolidating a family claims every member, ascending by PR number, with
+`claims family claim --prs <a,b,c>`. On any member's failure, release the
+acquired members with `claims family release` and skip that family this run.
+
+A claim becomes takeable only after `expiresAt` plus its grace. `claims claim`
+then takes it over in the same command and records the prior owner;
+`claims takeover --pr <n> --supersedes <oid>` is the explicit form. Age
+alone never authorizes takeover: only the command's own eligibility check does.
+The prior owner's token stops verifying at that moment, so its guarded children
+are stopped before they can publish.
+
+The `dependabot-prep:claimed` label is present exactly while the ref is at LOCK,
+whatever the owner, and a takeover leaves it in place. Claim fields go inside the
+existing per-PR summary comment; there is no separate claim comment. A v2 summary
+comment keeps the v1 marker as its first line and adds the claim line immediately
+after it:
+
+```text
+<!-- mento-dependabot-preparation:v1 -->
+<!-- mento-dependabot-preparation:v2 pr=<n> claim=<40hex> run-sha256=<64hex> operator-sha256=<64hex> [supersedes=<40hex>] -->
+```
+
+Keep one summary comment per author login per PR. A same-login run edits its own
+comment. After a cross-login takeover, the new comment carries `supersedes` and
+cites the superseded comment's URL.
+
+### Report state and resume
+
+Keep a timestamped Markdown report in a `reports/` directory beside the host
+lock, under the `<host>__<owner>__<repo>` directory of `coordination.hostLock`
+(`path`, or `pathMacos` on macOS). Preserve reports and checkouts. Update it
+after each meaningful step: inventory, each PR's head/base, checkout, saved
+commit/patch, repair count, active minutes, pending CI/review, verified mutation
+IDs/SHAs, and next action. Record intended writes before attempting them. This is
+recovery state, not an authorization receipt, and never the claim's authority:
+the ref is. Never log secrets or raw environment.
 
 Use a clean worktree per PR and preserve existing edits. Never automatically
 reset, clean, stash, or delete user work. On resume, inspect both checkout and
@@ -185,10 +334,197 @@ live PR. Lost push acknowledgment requires reading the remote head; uncertain
 comment/review requests require reading existing messages. If still ambiguous,
 stop that PR's writes. Never blindly replay a mutation.
 
-Release only this session's `active/owner.md` and then the empty lock directory
-after all its work has stopped. Preserve reports and checkouts. After a crash,
-an operator verifies the prior session and children stopped before clearing the
-lock. Age alone never authorizes takeover.
+Never retry an unknown claim outcome (exit 12). Adopt the candidate commit
+instead; `adopt` takes it only when this run authored it. A LOCK left behind on
+a closed or merged PR needs no operator either: list the stale claims, take the
+expired one over, then release it as `skipped`, which also removes the label.
+The tool deletes nothing. Take the exact adopt form from the failed command's
+own `next.adopt` field; `--run-id` is part of it, because adopt matches the
+candidate's owner run id against this invocation's.
+
+```sh
+pnpm dependabot:claim -- claims adopt --pr <n> --candidate <oid> \
+  --operation-id <id> --run-id <r>
+pnpm dependabot:claim -- claims list --stale --json
+pnpm dependabot:claim -- claims claim --pr <n>
+pnpm dependabot:claim -- claims release --pr <n> --token <t> --run-id <r> \
+  --outcome skipped
+```
+
+### Migration from the giskard batch lock
+
+Nothing converts. The retired mechanism was a directory that existed only while a
+run held it. Migrate in this order:
+
+1. Merge this policy. Every host still at `trusted-agent-v1` then refuses to
+   write, because of the revision rule above. The steps below were completed
+   on 2026-09-10 and 2026-09-11, and the weekly cron is enabled.
+2. Confirm the pinned claims package resolves and reads this policy:
+
+   ```sh
+   pnpm dependabot:claim -- claims doctor
+   pnpm dependabot:claim -- config validate --json
+   ```
+
+   `config validate` reads this file's `coordination.claims` block and reports
+   the operating parameters the run will use, so a policy the CLI rejects
+   surfaces here rather than at the first claim.
+
+   The wrapper reads the policy from the default branch, as above, so on a
+   branch that edits `.github/dependabot-prep-policy.json` this command
+   validates `main`'s copy and reports `ok` whatever the branch says. Commit
+   the edit, then validate the branch's own copy:
+
+   ```sh
+   DEPENDABOT_CLAIM_POLICY_REF=HEAD pnpm dependabot:claim -- config validate --json
+   ```
+
+   Use that override for `config validate` only. Every claim-acquiring command
+   must keep reading the default branch; that is what stops a candidate branch
+   from choosing its own namespace, TTLs, gates and pin.
+
+   `@mento-protocol/issues@0.1.0` is published, so the pin resolves through
+   `pnpm dlx`. If a future pin is not yet published, keep the fallback under
+   the wrapper rather than running the package checkout's binary directly. Name
+   the checkout in `DEPENDABOT_CLAIM_PACKAGE_DIR` and run the same commands:
+
+   ```sh
+   DEPENDABOT_CLAIM_PACKAGE_DIR=<package-checkout> \
+     pnpm dependabot:claim -- claims doctor
+   ```
+
+   The wrapper then runs that checkout's `mento-issues` binary in place of
+   `pnpm dlx` and keeps every check it makes for a published pin: the policy
+   still comes from the default branch, the schema must still be
+   `dependabot-prep-policy:v4`, `--config` is still the wrapper's own private
+   copy of those bytes, and the checkout's manifest must carry exactly the
+   pinned name and version before its binary runs. Invoking the binary directly
+   skips all four, which is why the fallback is spelled this way. Without that
+   variable an unpublished pin fails every claim command closed, which stalls
+   the rollout; it does not weaken it.
+   `pnpm dlx` resolves the package into a temporary project outside this
+   workspace, so `onlyBuiltDependencies` does not gate that install. pnpm 10
+   blocks a dependency's lifecycle scripts by default, and the wrapper also
+   passes `--config.ignore-scripts=true`, so no `preinstall`, `install` or
+   `postinstall` script runs — of the pinned package or of anything in its
+   resolved tree — whatever a host `.npmrc` allows.
+   `npm view @mento-protocol/issues@0.1.0 scripts` reports the pinned package's
+   own manifest only and says nothing about that tree, so it is a courtesy
+   check, never the control.
+
+3. Create the claim label's definition once, from an operator session with Issues
+   write:
+
+   ```sh
+   pnpm dependabot:claim -- claims label ensure --json
+   ```
+
+   This is what creates `dependabot-prep:claimed` as a repository label; a
+   preparation run only applies and removes it. The command is idempotent, and
+   the label already exists here, so it reports the existing definition and
+   changes nothing.
+
+4. Install the `trusted-agent-v2` skill in `~/.agents/skills` on the Mac and on
+   giskard, then confirm the installed revision on each host.
+5. Verify that each host, giskard included, can create its heavy-tree lock
+   directory under `coordination.hostLock.path`, or under
+   `coordination.hostLock.pathMacos` on the Mac.
+6. Verify that no v1 writer holds the legacy directory before touching it:
+
+   ```sh
+   ssh giskard 'ls -la /home/molt/.local/state/mento-dependabot/ 2>/dev/null'
+   ssh giskard 'pgrep -af "dependabot-prep|openclaw" || echo "no preparation process"'
+   ```
+
+   An `active` child or a running preparation process stops the migration.
+   Reconcile it first; never clear another owner's lock. The same listing shows
+   the v1 runs' timestamped reports; they are audit evidence, so keep them.
+
+7. Remove the inert legacy lock only after step 6 is clean. Delete the `active`
+   child alone, never the directory that holds the reports:
+
+   ```sh
+   ssh giskard 'rm -rf /home/molt/.local/state/mento-dependabot/active'
+   ```
+
+8. Record where the cron reads its prompt. The giskard job holds a copy of
+   `scripts/prompts/dependabot-weekly.md` in its `payload.message`; the
+   operator refreshes it from `main` and verifies it matches the file apart
+   from the final newline (a copied prompt otherwise keeps an old revision, policy schema or
+   Slack destination), and sets the job's delivery destination to match the
+   prompt in the same edit. See _Schedule and activation_.
+9. Run one supervised interactive preparation on a single PR end to end, with the
+   claim held through CI. Confirm the ref chain, the label and one summary
+   comment.
+10. The weekly cron is enabled (operator decision, 2026-09-11) and reports to
+    `#dependabot`; the first scheduled run is the acceptance run. Enabling or
+    disabling it stays an operator decision outside this playbook.
+
+Rollback runs in reverse, in this order:
+
+1. Stop while any claim is still held, as migration step 6 stops for the legacy
+   directory. List every claim, not only the stale ones, and continue only
+   when every returned `state` is `UNLOCK`. A `LOCK` with a live lease is a
+   writer still at work; `--stale` would hide it. Stop on any error or
+   `invalid` entry:
+
+   ```sh
+   pnpm dependabot:claim -- claims list --json
+   ```
+
+   A held claim is released by its own run, with `--outcome family-rollback`.
+   Never release another run's claim from the rollback.
+
+2. Restore `trusted-agent-v1` on every host, because a v2 skill refuses a v3
+   policy and a v1 skill refuses a v4 policy, so the hosts move before the
+   policy does.
+
+3. Sweep the label. Enumerate the PRs that carry it, then reconcile each one:
+
+   ```sh
+   gh api 'search/issues?q=repo:mento-protocol/frontend-monorepo+label:%22dependabot-prep:claimed%22' --jq '.items[].number'
+   pnpm dependabot:claim -- claims label reconcile --pr <n> --apply
+   ```
+
+   `reconcile` projects the ref, so it clears the label only where the ref is at
+   UNLOCK. A ref left at LOCK keeps its label, which is why step 1 comes first;
+   once the wrapper is gone, deleting the label definition is the only way left
+   to clear one. Delete the definition only if the rollback is permanent.
+
+4. Revert the pull request that introduced `dependabot-prep-policy:v4` rather
+   than hand-editing a subset. The revert restores the v3 schema,
+   `limits.activeBatches` and the giskard coordination block, drops
+   `reporting.prCommentClaimMarkerSchema` while `reporting.prCommentMarker`
+   stays as it is, and removes the wrapper with every reference that pins it: the
+   `scripts/dependabot-claim.mjs` entries in `changes.needsDecisionPaths` and in
+   `VERCEL_PROVEN_NON_RUNTIME_EXACT_PATHS`
+   (`scripts/plan-vercel-deployments.mjs`, with its fixtures in
+   `scripts/plan-vercel-deployments.test.mjs`), the claim tests in
+   `scripts/dependency-policy.test.mjs`, and the sentence in
+   `docs/vercel-deployments.md`. A hand-edited subset leaves
+   `pnpm dependency:policy:test` and
+   `node --test scripts/plan-vercel-deployments.test.mjs` red on `main`. Steps 1
+   and 3 run before this one, because both need the wrapper.
+
+Existing claim refs become inert audit artifacts; they are not deleted.
+
+### Claim ref retention
+
+Claim refs are advertised over the git protocol and accumulate one per prepared
+PR. An operator prunes them quarterly, outside the tool. `delete-claim-refs` is
+a forbidden action, so a preparation run never issues the mutation below; it is
+recorded here as the operator's procedure. Substituting a LOCK object id for
+`<currentUnlockOid>` destroys the mutex of a PR another host is preparing,
+because the compare-and-swap then succeeds.
+
+```sh
+pnpm dependabot:claim -- claims list --json
+gh api graphql -f query='mutation($r:ID!,$n:GitRefname!,$b:GitObjectID!){updateRefs(input:{repositoryId:$r,refUpdates:[{name:$n,beforeOid:$b,afterOid:"0000000000000000000000000000000000000000",force:false}]}){clientMutationId}}' -f r=<repositoryId> -f n=<ref> -f b=<currentUnlockOid>
+```
+
+Delete only refs at UNLOCK whose PR is closed and whose `completedAt` is older
+than 90 days. The tool itself never deletes a ref. This repository's
+`<repositoryId>` is `R_kgDOObNo8w`.
 
 ## Bounded preparation loop
 
@@ -216,7 +552,12 @@ Stop early enough to publish the report. Provider exhaustion preserves work.
    sole force-flag exception: the lease prevents recreating a deleted ref or
    overwriting a concurrent update; it does not authorize history rewrites.
    Require an existing, nonzero 40-hex observed SHA and the verified full branch
-   ref. Pin the local commit too, then run:
+   ref. Run this push under `claims guard --gate push`, as Fence every
+   publication requires. The block below shows the chain as one command; under
+   the guard it runs as two. The `merge-base` proof runs first, unguarded and in
+   the per-PR tree, because it only reads. The `git push` line then runs as the
+   guard's argv, and only when the proof succeeded — Fence every publication
+   shows that invocation. Pin the local commit too, then run:
 
    ```sh
    preparedHead=$(git rev-parse HEAD)
@@ -232,7 +573,8 @@ Stop early enough to publish the report. Provider exhaustion preserves work.
    A permission failure is a blocker, not permission to broaden the credential.
 
 5. Request CodeRabbit once per head only if no qualifying review or pending
-   request exists, with the exact `@coderabbitai review` command. On resume,
+   request exists, with the exact `@coderabbitai review` command. Run that
+   request under `claims guard --gate review-request`. On resume,
    inspect prior requests; do not duplicate them. Require genuine
    `coderabbitai[bot]` ID `136622811` and the immutable review commit binding.
    Acknowledgments are not reviews. Do not invent commands for other bots.
@@ -269,47 +611,67 @@ thread resolution and merge remain. Do not publish an ALL CLEAR authority check.
 Readiness describes the exact reported head/base and verification time; subsequent
 pushes, base changes or substantive feedback invalidate it. Recheck on demand.
 
-Include exact SHAs, actual edits, CI/review links, risk/confidence/source links,
-remaining human actions and report path. Distinguish a completed inventory with
-blocked PRs from an interrupted/incomplete batch. An agent exit is not readiness.
-Deliver the full readable per-PR final report to Slack, with clickable PR and
-decision-comment links: ready/selected count, each outcome and reason, critical
-agent choices, remaining failures, and the next action. A local filesystem path
-is never delivery. Send the report as an attachment if necessary, with the useful
-summary in the message; if attachments are unavailable, send numbered sections.
-Retain the delivery receipt. On ambiguous delivery, reconcile before retrying;
-on failure preserve the report and surface an operational delivery error.
-Return the same useful final report from the agent for scheduler fallback, not
-just a receipt or local path; avoid duplicating an already confirmed delivery.
-End: `No approval, merge, close, auto-merge, or thread-state action was performed.`
+Distinguish a completed inventory with blocked PRs from an
+interrupted/incomplete batch. An agent exit is not readiness.
+Deliver the final report to Slack in the form the skill's delivery rules
+define: a digest as the channel message, an evidence tier in its thread, and
+the skill's one-line zero state when no Dependabot PR is open. A local
+filesystem path is never delivery. This repository changes two things only. The
+digest's last line is exactly
+`No approval, merge, close, auto-merge, or thread-state action was performed.`,
+and the destination is the channel named in _Schedule and activation_.
+
+Verify delivery of each report message and retain its receipt. On ambiguous
+delivery, reconcile before retrying; on failure preserve the report and surface
+an operational delivery error. Return the same report from the agent for
+scheduler fallback, digest first, not just a receipt or local path; avoid
+duplicating an already confirmed delivery.
 
 ## Schedule and activation
 
 Existing job: `1b1cad5e-fa4e-48b3-a1f0-10bca3628175`, agent `coding`,
-Monday `15 10 * * 1` UTC, stagger zero, unchanged Slack destination.
+Monday `15 10 * * 1` UTC, stagger zero. The job's `delivery.to` and
+`failureAlert.to` are the `#dependabot` channel (`C0C1W20C536`), the same
+destination the prompt names; when the prompt's destination changes, change
+the job's delivery setting in the same edit, because the prompt alone does not
+move the scheduler's fallback delivery. The job's stored prompt must match
+`scripts/prompts/dependabot-weekly.md` on `main` byte for byte, with one
+exception: OpenClaw stores `payload.message` without the file's final newline,
+and the source file keeps that newline for the formatter. Compare the stored
+prompt with the file after dropping that one trailing newline, and treat any
+other difference as a stale copy. Verify that after every refresh and before
+enabling.
 Use an ordinary `agentTurn` with the checked-in prompt, isolated session and
 seven-hour timeout (six-hour budget plus reporting margin). Keep the normal
 coding model configuration, with no nested authorized-run invocation.
 Enable failure alerts after one operational error. Inspect CLI help, back up
 the current job, and read it back after editing; never print gateway credentials.
 
-Activation requires merged policy, a supervised ordinary-agent run producing a
-genuinely ready PR, visible progress/recovery evidence and separate operator
-confirmation. Keep the job disabled until then. A manual pilot uses the same
-prompt/lock/policy narrowed to an explicitly selected PR.
-Preparation sessions must not change the scheduler or their own policy.
+Activation is complete: the package and policy merged on 2026-09-10, the skill
+on 2026-09-11, the rollout checks passed, and the operator enabled the job on
+2026-09-11 after this prompt revision reached `main`, with the stored prompt
+refreshed from `main` and verified against the file first. The job never ran
+with the earlier direct-message prompt or with unmerged prompt bytes. The
+first scheduled run is the supervised acceptance run; the operator reads its
+report and evidence, and disabling the job again is an operator decision, not
+a preparation session's.
+Any future reactivation (after a disable, a prompt or policy change, or a new
+skill revision) repeats the same sequence: refresh the stored prompt, verify it
+against the file, confirm the delivery destination, then enable. Preparation
+sessions must not change the scheduler or their own policy.
 
-After these instructions are merged and the disabled job's prompt is refreshed,
-the operator can manually run it once without enabling the weekly schedule:
+To run the job once outside its schedule, for example as a manual pilot on an
+explicitly selected PR, use:
 
 ```sh
 openclaw cron run 1b1cad5e-fa4e-48b3-a1f0-10bca3628175
 ```
 
 Do not repeat the command just because it returns before completion. Check the
-existing session and batch lock first. A new operator-triggered batch has a fresh
-budget; reuse preserved work only after reconciling live policy, head/base, prior
-mutations and validation inputs. Resuming an interrupted batch retains its budget.
+existing session and the live per-PR claims first. A new operator-triggered batch
+has a fresh budget; reuse preserved work only after reconciling live policy,
+head/base, prior mutations and validation inputs. Resuming an interrupted batch
+retains its budget.
 
 Rollback disables the job and preserves evidence. Never automatically restore
 the retired launcher. Installed-tooling cleanup is a separate reviewed task.

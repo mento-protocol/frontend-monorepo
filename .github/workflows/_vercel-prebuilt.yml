@@ -743,6 +743,25 @@ jobs:
           echo "build_uid=$build_uid" >> "$GITHUB_OUTPUT"
           echo "build_gid=$build_gid" >> "$GITHUB_OUTPUT"
 
+      # This is a non-authorizing consistency check over candidate package,
+      # lock, workspace and reviewed-patch data. It reads the materialized
+      # candidate copy, the same tree the install below consumes, and runs
+      # before that install because pnpm applies patchedDependencies at
+      # install time, so a candidate the trusted checker rejects never has its
+      # patches applied. The protected CLI remains sourced from the trusted
+      # controller.
+      - name: Verify candidate Vercel prerequisite consistency
+        env:
+          BUILD_UID: ${{ steps.isolation.outputs.build_uid }}
+          CANDIDATE_SOURCE_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-candidate-source
+        run: |
+          set -euo pipefail
+          if sudo --non-interactive /usr/bin/pgrep -u "$BUILD_UID" >/dev/null 2>&1; then
+            echo "Candidate identity owns a process before prerequisite verification" >&2
+            exit 1
+          fi
+          node "$GITHUB_WORKSPACE/controller/scripts/vercel-prebuilt.mjs" check-candidate-versions --repo-root "$CANDIDATE_SOURCE_PATH"
+
       - name: Install frozen dependencies
         env:
           BUILD_GID: ${{ steps.isolation.outputs.build_gid }}
@@ -822,7 +841,7 @@ jobs:
             /bin/sh -c 'cd "$1" && shift && exec "$@"' \
             candidate-pnpm-install \
             "$CANDIDATE_HOME_PATH" \
-            "$pnpm_bin" --dir "$CANDIDATE_SOURCE_PATH" install --frozen-lockfile --ignore-scripts \
+            "$pnpm_bin" --dir "$CANDIDATE_SOURCE_PATH" install --frozen-lockfile --ignore-scripts --ignore-pnpmfile \
             2>&1
           candidate_status=$?
           set -e
@@ -841,12 +860,6 @@ jobs:
           path: controller
           persist-credentials: false
           ref: ${{ github.workflow_sha }}
-
-      # This is a non-authorizing consistency check over candidate package and
-      # lock data. The protected CLI remains sourced from the trusted controller.
-      - name: Verify candidate Vercel prerequisite consistency
-        working-directory: source
-        run: node "$GITHUB_WORKSPACE/controller/scripts/vercel-prebuilt.mjs" check-candidate-versions
 
       - name: Prepare fresh runner-owned Vercel pull staging
         env:

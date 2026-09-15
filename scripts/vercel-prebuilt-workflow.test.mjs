@@ -67,7 +67,10 @@ import {
   validateSourceCheckout,
   withValidatedPrebuiltUpload,
 } from "./vercel-prebuilt-workflow.mjs";
-import { PINNED_VERCEL_CLI_VERSION } from "./vercel-cli-runtime-contract.mjs";
+import {
+  PINNED_VERCEL_CLI_VERSION,
+  REVIEWED_ROOT_PATCHED_DEPENDENCIES,
+} from "./vercel-cli-runtime-contract.mjs";
 import { sharpRuntimePlatform } from "./next-sharp-output-tracing.mjs";
 
 const SHA = "0123456789abcdef0123456789abcdef01234567";
@@ -78,6 +81,25 @@ const BUILD_ENVIRONMENT_SCRIPT = fileURLToPath(
   new URL("./vercel-build-environment.mjs", import.meta.url),
 );
 
+function writeReviewedRootPatches(controllerRoot) {
+  for (const [name, reviewed] of Object.entries(
+    REVIEWED_ROOT_PATCHED_DEPENDENCIES,
+  )) {
+    const destination = join(controllerRoot, reviewed.path);
+    mkdirSync(dirname(destination), { recursive: true, mode: 0o755 });
+    copyFileSync(
+      join(
+        REPOSITORY_ROOT,
+        "scripts",
+        "fixtures",
+        "reviewed-root-patches",
+        `${name}.patch`,
+      ),
+      destination,
+    );
+  }
+}
+
 function writeSharpRuntimeArtifactsInFunction(
   functionDirectory,
   platform = sharpRuntimePlatform(),
@@ -87,7 +109,7 @@ function writeSharpRuntimeArtifactsInFunction(
     functionDirectory,
     "node_modules",
     ".pnpm",
-    `@img+sharp-${platform}@0.35.3`,
+    `@img+sharp-${platform}@0.35.4`,
     "node_modules",
     "@img",
     `sharp-${platform}`,
@@ -97,20 +119,20 @@ function writeSharpRuntimeArtifactsInFunction(
     functionDirectory,
     "node_modules",
     ".pnpm",
-    `@img+sharp-libvips-${platform}@1.3.2`,
+    `@img+sharp-libvips-${platform}@1.3.3`,
     "node_modules",
     "@img",
     `sharp-libvips-${platform}`,
   );
   mkdirSync(nativeDirectory, { recursive: true });
   mkdirSync(join(libvipsDirectory, "lib"), { recursive: true });
-  const nativeAddon = join(nativeDirectory, `sharp-${platform}-0.35.3.node`);
+  const nativeAddon = join(nativeDirectory, `sharp-${platform}-0.35.4.node`);
   const sharedLibrary = join(
     libvipsDirectory,
     "lib",
     platform.startsWith("darwin-")
-      ? "libvips-cpp.8.18.3.dylib"
-      : "libvips-cpp.so.8.18.3",
+      ? "libvips-cpp.8.18.6.dylib"
+      : "libvips-cpp.so.8.18.6",
   );
   const versionsManifest = join(libvipsDirectory, "versions.json");
   if (writeFunctionConfig) {
@@ -121,7 +143,7 @@ function writeSharpRuntimeArtifactsInFunction(
   }
   writeFileSync(nativeAddon, "native");
   writeFileSync(sharedLibrary, "libvips");
-  writeFileSync(versionsManifest, JSON.stringify({ vips: "8.18.3" }));
+  writeFileSync(versionsManifest, JSON.stringify({ vips: "8.18.6" }));
   return { nativeAddon, sharedLibrary, versionsManifest };
 }
 
@@ -2117,6 +2139,7 @@ test("standalone Vercel CLI runtime is exact, override-aligned, and independentl
     mkdirSync(sourceRoot, { recursive: true });
     mkdirSync(toolsRoot, { mode: 0o755 });
     copyFileSync(join(REPOSITORY_ROOT, "package.json"), rootPackagePath);
+    writeReviewedRootPatches(controllerRoot);
     for (const file of ["contract.json", "package.json", "pnpm-lock.yaml"]) {
       copyFileSync(
         join(REPOSITORY_ROOT, "scripts", "vercel-cli-runtime", file),
@@ -2304,10 +2327,170 @@ test("standalone Vercel CLI runtime is exact, override-aligned, and independentl
       /manifest is not exact/,
     );
     assert.equal(existsSync(runtimeRoot), false);
+
+    const reviewedPatchMap = Object.fromEntries(
+      Object.entries(REVIEWED_ROOT_PATCHED_DEPENDENCIES).map(
+        ([name, reviewed]) => [name, reviewed.path],
+      ),
+    );
+    const reviewedRootPackage = structuredClone(originalRootPackage);
+    reviewedRootPackage.pnpm.patchedDependencies = reviewedPatchMap;
+    writeFileSync(
+      rootPackagePath,
+      `${JSON.stringify(reviewedRootPackage, null, 2)}\n`,
+    );
+    for (const reviewed of Object.values(REVIEWED_ROOT_PATCHED_DEPENDENCIES)) {
+      rmSync(join(controllerRoot, reviewed.path));
+    }
+    assert.throws(
+      () =>
+        stageTrustedVercelCliRuntimeManifest({
+          controllerRoot,
+          toolsRoot,
+        }),
+      /Trusted root patch jayson@4\.3\.0 is unreadable or unsafe/,
+      "reviewed map without the patch file",
+    );
+    assert.equal(existsSync(runtimeRoot), false);
+    const reviewedPatchPath = join(
+      controllerRoot,
+      REVIEWED_ROOT_PATCHED_DEPENDENCIES["jayson@4.3.0"].path,
+    );
+    mkdirSync(dirname(reviewedPatchPath), { recursive: true });
+    copyFileSync(
+      join(
+        REPOSITORY_ROOT,
+        "scripts",
+        "fixtures",
+        "reviewed-root-patches",
+        "jayson@4.3.0.patch",
+      ),
+      reviewedPatchPath,
+    );
+    const reviewedRuntimeRoot = stageTrustedVercelCliRuntimeManifest({
+      controllerRoot,
+      toolsRoot,
+    });
+    assert.equal(reviewedRuntimeRoot, runtimeRoot);
+    rmSync(reviewedRuntimeRoot, { force: true, recursive: true });
+
+    const reviewedPatchBytes = readFileSync(reviewedPatchPath);
+    writeFileSync(
+      reviewedPatchPath,
+      Buffer.concat([reviewedPatchBytes, Buffer.from("\n")]),
+    );
+    assert.throws(
+      () =>
+        stageTrustedVercelCliRuntimeManifest({
+          controllerRoot,
+          toolsRoot,
+        }),
+      /Trusted root patch jayson@4\.3\.0 is not exact/,
+      "reviewed map with changed patch bytes",
+    );
+    assert.equal(existsSync(runtimeRoot), false);
+    writeFileSync(reviewedPatchPath, reviewedPatchBytes);
+
+    const workspaceManifestPath = join(controllerRoot, "pnpm-workspace.yaml");
+    writeFileSync(
+      workspaceManifestPath,
+      "packages:\n  - apps/*\npatchedDependencies:\n  is-odd@3.0.1: patches/is-odd@3.0.1.patch\n",
+    );
+    assert.throws(
+      () =>
+        stageTrustedVercelCliRuntimeManifest({
+          controllerRoot,
+          toolsRoot,
+        }),
+      /Trusted root workspace manifest declares patchedDependencies or overrides/,
+      "workspace manifest patch home",
+    );
+    assert.equal(existsSync(runtimeRoot), false);
+    writeFileSync(
+      workspaceManifestPath,
+      'packages:\n  - apps/*\n"patchedDependencies":\n  "jayson@4.3.0": patches/unreviewed.patch\n',
+    );
+    assert.throws(
+      () =>
+        stageTrustedVercelCliRuntimeManifest({
+          controllerRoot,
+          toolsRoot,
+        }),
+      /Trusted root workspace manifest uses unsupported top-level syntax/,
+      "workspace manifest quoted patch home",
+    );
+    assert.equal(existsSync(runtimeRoot), false);
+    writeFileSync(
+      workspaceManifestPath,
+      "  packages:\n    - apps/*\n  patchedDependencies:\n    is-odd@3.0.1: patches/unreviewed.patch\n",
+    );
+    assert.throws(
+      () =>
+        stageTrustedVercelCliRuntimeManifest({
+          controllerRoot,
+          toolsRoot,
+        }),
+      /Trusted root workspace manifest uses unsupported top-level syntax/,
+      "workspace manifest indented patch home",
+    );
+    assert.equal(existsSync(runtimeRoot), false);
+    writeFileSync(
+      workspaceManifestPath,
+      'packages: []\rpatchedDependencies:\r  "jayson@4.3.0": patches/unreviewed.patch\r',
+    );
+    assert.throws(
+      () =>
+        stageTrustedVercelCliRuntimeManifest({
+          controllerRoot,
+          toolsRoot,
+        }),
+      /Trusted root workspace manifest uses unsupported top-level syntax/,
+      "workspace manifest carriage-return patch home",
+    );
+    assert.equal(existsSync(runtimeRoot), false);
+    rmSync(workspaceManifestPath);
+
+    for (const [name, unreviewedPatches] of [
+      [
+        "reviewed map plus an unreviewed entry",
+        {
+          ...reviewedPatchMap,
+          "brace-expansion@2.1.2": "patches/brace-expansion@2.1.2.patch",
+        },
+      ],
+      [
+        "reviewed key with a different patch path",
+        Object.fromEntries(
+          Object.keys(REVIEWED_ROOT_PATCHED_DEPENDENCIES).map((key) => [
+            key,
+            "patches/unreviewed.patch",
+          ]),
+        ),
+      ],
+      ["empty map", {}],
+    ]) {
+      const unreviewedRootPackage = structuredClone(originalRootPackage);
+      unreviewedRootPackage.pnpm.patchedDependencies = unreviewedPatches;
+      writeFileSync(
+        rootPackagePath,
+        `${JSON.stringify(unreviewedRootPackage, null, 2)}\n`,
+      );
+      assert.throws(
+        () =>
+          stageTrustedVercelCliRuntimeManifest({
+            controllerRoot,
+            toolsRoot,
+          }),
+        /manifest is not exact/,
+        name,
+      );
+      assert.equal(existsSync(runtimeRoot), false, name);
+    }
     writeFileSync(
       rootPackagePath,
       `${JSON.stringify(originalRootPackage, null, 2)}\n`,
     );
+    rmSync(dirname(reviewedPatchPath), { force: true, recursive: true });
 
     const retiredPatchDirectory = join(sourceRoot, "patches");
     mkdirSync(retiredPatchDirectory, { mode: 0o755 });
@@ -2372,6 +2555,7 @@ test("standalone Vercel CLI resolver enforces and executes the exact protected l
       join(REPOSITORY_ROOT, "package.json"),
       join(controllerRoot, "package.json"),
     );
+    writeReviewedRootPatches(controllerRoot);
     for (const file of ["contract.json", "package.json", "pnpm-lock.yaml"]) {
       copyFileSync(
         join(REPOSITORY_ROOT, "scripts", "vercel-cli-runtime", file),
@@ -3579,7 +3763,7 @@ test("prebuilt output requires matching sharp and libvips runtime artifacts", ()
         assertSharpPrebuiltArtifacts(directory, {
           runtimePlatform: "linux-x64",
         }),
-      /missing sharp 0\.35\.3.*libvips 8\.18\.3/,
+      /missing sharp 0\.35\.4.*libvips 8\.18\.6/,
     );
   } finally {
     rmSync(directory, { force: true, recursive: true });
@@ -3608,7 +3792,7 @@ test("prebuilt output rejects sharp artifacts split across functions", () => {
         assertSharpPrebuiltArtifacts(directory, {
           runtimePlatform: "linux-x64",
         }),
-      /missing sharp 0\.35\.3.*libvips 8\.18\.3/,
+      /missing sharp 0\.35\.4.*libvips 8\.18\.6/,
     );
   } finally {
     rmSync(directory, { force: true, recursive: true });
@@ -3633,7 +3817,7 @@ test("prebuilt output ignores sharp artifacts outside configured physical functi
         assertSharpPrebuiltArtifacts(directory, {
           runtimePlatform: "linux-x64",
         }),
-      /missing sharp 0\.35\.3.*libvips 8\.18\.3/,
+      /missing sharp 0\.35\.4.*libvips 8\.18\.6/,
     );
   } finally {
     rmSync(directory, { force: true, recursive: true });
