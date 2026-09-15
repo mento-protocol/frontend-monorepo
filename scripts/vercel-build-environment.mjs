@@ -53,6 +53,10 @@ const TARGET_VARIABLES = {
     pullable("NEXT_PUBLIC_GRAPH_API_KEY"),
     pullable("NEXT_PUBLIC_SENTRY_DSN_GOVERNANCE", { allowEmpty: true }),
     pullable("NEXT_PUBLIC_STORAGE_URL"),
+    pullable("NEXT_PUBLIC_SUBGRAPH_FALLBACK_URL", {
+      allowEmpty: true,
+      optional: true,
+    }),
     pullable("NEXT_PUBLIC_SUBGRAPH_URL"),
     pullable("NEXT_PUBLIC_SUBGRAPH_URL_CELO_SEPOLIA"),
     pullable("NEXT_PUBLIC_WALLET_CONNECT_ID"),
@@ -89,12 +93,13 @@ const SENSITIVE_VARIABLE_NAMES = [
   ),
 ].sort();
 
-function pullable(name, { allowEmpty = false } = {}) {
+function pullable(name, { allowEmpty = false, optional = false } = {}) {
   return {
     name,
     platformClassification: "vercel-pull",
     ciClassification: "vercel-pull",
     allowEmpty,
+    optional,
   };
 }
 
@@ -151,6 +156,7 @@ export function validateVercelBuildEnvironment({
 
   for (const requirement of requirements) {
     const value = values[requirement.name];
+    if (value === undefined && requirement.optional) continue;
     if (
       value === undefined ||
       (!requirement.allowEmpty &&
@@ -271,7 +277,7 @@ export function selectVercelPulledEnvironment({
   const missing = [];
   for (const requirement of pullableRequirements) {
     if (!Object.hasOwn(pulledValues, requirement.name)) {
-      missing.push(requirement.name);
+      if (!requirement.optional) missing.push(requirement.name);
       continue;
     }
     selected[requirement.name] = validateMaterializedValue(

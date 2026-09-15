@@ -536,3 +536,48 @@ test("unsupported target/environment combinations fail before validation", () =>
   assert.throws(() => getVercelBuildRequirements("unknown", "preview"));
   assert.throws(() => getVercelBuildRequirements("app", "v3"));
 });
+
+for (const environment of ["preview", "production"]) {
+  test(`governance ${environment} preserves optional fallback through materialization`, () => {
+    for (const fallback of [
+      undefined,
+      "",
+      "https://api.studio.thegraph.com/query/test",
+    ]) {
+      const values = validValues("governance", environment);
+      delete values.NEXT_PUBLIC_SUBGRAPH_FALLBACK_URL;
+      if (fallback !== undefined)
+        values.NEXT_PUBLIC_SUBGRAPH_FALLBACK_URL = fallback;
+      const selected = selectVercelPulledEnvironment({
+        target: "governance",
+        environment,
+        pulledValues: values,
+      });
+      const restored = parseVercelPulledEnvironment(
+        serializeVercelPulledEnvironment(selected),
+      );
+      assert.equal(restored.NEXT_PUBLIC_SUBGRAPH_FALLBACK_URL, fallback);
+      assert.equal(
+        Object.hasOwn(restored, "NEXT_PUBLIC_SUBGRAPH_FALLBACK_URL"),
+        fallback !== undefined,
+      );
+      assert.doesNotThrow(() =>
+        validateVercelBuildEnvironment({
+          target: "governance",
+          environment,
+          values: { ...values, ...restored },
+        }),
+      );
+      delete values.NEXT_PUBLIC_SUBGRAPH_URL;
+      assert.throws(
+        () =>
+          selectVercelPulledEnvironment({
+            target: "governance",
+            environment,
+            pulledValues: values,
+          }),
+        /NEXT_PUBLIC_SUBGRAPH_URL/,
+      );
+    }
+  });
+}

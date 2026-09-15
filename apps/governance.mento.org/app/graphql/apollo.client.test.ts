@@ -18,6 +18,9 @@ vi.mock("@/env.mjs", () => ({
       "https://gateway.thegraph.com/api/subgraphs/id/test-mainnet",
     NEXT_PUBLIC_SUBGRAPH_URL_CELO_SEPOLIA:
       "https://api.studio.thegraph.com/query/1724470/mento-governance-celo-sepolia/v1.0.1",
+    // Mainnet's fallback: the Studio dev endpoint for the same subgraph.
+    NEXT_PUBLIC_SUBGRAPH_FALLBACK_URL:
+      "https://api.studio.thegraph.com/query/1724470/mento-governance-celo/v1.0.1",
   },
 }));
 
@@ -43,6 +46,21 @@ const transportQuery = gql`
     }
   }
 `;
+
+// The gateway's "I can't serve this" shape: HTTP 200, errors, no data.
+function gatewayUnavailableResponse() {
+  return new Response(
+    JSON.stringify({
+      errors: [
+        {
+          message:
+            "bad indexers: {0xbdfb5ee5a2abf4fc7bb1bd1221067aef7f9de491: Unavailable(no status: indexer not available)}",
+        },
+      ],
+    }),
+    { status: 200, headers: { "content-type": "application/json" } },
+  );
+}
 
 function emptyProposalResponse() {
   return new Response(JSON.stringify({ data: { proposals: [] } }), {
@@ -113,6 +131,100 @@ describe("makeClient", () => {
       expect(headers.get("x-test-header")).toBe("preserved");
     },
   );
+
+  describe("mainnet fallback", () => {
+    const GATEWAY =
+      "https://gateway.thegraph.com/api/subgraphs/id/test-mainnet";
+    const FALLBACK =
+      "https://api.studio.thegraph.com/query/1724470/mento-governance-celo/v1.0.1";
+
+    function calledUrls(fetchMock: ReturnType<typeof vi.fn>) {
+      return fetchMock.mock.calls.map(([url]) => String(url));
+    }
+
+    // Apollo may either reject or resolve with `error` depending on policy;
+    // the fallback tests only care that a failure was reported.
+    async function queryOutcome(apiName: string) {
+      try {
+        const result = await makeClient().query({
+          query: transportQuery,
+          fetchPolicy: "network-only",
+          context: { apiName },
+        });
+        return { failed: result.error !== undefined };
+      } catch {
+        return { failed: true };
+      }
+    }
+
+    it("retries once on Studio when the gateway answers 200 with only errors", async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(gatewayUnavailableResponse())
+        .mockResolvedValueOnce(emptyProposalResponse());
+      vi.stubGlobal("fetch", fetchMock);
+
+      const result = await makeClient().query({
+        query: transportQuery,
+        fetchPolicy: "network-only",
+        context: { apiName: "subgraph" },
+      });
+
+      expect(result.error).toBeUndefined();
+      expect(result.data).toEqual({ proposals: [] });
+      expect(calledUrls(fetchMock)).toEqual([GATEWAY, FALLBACK]);
+
+      // The retry went to Studio, which must not be handed the gateway key.
+      const [, retryOptions] = fetchMock.mock.calls[1] as [
+        unknown,
+        RequestInit,
+      ];
+      expect(new Headers(retryOptions.headers).get("authorization")).toBeNull();
+    });
+
+    it("retries once on Studio when the gateway fails at the transport level", async () => {
+      const fetchMock = vi
+        .fn()
+        .mockRejectedValueOnce(new TypeError("fetch failed"))
+        .mockResolvedValueOnce(emptyProposalResponse());
+      vi.stubGlobal("fetch", fetchMock);
+
+      const result = await makeClient().query({
+        query: transportQuery,
+        fetchPolicy: "network-only",
+        context: { apiName: "subgraph" },
+      });
+
+      expect(result.error).toBeUndefined();
+      expect(calledUrls(fetchMock)).toEqual([GATEWAY, FALLBACK]);
+    });
+
+    it("does not fall back for Celo Sepolia, whose primary is already Studio", async () => {
+      const fetchMock = vi
+        .fn()
+        .mockImplementation(() =>
+          Promise.resolve(gatewayUnavailableResponse()),
+        );
+      vi.stubGlobal("fetch", fetchMock);
+
+      expect(await queryOutcome("subgraphCeloSepolia")).toEqual({
+        failed: true,
+      });
+      expect(fetchMock).toHaveBeenCalledOnce();
+    });
+
+    it("surfaces the failure after exactly one retry when Studio is also down", async () => {
+      const fetchMock = vi
+        .fn()
+        .mockImplementation(() =>
+          Promise.resolve(gatewayUnavailableResponse()),
+        );
+      vi.stubGlobal("fetch", fetchMock);
+
+      expect(await queryOutcome("subgraph")).toEqual({ failed: true });
+      expect(calledUrls(fetchMock)).toEqual([GATEWAY, FALLBACK]);
+    });
+  });
 
   it("resolves local proposal fields in network queries", async () => {
     vi.stubGlobal(

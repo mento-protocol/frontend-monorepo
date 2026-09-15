@@ -1638,28 +1638,29 @@ CLI can retrieve. `sensitive-non-exportable` means the value is marked Sensitive
 and cannot be read after creation; it must be supplied from GitHub at the narrow
 scope documented below.
 
-| Target     | Variable                                | Required environments     | CI classification          |
-| ---------- | --------------------------------------- | ------------------------- | -------------------------- |
-| app        | `NEXT_PUBLIC_STORAGE_URL`               | preview, production       | `vercel-pull`              |
-| app        | `NEXT_PUBLIC_WALLET_CONNECT_ID`         | preview, production       | `vercel-pull`              |
-| app        | `NEXT_PUBLIC_SENTRY_DSN_SWAP`           | preview, production       | `vercel-pull`              |
-| app        | `SENTRY_AUTH_TOKEN`                     | production semantics only | `sensitive-non-exportable` |
-| governance | `NEXT_PUBLIC_BLOCKSCOUT_API_URL`        | preview, production       | `vercel-pull`              |
-| governance | `NEXT_PUBLIC_BLOCKSCOUT_GRAPHQL_URL`    | preview, production       | `vercel-pull`              |
-| governance | `NEXT_PUBLIC_ETHERSCAN_API_URL`         | preview, production       | `vercel-pull`              |
-| governance | `NEXT_PUBLIC_GRAPH_API_KEY`             | preview, production       | `vercel-pull`              |
-| governance | `NEXT_PUBLIC_SENTRY_DSN_GOVERNANCE`     | preview, production       | `vercel-pull`              |
-| governance | `NEXT_PUBLIC_STORAGE_URL`               | preview, production       | `vercel-pull`              |
-| governance | `NEXT_PUBLIC_SUBGRAPH_URL`              | preview, production       | `vercel-pull`              |
-| governance | `NEXT_PUBLIC_SUBGRAPH_URL_CELO_SEPOLIA` | preview, production       | `vercel-pull`              |
-| governance | `NEXT_PUBLIC_WALLET_CONNECT_ID`         | preview, production       | `vercel-pull`              |
-| governance | `ETHERSCAN_API_KEY`                     | preview, production       | `sensitive-non-exportable` |
-| governance | `SENTRY_AUTH_TOKEN`                     | production semantics only | `sensitive-non-exportable` |
-| reserve    | `NEXT_PUBLIC_STORAGE_URL`               | preview, production       | `vercel-pull`              |
-| reserve    | `NEXT_PUBLIC_ANALYTICS_API_URL`         | preview, production       | `vercel-pull`              |
-| reserve    | `NEXT_PUBLIC_SENTRY_DSN_RESERVE`        | preview, production       | `vercel-pull`              |
-| reserve    | `SENTRY_AUTH_TOKEN`                     | production semantics only | `sensitive-non-exportable` |
-| ui         | `NEXT_PUBLIC_STORAGE_URL`               | preview, production       | `vercel-pull`              |
+| Target     | Variable                                | Required environments                          | CI classification          |
+| ---------- | --------------------------------------- | ---------------------------------------------- | -------------------------- |
+| app        | `NEXT_PUBLIC_STORAGE_URL`               | preview, production                            | `vercel-pull`              |
+| app        | `NEXT_PUBLIC_WALLET_CONNECT_ID`         | preview, production                            | `vercel-pull`              |
+| app        | `NEXT_PUBLIC_SENTRY_DSN_SWAP`           | preview, production                            | `vercel-pull`              |
+| app        | `SENTRY_AUTH_TOKEN`                     | production semantics only                      | `sensitive-non-exportable` |
+| governance | `NEXT_PUBLIC_BLOCKSCOUT_API_URL`        | preview, production                            | `vercel-pull`              |
+| governance | `NEXT_PUBLIC_BLOCKSCOUT_GRAPHQL_URL`    | preview, production                            | `vercel-pull`              |
+| governance | `NEXT_PUBLIC_ETHERSCAN_API_URL`         | preview, production                            | `vercel-pull`              |
+| governance | `NEXT_PUBLIC_GRAPH_API_KEY`             | preview, production                            | `vercel-pull`              |
+| governance | `NEXT_PUBLIC_SENTRY_DSN_GOVERNANCE`     | preview, production                            | `vercel-pull`              |
+| governance | `NEXT_PUBLIC_STORAGE_URL`               | preview, production                            | `vercel-pull`              |
+| governance | `NEXT_PUBLIC_SUBGRAPH_FALLBACK_URL`     | preview, production (optional; empty disables) | `vercel-pull`              |
+| governance | `NEXT_PUBLIC_SUBGRAPH_URL`              | preview, production                            | `vercel-pull`              |
+| governance | `NEXT_PUBLIC_SUBGRAPH_URL_CELO_SEPOLIA` | preview, production                            | `vercel-pull`              |
+| governance | `NEXT_PUBLIC_WALLET_CONNECT_ID`         | preview, production                            | `vercel-pull`              |
+| governance | `ETHERSCAN_API_KEY`                     | preview, production                            | `sensitive-non-exportable` |
+| governance | `SENTRY_AUTH_TOKEN`                     | production semantics only                      | `sensitive-non-exportable` |
+| reserve    | `NEXT_PUBLIC_STORAGE_URL`               | preview, production                            | `vercel-pull`              |
+| reserve    | `NEXT_PUBLIC_ANALYTICS_API_URL`         | preview, production                            | `vercel-pull`              |
+| reserve    | `NEXT_PUBLIC_SENTRY_DSN_RESERVE`        | preview, production                            | `vercel-pull`              |
+| reserve    | `SENTRY_AUTH_TOKEN`                     | production semantics only                      | `sensitive-non-exportable` |
+| ui         | `NEXT_PUBLIC_STORAGE_URL`               | preview, production                            | `vercel-pull`              |
 
 ### Governance Graph API key scopes
 
@@ -1702,6 +1703,12 @@ fresh `main` push that selects Governance to run the repository-owned production
 controller. A `docs/**`-only push is non-runtime-only and does not select a
 deployment target. Do not use the Vercel dashboard Redeploy action because the
 repository-owned controller is the only supported production owner.
+
+Governance’s `NEXT_PUBLIC_SUBGRAPH_FALLBACK_URL` is an optional allowlisted
+HTTPS endpoint. Missing or empty values disable retries; configured values cross
+the candidate environment boundary. Before enabling it, verify the fallback’s
+indexing freshness and representative proposal data, then smoke-test a primary
+outage. Activation requires a new Governance deployment.
 
 The code also has optional build-time reads that alter behavior only when set:
 RPC overrides (`NEXT_PUBLIC_RPC_URL`, chain-specific RPC variables), feature and

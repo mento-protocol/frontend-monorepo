@@ -5,6 +5,7 @@
     "build": {
       "env": [
         "$TURBO_EXTENDS$",
+        "NEXT_PUBLIC_SUBGRAPH_FALLBACK_URL",
         "MENTO_NEXT_DEPLOYMENT_ID",
         "VERCEL_ENV",
         "VERCEL_TARGET_ENV",

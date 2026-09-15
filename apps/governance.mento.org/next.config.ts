@@ -37,6 +37,7 @@ const apiOrigins = [
   env.NEXT_PUBLIC_ETHERSCAN_API_URL,
   env.NEXT_PUBLIC_SUBGRAPH_URL,
   env.NEXT_PUBLIC_SUBGRAPH_URL_CELO_SEPOLIA,
+  env.NEXT_PUBLIC_SUBGRAPH_FALLBACK_URL,
 ]
   .map(originOf)
   .filter(Boolean);

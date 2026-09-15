@@ -34,3 +34,22 @@ export function getGraphAuthorization(
   if (!key || !isGraphGatewayUrl(url)) return undefined;
   return `Bearer ${key}`;
 }
+
+/**
+ * The gateway signals "I cannot serve this subgraph right now" as an HTTP 200
+ * with a GraphQL `errors` array and no `data` — e.g.
+ * `bad indexers: {…: Unavailable}` or `subgraph not found: no allocations`.
+ * That is the primary being unavailable, not the query being wrong. (A wrong
+ * query also gets `errors`, but a fallback returns the same error for it,
+ * which is harmless.) Transport failures (5xx, network) are separate.
+ */
+export function isPrimaryUnavailable(result: {
+  data?: unknown;
+  errors?: ReadonlyArray<unknown>;
+}): boolean {
+  return (
+    result.data == null &&
+    Array.isArray(result.errors) &&
+    result.errors.length > 0
+  );
+}
