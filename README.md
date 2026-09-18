@@ -469,7 +469,7 @@ The repository is set up with GitHub Actions for CI:
   and the managed issue; run that workflow's
   `workflow_dispatch` from the Actions tab to smoke-test the Slack wiring.
 - **Dependabot preparation**: Native updates open Monday at 06:00 UTC. The
-  10:15 UTC OpenClaw job on the scheduled host prepares them with the shared
+  weekly OpenClaw job on the scheduled host prepares them with the shared
   `dependabot-prep` skill; the job owns its own schedule, prompt and Slack
   destination. No custom launcher and no repository policy file are required:
   the skill supplies the claim document. Every writer holds a per-pull-request
