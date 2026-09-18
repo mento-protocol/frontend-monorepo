@@ -54,8 +54,7 @@ updates:
 
       # Next.js is coupled to the protected Vercel deployment contract. Keep it
       # out of ordinary React updates for focused research and validation at
-      # every version level, under the dependabot-prep skill and the operations
-      # note in docs/dependabot-automation.md.
+      # every version level, under the shared dependabot-prep skill.
       next-runtime:
         applies-to: version-updates
         patterns:

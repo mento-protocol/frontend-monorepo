@@ -42,9 +42,12 @@ plus a repository wrapper and its test surface to maintain.
 
 Delete `.github/dependabot-prep-policy.json` and `scripts/dependabot-claim.mjs`,
 with the `dependabot:claim` script and the tests that asserted their contents.
-Let the skill's Mento defaults supply the claim document and the runner.
-`docs/dependabot-automation.md` keeps only the repository facts the skill cannot
-know: claim continuity, host caps, schedule and rollback.
+Let the skill's Mento defaults supply the claim document and the runner. Delete
+the repository's preparation playbook and its checked-in cron prompt too: the
+OpenClaw job's own configuration becomes the only home of the schedule, the
+stored prompt and the Slack destination. `AGENTS.md` and `CLAUDE.md` keep the
+two facts the skill cannot know, the batch budget and the technical reviewer,
+and a test pins them and holds the two copies identical.
 
 The claim namespace is unchanged, `refs/mento-claims/v1/pr/<number>`, with the
 same 30/10/10/360 lease. Claim refs taken under the policy stay valid, and a
@@ -61,8 +64,8 @@ Order matters: this lands after the skill's Mento defaults merge in
 mento-protocol/agents and the scheduled host has pulled that skill. A host still
 carrying the older skill treats a missing policy file as "no claims", so it
 would prepare pull requests with no per-PR mutex at all, and its stored prompt
-still names the policy file it can no longer read. Refresh the job's prompt
-from `scripts/prompts/dependabot-weekly.md` in the same window.
+still names the policy file it can no longer read. Refresh the job's stored
+prompt in the same window so it no longer names the policy file.
 
 ## Alternatives considered
 
@@ -79,8 +82,11 @@ from `scripts/prompts/dependabot-weekly.md` in the same window.
 One contract, in the skill. A skill revision changes the workflow without a
 repository pull request. The repository loses its own schema check, and the
 skill's revision stop no longer applies either: that stop fires on a policy
-naming a `workflow.revision`, and there is no policy. The only check left is the
-cron prompt's revision sentence, which catches a skill that declares a different
-revision string and nothing else. Rollback is a revert of the pull request that
-made this change, which restores both files and every reference that pinned them
-from git history.
+naming a `workflow.revision`, and there is no policy. Nothing in this repository
+now checks what the scheduled job stores, either: the prompt is no longer
+mirrored here, so a stale or edited job prompt cannot be diffed against a
+reviewed file. That is the accepted trade-off for deleting the mirror, and it
+moves prompt review to the job's own change process. The reviewer and budget
+facts stay under review here, because a test fails when they are dropped or the
+two guides disagree. Rollback is a revert of the pull requests that made these
+changes, which restores every deleted file from git history.

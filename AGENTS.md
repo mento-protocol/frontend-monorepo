@@ -37,34 +37,27 @@ to the helper must select the Celo app, Celo governance, and Monad E2E lanes.
 
 ## Dependabot preparation
 
-The shared `dependabot-prep` skill, revision `trusted-agent-v2`, owns this
-workflow in OpenClaw, Codex or Claude. This repository carries no preparation
-policy file, so the skill's Mento defaults supply the per-pull-request claims.
-Read [the operations note](docs/dependabot-automation.md) from the live default
-branch for the claim continuity, host caps, schedule and rollback. The workflow
-uses the ordinary coding session and existing GitHub authentication; its
-prohibitions are procedural, not a credential sandbox. Never invoke the retired
-`/opt/dependabot-prep` launcher or the archived sealed skill procedure.
+The shared `dependabot-prep` skill in
+[mento-protocol/agents](https://github.com/mento-protocol/agents) owns Dependabot
+preparation and its per-pull-request claims. This repository carries no
+preparation policy file, so the skill's Mento defaults apply unchanged. The
+weekly OpenClaw job on the scheduled host owns the schedule, the stored prompt
+and the Slack destination; none of the three lives in this repository.
 
-Within the skill's scope, normal installs, lockfile generation, builds, tests,
-conflict resolution, and dependency-related compatibility fixes are permitted.
-Majors, red CI, and documented runtime coupling are work to attempt, not automatic
-exclusions. Never weaken security or validation to obtain a green result.
+Two facts the skill cannot know belong here. The budget is six hours including
+waits, 45 active repair minutes and three attempts per pull request, cumulative
+across resume; an interactive run has to be given the same numbers, because the
+skill defaults to one hour and 30 active repair minutes. The technical reviewer
+is `coderabbitai[bot]`, GitHub user id `136622811`, requested with the exact
+`@coderabbitai review` comment at most once per exact head.
+
 Never approve, dismiss reviews, merge, close, alter auto-merge, or resolve or
 unresolve review threads. Publish only fast-forward updates to the authenticated
 existing PR branch. Human approval, thread resolution, and merge remain separate.
-
-The weekly OpenClaw job (Mondays 10:15 UTC) was enabled on 2026-09-11 by
-operator confirmation; it reports to the channel named in the operations note's
-_Schedule and activation_ section. Its reviewed entry prompt is
-`scripts/prompts/dependabot-weekly.md`, and the job's stored prompt must match
-that file apart from its final newline, which the scheduler drops. Never run the
-legacy launcher and the ordinary workflow concurrently. Follow the skill's
-per-pull-request claim coordination, recovery, budgets, progress, exact-head
-verification, and research requirements.
-
 Dependabot CI remains secretless. Do not admit these PRs to credentialed Vercel
 Preview workers or broaden the existing author/sender rules.
+
+See [ADR 0012](docs/adr/0012-dependabot-prep-policy-moves-to-shared-skill.md).
 
 ## Quality budgets and CI failure issues
 

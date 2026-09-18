@@ -153,7 +153,7 @@ The generic skill owns the reusable sequence:
     research and confidence for every manual outcome.
 
 Repository rules take precedence. `AGENTS.md` and
-[`docs/dependabot-automation.md`](../dependabot-automation.md) define the Mento
+`docs/dependabot-automation.md` define the Mento
 classification, protected-runtime procedure, commands, secret boundaries, and
 human handoff. `.github/dependabot-prep-policy.json` defines the exact Mento
 identity, veto, intervention, force-push, and Actions-ref rules.
@@ -356,11 +356,11 @@ reporting but grants no hygiene authority. Legacy preparation-bot history may
 authorize recreation only; it never becomes trusted lineage. Base or policy
 movement after a research receipt ends writes for the run.
 
-The [canonical manual-hygiene procedure](../dependabot-automation.md#manual-hygiene-lane)
-defines source requirements, recreation profiles and residual risks, receipt
-bindings, and result fields. Its
-[cutover checklist](../dependabot-automation.md#one-time-cutover) requires six
-serial targeted handoffs and separate operator confirmation before scheduling.
+The canonical manual-hygiene procedure, in the retired
+`docs/dependabot-automation.md`, defines source requirements, recreation
+profiles and residual risks, receipt bindings, and result fields. Its cutover
+checklist in the same file requires six serial targeted handoffs and separate
+operator confirmation before scheduling.
 
 Dependabot configuration isolates Next.js, Vercel CLI, Playwright runtime, and
 protected pnpm updates from ordinary libraries, and couples the Vitest family.
@@ -583,8 +583,7 @@ The repository validates the retained boundary with:
   boundaries; and
 - the normal exact-head required checks and review surfaces.
 
-The operating procedure is
-[`docs/dependabot-automation.md`](../dependabot-automation.md).
+The operating procedure is `docs/dependabot-automation.md`, retired by ADR 0012.
 
 ## Reconsideration
 

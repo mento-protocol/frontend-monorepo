@@ -200,7 +200,8 @@ separately when its benefit justifies maintenance cost.
 
 ## Evidence
 
-- [Preparation playbook](../dependabot-automation.md)
+- Preparation playbook, `docs/dependabot-automation.md`, retired by ADR 0012 and
+  readable from git history
 - [Previous design](0009-external-agent-dependabot-preparation.md)
 - [Cutover tracking](https://github.com/mento-protocol/frontend-monorepo/issues/893)
 - [Manual-hygiene implementation](https://github.com/mento-protocol/frontend-monorepo/pull/920)
