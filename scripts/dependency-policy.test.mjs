@@ -1636,3 +1636,20 @@ test("both agent guides carry the same Dependabot preparation facts", () => {
     assert.ok(wording.includes(fact), fact);
   }
 });
+
+test("runtime guidance does not reinstate retired no-exec admission", () => {
+  const guide = read("docs/dependency-overrides.md");
+  assert.doesNotMatch(guide, /v3 playbook|under v3/u);
+  assert.doesNotMatch(guide, /scheduled no-exec agent must classify/u);
+  assert.doesNotMatch(guide, /generic external agent must not prepare/u);
+  assert.doesNotMatch(guide, /For the automatic patch lane/u);
+  for (const command of [
+    "pnpm supply-chain:version-skew",
+    "pnpm supply-chain:lockfile-lint",
+    "pnpm vercel:versions:check",
+    "pnpm vercel:production-shadow:test",
+    "pnpm vercel:workflow:test",
+  ]) {
+    assert.ok(guide.includes(command), command);
+  }
+});
