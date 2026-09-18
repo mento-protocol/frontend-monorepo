@@ -23,6 +23,16 @@ const walletConnectFramePatterns = [
   /^\.\.\/\.\.\/src\/walletConnect\.ts$/i,
 ] as const;
 
+// Browser spellings of a generic fetch transport failure: Chromium, Firefox
+// and WebKit each word it differently. Word boundaries rather than anchors,
+// because the value can reach `beforeSend` wrapped with the exception type,
+// while `Upload failed` must not match `Load failed`.
+const FETCH_TRANSPORT_FAILURE_PATTERNS = [
+  /\bFailed to fetch\b/i,
+  /\bNetworkError when attempting to fetch resource\b/i,
+  /\bLoad failed\b/i,
+] as const;
+
 const CHUNK_LOAD_ERROR_PATTERNS = [
   /Failed to load chunk/i,
   /Loading chunk [\w./?-]+ failed/i,
@@ -179,6 +189,19 @@ export function filterNoisySentryEvents(
       pattern.test(message),
     ) &&
     hasWalletConnectFrames(event) &&
+    isBrowserUnhandledRejection(event)
+  ) {
+    return null;
+  }
+
+  // The wallet picker loads its wallet list from the wallet library's own
+  // directory API. On a stalled connection that fetch rejects with nothing
+  // awaiting it, so it arrives as an unhandled rejection whose stack reaches
+  // no application code. Nothing here can catch or retry it.
+  if (
+    FETCH_TRANSPORT_FAILURE_PATTERNS.some((pattern) => pattern.test(message)) &&
+    hasWalletConnectFrames(event) &&
+    !hasFirstPartyFrames(event) &&
     isBrowserUnhandledRejection(event)
   ) {
     return null;

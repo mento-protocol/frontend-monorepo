@@ -169,6 +169,63 @@ describe("sentry-filter", () => {
     expect(filterNoisySentryEvents(event)).toBe(event);
   });
 
+  it.each([
+    ["Chromium", "Failed to fetch", "@reown/appkit-controllers/dist/index.js"],
+    ["WebKit", "Load failed", "@walletconnect/core/dist/index.es.js"],
+    [
+      "Firefox",
+      "NetworkError when attempting to fetch resource",
+      "@reown/appkit-controllers/dist/index.js",
+    ],
+  ])(
+    "drops the %s wording of a wallet-library fetch failure that reaches no application code",
+    (_browser, exceptionValue, vendorModule) => {
+      const event = makeEvent({
+        exceptionValue,
+        exceptionType: "TypeError",
+        mechanismType: "auto.browser.global_handlers.onunhandledrejection",
+        frames: [`node_modules/${vendorModule}`],
+      });
+
+      expect(filterNoisySentryEvents(event)).toBeNull();
+    },
+  );
+
+  it("keeps wallet-library fetch failures that also touch first-party frames", () => {
+    const event = makeEvent({
+      exceptionValue: "Failed to fetch",
+      exceptionType: "TypeError",
+      mechanismType: "auto.browser.global_handlers.onunhandledrejection",
+      frames: [
+        "app:///_next/static/chunks/main.js",
+        "node_modules/@reown/appkit-controllers/dist/index.js",
+      ],
+    });
+
+    expect(filterNoisySentryEvents(event)).toBe(event);
+  });
+
+  it("keeps wallet-library fetch failures that something awaited", () => {
+    const event = makeEvent({
+      exceptionValue: "Failed to fetch",
+      exceptionType: "TypeError",
+      frames: ["node_modules/@reown/appkit-controllers/dist/index.js"],
+    });
+
+    expect(filterNoisySentryEvents(event)).toBe(event);
+  });
+
+  it("keeps vendor-only fetch failures from outside the wallet libraries", () => {
+    const event = makeEvent({
+      exceptionValue: "Failed to fetch",
+      exceptionType: "TypeError",
+      mechanismType: "auto.browser.global_handlers.onunhandledrejection",
+      frames: ["https://cdn.example.com/widget.js"],
+    });
+
+    expect(filterNoisySentryEvents(event)).toBe(event);
+  });
+
   it("drops typed user-rejection errors from an exception chain", () => {
     const event = {
       exception: {
