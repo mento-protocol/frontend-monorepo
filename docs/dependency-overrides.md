@@ -228,9 +228,10 @@ pnpm vercel:workflow:test
 Run a frozen root install and the affected application build for a Next.js
 rotation. Run a fresh secretless standalone install and exact
 `node <vercel-cli> --version` smoke for a Vercel rotation. The ordinary agent
-then follows the playbook's exact-head CI and review gates. Missing validation
-is blocked; sensitive authority changes require a decision. Human approval,
-answered-thread resolution and merge remain with the maintainer.
+then follows the `dependabot-prep` skill's exact-head CI and review gates.
+Missing validation is blocked; sensitive authority changes require a decision.
+Human approval, answered-thread resolution and merge remain with the
+maintainer.
 
 Never run a general workspace install to regenerate the standalone lockfile.
 That can admit workspace links into a runtime whose isolation depends on a

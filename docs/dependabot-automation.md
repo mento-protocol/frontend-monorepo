@@ -126,7 +126,9 @@ Delete only refs at UNLOCK whose PR is closed and whose `completedAt` is older
 than 90 days. Substituting a LOCK object id for `<currentUnlockOid>` destroys
 the mutex of a pull request another host is preparing, because the
 compare-and-swap then succeeds. This repository's `<repositoryId>` is
-`R_kgDOObNo8w`; its claim refs are inert audit artifacts.
+`R_kgDOObNo8w`. Only an eligible UNLOCK ref for a closed pull request is an
+inert audit artifact an operator can prune; a LOCK ref is live coordination
+state.
 
 ```sh
 gh api graphql -f query='mutation($r:ID!,$n:GitRefname!,$b:GitObjectID!){updateRefs(input:{repositoryId:$r,refUpdates:[{name:$n,beforeOid:$b,afterOid:"0000000000000000000000000000000000000000",force:false}]}){clientMutationId}}' -f r=<repositoryId> -f n=<ref> -f b=<currentUnlockOid>
