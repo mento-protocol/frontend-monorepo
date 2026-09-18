@@ -25,8 +25,8 @@ per PR, cumulative across resume. Use the current coding runtime; no nested CLI
 or provider/configuration changes.
 
 Deliver start, actionable exceptions and the final report to the configured
-Slack destination #dependabot (channel:C0C1W20C536), in the form the skill and
-the playbook define. No periodic status chatter. Verify delivery of each
+Slack destination #dependabot (channel:C0C1W20C536), in the form the skill
+defines. No periodic status chatter. Verify delivery of each
 final-report message and retain its receipt; return useful fallback report
 text without duplicating confirmed delivery. No local-path-only handoff.
 

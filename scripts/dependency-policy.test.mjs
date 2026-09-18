@@ -1604,22 +1604,93 @@ test("repository workflow code cannot merge Dependabot pull requests", () => {
   }
 });
 
+const ENTRY_PROMPT = "scripts/prompts/dependabot-weekly.md";
+const OPERATIONS_NOTE = "docs/dependabot-automation.md";
+
+// Both documents hard-wrap, so assertions compare against collapsed whitespace
+// and let the wording, not the line breaks, decide.
+function collapsed(relativePath) {
+  return read(relativePath).replaceAll(/\s+/gu, " ");
+}
+
 test("entry instructions resolve to the canonical trusted-agent playbook", () => {
-  const playbook = "docs/dependabot-automation.md";
-  assert.ok(existsSync(new URL(`../${playbook}`, import.meta.url)), playbook);
-  for (const path of [
-    "AGENTS.md",
-    "CLAUDE.md",
-    "README.md",
-    "scripts/prompts/dependabot-weekly.md",
+  assert.ok(
+    existsSync(new URL(`../${OPERATIONS_NOTE}`, import.meta.url)),
+    OPERATIONS_NOTE,
+  );
+  for (const path of ["AGENTS.md", "CLAUDE.md", "README.md", ENTRY_PROMPT]) {
+    assert.ok(read(path).includes(OPERATIONS_NOTE), path);
+  }
+  const entry = read(ENTRY_PROMPT);
+  assert.ok(entry.includes("dependabot-prep"));
+  assert.ok(entry.includes("trusted-agent-v2"));
+  assert.ok(entry.includes("mento-protocol/frontend-monorepo"));
+  assert.ok(entry.includes("giskard-only scheduled-job adapter"));
+  assert.ok(entry.includes("Verify the host before writes"));
+  assert.ok(entry.includes("On another host, stop this adapter"));
+});
+
+test("the entry prompt keeps the admission rules and the revision stop", () => {
+  // With no repository policy file, the prompt's revision sentence is the only
+  // check left against a host running a skill revision this repository did not
+  // adopt, so it is pinned here rather than left to the skill.
+  const entry = collapsed(ENTRY_PROMPT);
+  assert.ok(entry.includes("trusted-agent-v2"));
+  assert.ok(entry.includes("stop before any write"));
+  assert.match(entry, /Only non-draft authenticated/u);
+  assert.match(read("AGENTS.md"), /draft Dependabot PRs are maintainer holds/u);
+  assert.doesNotMatch(
+    read(".github/dependabot.yml"),
+    /strict patches have a narrow full lane|minor and major updates remain manual|own manual lane/u,
+  );
+  for (const path of ["AGENTS.md", "CLAUDE.md", ENTRY_PROMPT]) {
+    assert.doesNotMatch(
+      read(path),
+      /single-batch lock|trusted-agent-v1/u,
+      path,
+    );
+  }
+});
+
+test("the operations note carries the facts the skill cannot supply", () => {
+  const note = collapsed(OPERATIONS_NOTE);
+  // Host caps, the scheduled job and the claim-ref owner are repository facts.
+  for (const fact of [
+    "--concurrency=1",
+    "MemoryHigh=2G",
+    "MemoryMax=3G",
+    "MemorySwapMax=0",
+    "CPUQuota=100%",
+    "1b1cad5e-fa4e-48b3-a1f0-10bca3628175",
+    "C0C1W20C536",
+    "R_kgDOObNo8w",
   ]) {
-    assert.ok(read(path).includes(playbook), path);
+    assert.ok(note.includes(fact), fact);
+  }
+  // The skill's default budget is one hour and 30 active repair minutes, so the
+  // wider numbers only apply where this repository states them.
+  for (const budget of [
+    "six hours including waits",
+    "45 active repair minutes",
+    "three attempts",
+  ]) {
+    assert.ok(note.includes(budget), budget);
+  }
+  // The skill requires a documented technical reviewer and refuses to invent
+  // one, so the bot identity and its trigger live here.
+  for (const review of [
+    "coderabbitai[bot]",
+    "136622811",
+    "@coderabbitai review",
+    "at most once per exact head",
+  ]) {
+    assert.ok(note.includes(review), review);
   }
 });
 
 test("runtime guidance does not reinstate retired no-exec admission", () => {
   const guide = read("docs/dependency-overrides.md");
-  assert.ok(guide.includes("[canonical playbook](dependabot-automation.md)"));
+  assert.ok(guide.includes("[operations note](dependabot-automation.md)"));
   assert.doesNotMatch(guide, /v3 playbook|under v3/u);
   assert.doesNotMatch(guide, /scheduled no-exec agent must classify/u);
   assert.doesNotMatch(guide, /generic external agent must not prepare/u);

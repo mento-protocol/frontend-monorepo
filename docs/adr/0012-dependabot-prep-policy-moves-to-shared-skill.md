@@ -52,13 +52,17 @@ later takeover finds them.
 
 The `dependabot-prep:claimed` label projection is retired. The default document
 sets `label: null`, because the ref is the claim and a label is a repository
-write outside the preparation grant. The label definition stays until an
-operator deletes it by hand, after the last labelled claim releases.
+write outside the preparation grant. A release under `label: null` removes no
+label, so labelled pull requests do not drain on their own. None carry the label
+today, and an org-wide search returns none, so an operator can delete the label
+definition now.
 
 Order matters: this lands after the skill's Mento defaults merge in
 mento-protocol/agents and the scheduled host has pulled that skill. A host still
-carrying the older skill would find neither a policy file nor a default claim
-document, and would refuse to write.
+carrying the older skill treats a missing policy file as "no claims", so it
+would prepare pull requests with no per-PR mutex at all, and its stored prompt
+still names the policy file it can no longer read. Refresh the job's prompt
+from `scripts/prompts/dependabot-weekly.md` in the same window.
 
 ## Alternatives considered
 
@@ -73,7 +77,10 @@ document, and would refuse to write.
 ## Consequences
 
 One contract, in the skill. A skill revision changes the workflow without a
-repository pull request. The repository loses its own schema check, so a wrong
-skill revision is caught by the skill's revision stop rather than by a policy
-binding. Rollback is a revert of the pull request that made this change, which
-restores both files and every reference that pinned them from git history.
+repository pull request. The repository loses its own schema check, and the
+skill's revision stop no longer applies either: that stop fires on a policy
+naming a `workflow.revision`, and there is no policy. The only check left is the
+cron prompt's revision sentence, which catches a skill that declares a different
+revision string and nothing else. Rollback is a revert of the pull request that
+made this change, which restores both files and every reference that pinned them
+from git history.

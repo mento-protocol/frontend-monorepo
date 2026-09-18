@@ -41,15 +41,16 @@ the retired policy, so claim refs taken under it stay valid and a later takeover
 finds them. The lease runs 30 minutes, renews after 10 and keeps 10 minutes of
 grace.
 
-The skill supplies the claim document: it copies its own default outside every
-checkout, sets `repository` to this repository, and runs the pinned
-`@mento-protocol/issues@0.2.0` runner against that copy from a directory outside
-every clone. No candidate branch decides the namespace, the lease or the
-registry.
+`skills/dependabot-prep/references/mento-defaults.md` in
+[mento-protocol/agents](https://github.com/mento-protocol/agents) defines that
+claim document, its pinned runner, and the placement that keeps both outside
+every checkout.
 
 The `dependabot-prep:claimed` label projection is retired: the default document
-sets `label: null`, so a run applies and removes no label. Its definition stays
-until an operator deletes it by hand, after the last labelled claim releases.
+sets `label: null`, so a run applies no label and a release removes none.
+Labelled pull requests therefore do not drain on their own. None carry the label
+today, and an org-wide search returns none, so an operator can delete the label
+definition now.
 
 ## Host memory safety
 
@@ -61,6 +62,19 @@ Turbo `--concurrency=1` and Vitest min/max workers 1; Trunk strips
 `TURBO_CONCURRENCY`, so an environment assignment is not proof. Other hosts
 keep one heavy tree and explicit worker limits, with memory monitoring rather
 than cgroup enforcement. Never raise caps or bypass hooks to finish a run.
+
+## Budget and review
+
+This repository's batch budget is six hours including waits, 45 active repair
+minutes per pull request and three attempts, cumulative across resume. The
+skill's default is one hour and 30 active repair minutes, so an interactive run
+has to be given these numbers; nothing in a checkout supplies them.
+
+The technical reviewer is `coderabbitai[bot]`, GitHub user id `136622811`.
+Request it with the exact `@coderabbitai review` comment, at most once per exact
+head, and only when no qualifying review or pending request already exists.
+Acknowledgements are not reviews, and readiness binds the review to the final
+head.
 
 ## Schedule and activation
 
