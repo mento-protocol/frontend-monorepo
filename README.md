@@ -35,8 +35,7 @@ frontend-monorepo/
 │   └── workflows/            # CI/CD workflows
 ├── .trunk/                   # Trunk CLI configuration and cache
 ├── docs/
-│   ├── adr/                  # Architecture decision records and lifecycle
-│   └── dependabot-automation.md # External-agent Dependabot preparation runbook
+│   └── adr/                  # Architecture decision records and lifecycle
 ├── turbo.json                # Turborepo configuration
 └── pnpm-workspace.yaml       # PNPM workspace configuration
 ```
@@ -351,32 +350,13 @@ All packages referencing `"react": "catalog:"` will automatically use the new ve
 #### Dependabot preparation
 
 Dependabot creates native npm and GitHub Actions PRs each Monday at 06:00 UTC.
-The ordinary OpenClaw coding agent prepares them using the
-[canonical playbook](docs/dependabot-automation.md) and
-`.github/dependabot-prep-policy.json` from live main. It can resolve conflicts,
-make dependency-related repairs, regenerate lockfiles, run tests/builds and
-address review feedback. Majors and documented runtime updates are not excluded
-just because they require engineering work. Writers coordinate per pull request:
-each one holds a claim in `refs/mento-claims/v1/pr/<number>` before it writes to
-that PR, so different hosts prepare different PRs at the same time.
-
-This uses the same trusted-agent exposure as interactive coding, not a sealed
-credential sandbox. It does not invoke the retired custom launcher. One claim
-per pull request, one heavy process tree per host, bounded attempts, durable
-progress and live-state recovery limit unattended repetition. The six-hour batch
-moves past waiting or blocked PRs.
-
-Every PR receives sourced risk research and exact-head CI/review verification.
-Outcomes are ready for maintainer decision, needs decision, or blocked.
-Human approval, answered-thread resolution and merge remain. The agent never
-approves, dismisses reviews, merges, closes, changes auto-merge or thread state,
-force-pushes, or weakens validation. Sensitive automation/security changes need
-a human decision. Dependabot CI remains secretless.
-
-The Monday 10:15 UTC job was enabled on 2026-09-11 by operator confirmation
-after the policy merged and the rollout checks passed; its first live run is the
-supervised acceptance run, and it reports to the channel the playbook names.
-See [ADR 0010](docs/adr/0010-trusted-agent-dependabot-preparation.md).
+The shared `dependabot-prep` skill prepares them, and each writer holds a claim
+in `refs/mento-claims/v1/pr/<number>` before it writes to a PR. Human approval,
+answered-thread resolution and merge remain with the maintainer, and Dependabot
+CI remains secretless. The two facts the skill takes from this repository, the
+batch budget and the technical reviewer, are in
+[AGENTS.md](AGENTS.md); see
+[ADR 0012](docs/adr/0012-dependabot-prep-policy-moves-to-shared-skill.md).
 
 #### When to Use Catalog vs Direct Versions
 
@@ -488,15 +468,15 @@ The repository is set up with GitHub Actions for CI:
   failure. Every sustained failure otherwise posts. The message links the run
   and the managed issue; run that workflow's
   `workflow_dispatch` from the Actions tab to smoke-test the Slack wiring.
-- **Dependabot preparation**: Native updates open Monday at 06:00 UTC.
-  The 10:15 UTC OpenClaw job, enabled on 2026-09-11, uses the ordinary coding
-  agent and the [checked-in prompt](scripts/prompts/dependabot-weekly.md); its
-  stored prompt must match that file apart from its final newline, which the
-  scheduler drops. No custom launcher is required. Every
-  writer holds a per-pull-request claim ref before it writes, and one heavy
-  process tree per host, rather than one active batch, caps the work. See the
-  [playbook](docs/dependabot-automation.md) and
-  [ADR 0010](docs/adr/0010-trusted-agent-dependabot-preparation.md).
+- **Dependabot preparation**: Native updates open Monday at 06:00 UTC. The
+  weekly OpenClaw job on the scheduled host prepares them with the shared
+  `dependabot-prep` skill; the job owns its own schedule, prompt and Slack
+  destination. No custom launcher and no repository policy file are required:
+  the skill supplies the claim document. Every writer holds a per-pull-request
+  claim ref before it writes, and one heavy process tree per host, rather than
+  one active batch, caps the work. See [AGENTS.md](AGENTS.md),
+  [ADR 0010](docs/adr/0010-trusted-agent-dependabot-preparation.md) and
+  [ADR 0012](docs/adr/0012-dependabot-prep-policy-moves-to-shared-skill.md).
 - **CD**: GitHub Actions automatically builds `app.mento.org`,
   `governance.mento.org`, `reserve.mento.org`, and `ui.mento.org` previews for
   trusted same-repository PRs with exact-SHA aggregate `Vercel Preview`
@@ -660,9 +640,8 @@ Rename detection is disabled for the planning diff so both the old and new
 paths are classified; moving source into `docs/**` cannot masquerade as a
 documentation-only change. Markdown that tests assert on is still classified as
 documentation. Several unit suites read repository markdown and match phrases in
-it: `scripts/dependency-policy.test.mjs` reads `AGENTS.md`, `CLAUDE.md`,
-`README.md`, `docs/dependabot-automation.md`, `docs/dependency-overrides.md`,
-and `scripts/prompts/dependabot-weekly.md`; `scripts/check-adr-reminder.test.mjs`
+it: `scripts/dependency-policy.test.mjs` reads `AGENTS.md` and `CLAUDE.md`;
+`scripts/check-adr-reminder.test.mjs`
 reads `AGENTS.md`, `CLAUDE.md`, `README.md`, and
 `.github/pull_request_template.md`; and the Vercel contract suites read
 `docs/vercel-deployments.md`. A documentation-only pull request skips both unit

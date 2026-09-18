@@ -51,9 +51,9 @@ only the exact reviewed nanoid 3.3.18 pair. Do not restore a retired patch or
 cross-paired manifest and lockfile state.
 
 The ordinary trusted coding agent may prepare Next.js and Vercel CLI rotations
-under the [canonical playbook](dependabot-automation.md), including installation,
-generation, builds and tests. Preserve the coupling, registry provenance and
-validation requirements below; do not guess digests or relax validators.
+with the shared `dependabot-prep` skill, including installation, generation,
+builds and tests. Preserve the coupling, registry provenance and validation
+requirements below; do not guess digests or relax validators.
 
 Protected pnpm transitions that change workflows, trusted checkers or security
 controls still require a human decision. Keep their checker-only first
@@ -227,9 +227,10 @@ pnpm vercel:workflow:test
 Run a frozen root install and the affected application build for a Next.js
 rotation. Run a fresh secretless standalone install and exact
 `node <vercel-cli> --version` smoke for a Vercel rotation. The ordinary agent
-then follows the playbook's exact-head CI and review gates. Missing validation
-is blocked; sensitive authority changes require a decision. Human approval,
-answered-thread resolution and merge remain with the maintainer.
+then follows the `dependabot-prep` skill's exact-head CI and review gates.
+Missing validation is blocked; sensitive authority changes require a decision.
+Human approval, answered-thread resolution and merge remain with the
+maintainer.
 
 Never run a general workspace install to regenerate the standalone lockfile.
 That can admit workspace links into a runtime whose isolation depends on a
