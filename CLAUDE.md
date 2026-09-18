@@ -42,7 +42,6 @@ pnpm check-types                     # TypeScript type checking; builds workspac
 pnpm ci:action-pins                  # Verify third-party GitHub Actions use documented SHA pins
 pnpm ci:action-pins:test             # Test the action-pin scanner and REST materializer
 pnpm dependency:policy:test          # Test Dependabot schedule, grouping, and dependency policy
-pnpm dependabot:claim -- claims <command> [--pr <n>] ...  # Claim a Dependabot PR before writing to it
 pnpm ci:change-plan:test             # Test PR scoping, full main pushes, mandatory Trunk, and fail-closed behavior
 pnpm adr:check                       # Advisory reminder for new architecture-significant workflows/workspaces
 pnpm adr:check:test                  # Test the offline ADR trigger and repository wiring
@@ -479,16 +478,16 @@ nested workflow's `head_sha` as the controller commit.
 
 ## Dependabot preparation
 
-Use [the preparation playbook](docs/dependabot-automation.md) and
-`.github/dependabot-prep-policy.json` from the live default branch. The
-`trusted-openclaw-agent` workflow uses the ordinary coding session and existing
-GitHub authentication; its prohibitions are procedural, not a credential sandbox.
-Use the portable `dependabot-prep` skill, revision `trusted-agent-v2`, with that
-playbook's repository overrides in OpenClaw, Codex or Claude. The historical
-execution-model identifier remains for compatibility. Never invoke the retired
+The shared `dependabot-prep` skill, revision `trusted-agent-v2`, owns this
+workflow in OpenClaw, Codex or Claude. This repository carries no preparation
+policy file, so the skill's Mento defaults supply the per-pull-request claims.
+Read [the operations note](docs/dependabot-automation.md) from the live default
+branch for the claim continuity, host caps, schedule and rollback. The workflow
+uses the ordinary coding session and existing GitHub authentication; its
+prohibitions are procedural, not a credential sandbox. Never invoke the retired
 `/opt/dependabot-prep` launcher or the archived sealed skill procedure.
 
-Within the playbook's scope, normal installs, lockfile generation, builds, tests,
+Within the skill's scope, normal installs, lockfile generation, builds, tests,
 conflict resolution, and dependency-related compatibility fixes are permitted.
 Majors, red CI, and documented runtime coupling are work to attempt, not automatic
 exclusions. Never weaken security or validation to obtain a green result.
@@ -497,13 +496,11 @@ unresolve review threads. Publish only fast-forward updates to the authenticated
 existing PR branch. Human approval, thread resolution, and merge remain separate.
 
 The weekly OpenClaw job (Mondays 10:15 UTC) was enabled on 2026-09-11 by
-operator confirmation, after this policy merged and the rollout checks passed;
-its first live run is the supervised acceptance run, and it reports to the
-channel named in the playbook's _Schedule and activation_ section. Its reviewed
-entry prompt is
+operator confirmation; it reports to the channel named in the operations note's
+_Schedule and activation_ section. Its reviewed entry prompt is
 `scripts/prompts/dependabot-weekly.md`, and the job's stored prompt must match
 that file apart from its final newline, which the scheduler drops. Never run the
-legacy launcher and the ordinary workflow concurrently. Follow the playbook's
+legacy launcher and the ordinary workflow concurrently. Follow the skill's
 per-pull-request claim coordination, recovery, budgets, progress, exact-head
 verification, and research requirements.
 

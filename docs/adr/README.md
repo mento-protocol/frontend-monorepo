@@ -39,16 +39,17 @@ adds a high-signal surface without a numbered ADR.
 
 ### CI and deployment
 
-| ADR                                                                   | Decision                                                                                  |
-| --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| [0001](0001-github-actions-vercel-deployment-orchestration.md)        | GitHub Actions owns Vercel build/deployment orchestration; Vercel remains hosting/runtime |
-| [0002](0002-single-comment-preview-controller-journal.md)             | One canonical pull-request comment stores the preview controller journal                  |
-| [0003](0003-preview-worker-dispatch-authentication.md)                | A dedicated repository-scoped credential dispatches preview workers                       |
-| [0004](0004-one-way-vercel-build-environment-materialization.md)      | Preview candidates receive only a one-way exact allowlist of Vercel-pulled variables      |
-| [0005](0005-stable-main-release-identity-and-rerun-admission.md)      | Stable provider release manifests reconcile reruns; mutations remain attempt-scoped       |
-| [0006](0006-dependabot-processing-controller.md)                      | Archived: repository-hosted Dependabot preparation; superseded by ADR 0009                |
-| [0007](0007-deterministic-protected-runtime-dependency-sync.md)       | Archived: typed protected-runtime dependency repair; superseded by ADR 0009               |
-| [0008](0008-authenticated-dependabot-native-generation-boundaries.md) | Archived: native Dependabot generation authentication; superseded by ADR 0009             |
-| [0009](0009-external-agent-dependabot-preparation.md)                 | Archived: sealed external-agent preparation; superseded by ADR 0010                       |
-| [0010](0010-trusted-agent-dependabot-preparation.md)                  | Ordinary trusted OpenClaw coding workflow with bounded weekly preparation                 |
-| [0011](0011-delayed-slack-failure-alerts.md)                          | Delay Slack alerts and suppress failures that recover within the window                   |
+| ADR                                                                   | Decision                                                                                                                                |
+| --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| [0001](0001-github-actions-vercel-deployment-orchestration.md)        | GitHub Actions owns Vercel build/deployment orchestration; Vercel remains hosting/runtime                                               |
+| [0002](0002-single-comment-preview-controller-journal.md)             | One canonical pull-request comment stores the preview controller journal                                                                |
+| [0003](0003-preview-worker-dispatch-authentication.md)                | A dedicated repository-scoped credential dispatches preview workers                                                                     |
+| [0004](0004-one-way-vercel-build-environment-materialization.md)      | Preview candidates receive only a one-way exact allowlist of Vercel-pulled variables                                                    |
+| [0005](0005-stable-main-release-identity-and-rerun-admission.md)      | Stable provider release manifests reconcile reruns; mutations remain attempt-scoped                                                     |
+| [0006](0006-dependabot-processing-controller.md)                      | Archived: repository-hosted Dependabot preparation; superseded by ADR 0009                                                              |
+| [0007](0007-deterministic-protected-runtime-dependency-sync.md)       | Archived: typed protected-runtime dependency repair; superseded by ADR 0009                                                             |
+| [0008](0008-authenticated-dependabot-native-generation-boundaries.md) | Archived: native Dependabot generation authentication; superseded by ADR 0009                                                           |
+| [0009](0009-external-agent-dependabot-preparation.md)                 | Archived: sealed external-agent preparation; superseded by ADR 0010                                                                     |
+| [0010](0010-trusted-agent-dependabot-preparation.md)                  | Ordinary trusted OpenClaw coding workflow with bounded weekly preparation; its policy file and claim wrapper are superseded by ADR 0012 |
+| [0011](0011-delayed-slack-failure-alerts.md)                          | Delay Slack alerts and suppress failures that recover within the window                                                                 |
+| [0012](0012-dependabot-prep-policy-moves-to-shared-skill.md)          | The shared `dependabot-prep` skill owns the preparation policy and supplies the claims                                                  |

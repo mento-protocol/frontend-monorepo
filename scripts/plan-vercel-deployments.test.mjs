@@ -226,8 +226,6 @@ test("the exact dependency policy files are proven non-runtime", () => {
     "LICENSE",
     "README.md",
     ".github/dependabot.yml",
-    ".github/dependabot-prep-policy.json",
-    "scripts/dependabot-claim.mjs",
     "scripts/dependency-policy.test.mjs",
   ]);
 });
@@ -235,10 +233,8 @@ test("the exact dependency policy files are proven non-runtime", () => {
 for (const path of [
   ".github/dependabot.yaml",
   ".github/dependabot.yml.bak",
-  ".github/dependabot-prep-policy.yaml",
-  ".github/dependabot-prep-policy.json.bak",
-  "scripts/dependabot-claim.mjs.bak",
-  "scripts/dependabot-claim.test.mjs",
+  ".github/dependabot-prep-policy.json",
+  "scripts/dependabot-claim.mjs",
   "scripts/dependency-policy.mjs",
   "scripts/dependency-policy.test.mjs.bak",
 ]) {
@@ -283,8 +279,6 @@ test("a dependency policy change mixed with app runtime affects app", () => {
 test("the exact dependency policy files are non-runtime-only together", () => {
   const fixture = createFixture([
     ".github/dependabot.yml",
-    ".github/dependabot-prep-policy.json",
-    "scripts/dependabot-claim.mjs",
     "scripts/dependency-policy.test.mjs",
   ]);
   try {

@@ -36,7 +36,7 @@ frontend-monorepo/
 ├── .trunk/                   # Trunk CLI configuration and cache
 ├── docs/
 │   ├── adr/                  # Architecture decision records and lifecycle
-│   └── dependabot-automation.md # External-agent Dependabot preparation runbook
+│   └── dependabot-automation.md # Dependabot preparation operations note
 ├── turbo.json                # Turborepo configuration
 └── pnpm-workspace.yaml       # PNPM workspace configuration
 ```
@@ -351,9 +351,9 @@ All packages referencing `"react": "catalog:"` will automatically use the new ve
 #### Dependabot preparation
 
 Dependabot creates native npm and GitHub Actions PRs each Monday at 06:00 UTC.
-The ordinary OpenClaw coding agent prepares them using the
-[canonical playbook](docs/dependabot-automation.md) and
-`.github/dependabot-prep-policy.json` from live main. It can resolve conflicts,
+The ordinary OpenClaw coding agent prepares them with the shared
+`dependabot-prep` skill and the repository facts in the
+[operations note](docs/dependabot-automation.md). It can resolve conflicts,
 make dependency-related repairs, regenerate lockfiles, run tests/builds and
 address review feedback. Majors and documented runtime updates are not excluded
 just because they require engineering work. Writers coordinate per pull request:
@@ -373,10 +373,10 @@ approves, dismisses reviews, merges, closes, changes auto-merge or thread state,
 force-pushes, or weakens validation. Sensitive automation/security changes need
 a human decision. Dependabot CI remains secretless.
 
-The Monday 10:15 UTC job was enabled on 2026-09-11 by operator confirmation
-after the policy merged and the rollout checks passed; its first live run is the
-supervised acceptance run, and it reports to the channel the playbook names.
-See [ADR 0010](docs/adr/0010-trusted-agent-dependabot-preparation.md).
+The Monday 10:15 UTC job was enabled on 2026-09-11 by operator confirmation, and
+it reports to the channel the operations note names. See
+[ADR 0010](docs/adr/0010-trusted-agent-dependabot-preparation.md) and
+[ADR 0012](docs/adr/0012-dependabot-prep-policy-moves-to-shared-skill.md).
 
 #### When to Use Catalog vs Direct Versions
 
@@ -492,11 +492,13 @@ The repository is set up with GitHub Actions for CI:
   The 10:15 UTC OpenClaw job, enabled on 2026-09-11, uses the ordinary coding
   agent and the [checked-in prompt](scripts/prompts/dependabot-weekly.md); its
   stored prompt must match that file apart from its final newline, which the
-  scheduler drops. No custom launcher is required. Every
-  writer holds a per-pull-request claim ref before it writes, and one heavy
-  process tree per host, rather than one active batch, caps the work. See the
-  [playbook](docs/dependabot-automation.md) and
-  [ADR 0010](docs/adr/0010-trusted-agent-dependabot-preparation.md).
+  scheduler drops. No custom launcher and no repository policy file are
+  required: the shared `dependabot-prep` skill supplies the claim document.
+  Every writer holds a per-pull-request claim ref before it writes, and one
+  heavy process tree per host, rather than one active batch, caps the work. See
+  the [operations note](docs/dependabot-automation.md),
+  [ADR 0010](docs/adr/0010-trusted-agent-dependabot-preparation.md) and
+  [ADR 0012](docs/adr/0012-dependabot-prep-policy-moves-to-shared-skill.md).
 - **CD**: GitHub Actions automatically builds `app.mento.org`,
   `governance.mento.org`, `reserve.mento.org`, and `ui.mento.org` previews for
   trusted same-repository PRs with exact-SHA aggregate `Vercel Preview`
@@ -661,8 +663,8 @@ paths are classified; moving source into `docs/**` cannot masquerade as a
 documentation-only change. Markdown that tests assert on is still classified as
 documentation. Several unit suites read repository markdown and match phrases in
 it: `scripts/dependency-policy.test.mjs` reads `AGENTS.md`, `CLAUDE.md`,
-`README.md`, `docs/dependabot-automation.md`, `docs/dependency-overrides.md`,
-and `scripts/prompts/dependabot-weekly.md`; `scripts/check-adr-reminder.test.mjs`
+`README.md`, `docs/dependency-overrides.md`, and
+`scripts/prompts/dependabot-weekly.md`; `scripts/check-adr-reminder.test.mjs`
 reads `AGENTS.md`, `CLAUDE.md`, `README.md`, and
 `.github/pull_request_template.md`; and the Vercel contract suites read
 `docs/vercel-deployments.md`. A documentation-only pull request skips both unit

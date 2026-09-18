@@ -51,7 +51,8 @@ only the exact reviewed nanoid 3.3.18 pair. Do not restore a retired patch or
 cross-paired manifest and lockfile state.
 
 The ordinary trusted coding agent may prepare Next.js and Vercel CLI rotations
-under the [canonical playbook](dependabot-automation.md), including installation,
+with the shared `dependabot-prep` skill and the repository facts in the
+[canonical playbook](dependabot-automation.md), including installation,
 generation, builds and tests. Preserve the coupling, registry provenance and
 validation requirements below; do not guess digests or relax validators.
 

@@ -8,6 +8,8 @@ scope: dependency-maintenance
 date: 2026-09-07
 supersedes:
   - "0009"
+superseded_in_part_by:
+  - "0012"
 ---
 
 # ADR 0010 — Ordinary trusted-agent Dependabot preparation
@@ -18,6 +20,14 @@ Accepted and rolled out. The package and policy merged on 2026-09-10 and the
 skill on 2026-09-11; the operator enabled the scheduled job on 2026-09-11,
 after this prompt revision reached `main`, so its first live run is the
 supervised acceptance run. Reports go to the channel the playbook names.
+
+Superseded in part by
+[ADR 0012](0012-dependabot-prep-policy-moves-to-shared-skill.md): the repository
+policy file `.github/dependabot-prep-policy.json` and the claim wrapper
+`scripts/dependabot-claim.mjs` are retired, and the shared skill's Mento
+defaults supply the claim document and the pinned runner. Everything this record
+says about those two files is history. The trusted-agent workflow, its
+boundaries and its per-pull-request claim coordination stay in force.
 
 ## Context
 
