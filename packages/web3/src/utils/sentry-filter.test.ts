@@ -215,6 +215,26 @@ describe("sentry-filter", () => {
     expect(filterNoisySentryEvents(event)).toBe(event);
   });
 
+  it.each([
+    ["missing", ""],
+    ["blank", "   "],
+  ])(
+    "keeps wallet-library fetch failures when a frame has a %s filename",
+    (_shape, unattributedFrame) => {
+      const event = makeEvent({
+        exceptionValue: "Failed to fetch",
+        exceptionType: "TypeError",
+        mechanismType: "auto.browser.global_handlers.onunhandledrejection",
+        frames: [
+          unattributedFrame,
+          "node_modules/@reown/appkit-controllers/dist/index.js",
+        ],
+      });
+
+      expect(filterNoisySentryEvents(event)).toBe(event);
+    },
+  );
+
   it("keeps vendor-only fetch failures from outside the wallet libraries", () => {
     const event = makeEvent({
       exceptionValue: "Failed to fetch",

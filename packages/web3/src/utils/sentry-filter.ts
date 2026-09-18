@@ -138,6 +138,16 @@ function hasWalletConnectFrames(event: ErrorEvent): boolean {
   );
 }
 
+// A frame with no filename, or a blank one, names nothing: `getFrameFilenames`
+// drops it and a blank matches no pattern, so it reads as "not first-party"
+// when it is really "unknown". A rule that suppresses on the absence of
+// first-party frames has to fail open on it.
+function hasUnattributedFrames(event: ErrorEvent): boolean {
+  return (event.exception?.values ?? [])
+    .flatMap((value) => value.stacktrace?.frames ?? [])
+    .some((frame) => !frame.filename?.trim());
+}
+
 function isBrowserUnhandledRejection(event: ErrorEvent): boolean {
   return (event.exception?.values ?? []).some(
     ({ mechanism }) =>
@@ -197,11 +207,13 @@ export function filterNoisySentryEvents(
   // The wallet picker loads its wallet list from the wallet library's own
   // directory API. On a stalled connection that fetch rejects with nothing
   // awaiting it, so it arrives as an unhandled rejection whose stack reaches
-  // no application code. Nothing here can catch or retry it.
+  // no application code. Nothing here can catch or retry it. Every frame must
+  // be attributable before we conclude that none of them is ours.
   if (
     FETCH_TRANSPORT_FAILURE_PATTERNS.some((pattern) => pattern.test(message)) &&
     hasWalletConnectFrames(event) &&
     !hasFirstPartyFrames(event) &&
+    !hasUnattributedFrames(event) &&
     isBrowserUnhandledRejection(event)
   ) {
     return null;
