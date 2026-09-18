@@ -11,7 +11,14 @@ const ALWAYS_IGNORE_ERROR_PATTERNS = [
   /WebSocket connection failed for host: wss:\/\/relay\.walletconnect\.org/i,
 ] as const;
 
-const walletConnectProposalExpiredPattern = /^Proposal expired$/i;
+// Vendor messages that only ever reach us as an unawaited promise rejection
+// from the wallet-connection library. `Connection interrupted while trying to
+// subscribe` is the literal string `@walletconnect/core`'s relayer throws when
+// its socket drops mid-subscribe; no first-party code produces either message.
+const walletConnectUnhandledRejectionPatterns = [
+  /^Proposal expired$/i,
+  /^Connection interrupted while trying to subscribe$/i,
+] as const;
 
 const indexedDatabaseUnavailableErrorPatterns = [
   /^(?:Can't find variable: indexedDB|indexedDB is not defined)$/i,
@@ -168,7 +175,9 @@ export function filterNoisySentryEvents(
   }
 
   if (
-    walletConnectProposalExpiredPattern.test(message) &&
+    walletConnectUnhandledRejectionPatterns.some((pattern) =>
+      pattern.test(message),
+    ) &&
     isBrowserUnhandledRejection(event)
   ) {
     return null;
