@@ -52,36 +52,65 @@ configure_trunk_for_cloud_session() {
 		return 0
 	fi
 
-	# Take the ref from trunk.yaml so the checkout cannot drift from the bundle the
-	# repository pins. `local` makes Trunk ignore `ref`, so a mismatched clone would
-	# lint against a different plugin version than CI does, with nothing to show it.
 	local ref
-	ref="$(sed -n 's/^[[:space:]]*ref:[[:space:]]*\([^[:space:]]*\).*/\1/p' "${trunk_config}" | head -1)"
+	ref="$(trunk_plugin_ref "${trunk_config}")"
 	if [[ -z ${ref} ]]; then
 		echo "cloud-session-setup: no plugin ref in ${trunk_config}, skipping trunk setup"
 		rm -f "${user_config}"
 		return 0
 	fi
 
-	# Keying the path on the ref makes a moved pin clone afresh rather than reuse a
-	# checkout of the bundle before it.
 	local clone_directory="${TMPDIR:-/tmp}/trunk-plugins-${ref}"
+	ensure_trunk_plugin_clone "${ref}" "${clone_directory}" "${user_config}" || return 0
+
+	write_trunk_user_config "${user_config}" "${marker}" "${clone_directory}"
+	echo "cloud-session-setup: trunk plugins at ${ref} ready, trunk-check-all-pre-push disabled"
+}
+
+# Take the ref from trunk.yaml so the checkout cannot drift from the bundle the
+# repository pins. `local` makes Trunk ignore `ref`, so a mismatched clone would
+# lint against a different plugin version than CI does, with nothing to show it.
+trunk_plugin_ref() {
+	local trunk_config="$1"
+
+	sed -n 's/^[[:space:]]*ref:[[:space:]]*\([^[:space:]]*\).*/\1/p' "${trunk_config}" | head -1
+}
+
+# Clones the plugin bundle when the checkout for this ref is missing. Keying the
+# path on the ref makes a moved pin clone afresh rather than reuse a checkout of
+# the bundle before it. Returns non-zero when the clone fails, so the caller
+# stops without writing an override.
+ensure_trunk_plugin_clone() {
+	local ref="$1"
+	local clone_directory="$2"
+	local user_config="$3"
 	local clone_log="${TMPDIR:-/tmp}/cloud-session-trunk-clone.log"
-	if [[ ! -d "${clone_directory}/.git" ]]; then
-		rm -rf "${clone_directory}"
-		# An ordinary checkout, not --bare: Trunk reads plugin.yaml from the working
-		# tree, and a bare clone fails with `expected plugin.yaml to be present`.
-		if ! timeout 120 git clone --quiet --depth 1 --branch "${ref}" \
-			https://github.com/trunk-io/plugins "${clone_directory}" >"${clone_log}" 2>&1; then
-			rm -rf "${clone_directory}"
-			# Drop a stale generated override as well. Pointing Trunk at a directory
-			# that no longer exists fails with a config error about the path, which
-			# buries the real cause; with no override it fails with the 403 instead.
-			rm -f "${user_config}"
-			echo "cloud-session-setup: could not clone the trunk plugin bundle at ${ref}, so trunk will not run (log: ${clone_log})"
-			return 0
-		fi
+
+	[[ -d "${clone_directory}/.git" ]] && return 0
+
+	rm -rf "${clone_directory}"
+	# An ordinary checkout, not --bare: Trunk reads plugin.yaml from the working
+	# tree, and a bare clone fails with `expected plugin.yaml to be present`.
+	if timeout 120 git clone --quiet --depth 1 --branch "${ref}" \
+		https://github.com/trunk-io/plugins "${clone_directory}" >"${clone_log}" 2>&1; then
+		return 0
 	fi
+
+	rm -rf "${clone_directory}"
+	# Drop a stale generated override as well. Pointing Trunk at a directory
+	# that no longer exists fails with a config error about the path, which
+	# buries the real cause; with no override it fails with the 403 instead.
+	rm -f "${user_config}"
+	echo "cloud-session-setup: could not clone the trunk plugin bundle at ${ref}, so trunk will not run (log: ${clone_log})"
+	return 1
+}
+
+# Writes the generated override. The marker on the first line is what marks the
+# file as this script's, so a later session may replace it.
+write_trunk_user_config() {
+	local user_config="$1"
+	local marker="$2"
+	local clone_directory="$3"
 
 	cat >"${user_config}" <<-EOF
 		${marker}
@@ -94,7 +123,6 @@ configure_trunk_for_cloud_session() {
 		  disabled:
 		    - trunk-check-all-pre-push
 	EOF
-	echo "cloud-session-setup: trunk plugins at ${ref} ready, trunk-check-all-pre-push disabled"
 }
 
 configure_trunk_for_cloud_session
@@ -129,49 +157,19 @@ configure_playwright_browser_aliases() {
 	[[ -n ${browsers_root} ]] || return 0
 	[[ -d ${browsers_root} ]] && [[ -w ${browsers_root} ]] || return 0
 
-	# Find the shipped builds by their binaries rather than by assuming a layout:
-	# the directory names differ between the revision the image ships and the ones
-	# Playwright asks for now (`chrome-linux` became `chrome-linux64`, and
-	# `headless_shell` became `chrome-headless-shell`).
 	local shipped_chrome shipped_shell
-	shipped_chrome="$(find "${browsers_root}" -maxdepth 3 -type f -name chrome -path '*chromium-*' 2>/dev/null | head -1)"
-	shipped_shell="$(find "${browsers_root}" -maxdepth 3 -type f \
-		\( -name headless_shell -o -name chrome-headless-shell \) 2>/dev/null | head -1)"
+	shipped_chrome="$(shipped_chromium_binary "${browsers_root}")"
+	shipped_shell="$(shipped_headless_shell_binary "${browsers_root}")"
 	[[ -n ${shipped_chrome} ]] || [[ -n ${shipped_shell} ]] || return 0
 
-	local created="" manifest revisions name revision alias_directory
+	local created="" manifest revisions name revision
 	for manifest in node_modules/.pnpm/playwright-core@*/node_modules/playwright-core/browsers.json; do
 		[[ -f ${manifest} ]] || continue
-		revisions="$(node -e '
-			const fs = require("fs");
-			const manifest = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-			for (const browser of manifest.browsers) {
-				if (browser.name === "chromium" || browser.name === "chromium-headless-shell") {
-					console.log(browser.name, browser.revision);
-				}
-			}
-		' "${manifest}" 2>/dev/null)"
+		revisions="$(playwright_wanted_revisions "${manifest}")"
 		[[ -n ${revisions} ]] || continue
 		while read -r name revision; do
-			case ${name} in
-			chromium)
-				[[ -n ${shipped_chrome} ]] || continue
-				alias_directory="${browsers_root}/chromium-${revision}"
-				[[ -e ${alias_directory} ]] && continue
-				mkdir -p "${alias_directory}"
-				ln -s "$(dirname "${shipped_chrome}")" "${alias_directory}/chrome-linux64"
-				;;
-			chromium-headless-shell)
-				[[ -n ${shipped_shell} ]] || continue
-				alias_directory="${browsers_root}/chromium_headless_shell-${revision}"
-				[[ -e ${alias_directory} ]] && continue
-				mkdir -p "${alias_directory}/chrome-headless-shell-linux64"
-				ln -s "${shipped_shell}" "${alias_directory}/chrome-headless-shell-linux64/chrome-headless-shell"
-				;;
-			*)
-				continue
-				;;
-			esac
+			alias_playwright_revision "${browsers_root}" "${name}" "${revision}" \
+				"${shipped_chrome}" "${shipped_shell}" || continue
 			created="${created} ${name}@${revision}"
 		done <<<"${revisions}"
 	done
@@ -179,6 +177,73 @@ configure_playwright_browser_aliases() {
 	if [[ -n ${created} ]]; then
 		echo "cloud-session-setup: aliased playwright browsers onto the shipped build (approximate, not the pinned revision):${created}"
 	fi
+}
+
+# Find the shipped builds by their binaries rather than by assuming a layout:
+# the directory names differ between the revision the image ships and the ones
+# Playwright asks for now (`chrome-linux` became `chrome-linux64`, and
+# `headless_shell` became `chrome-headless-shell`).
+shipped_chromium_binary() {
+	local browsers_root="$1"
+
+	find "${browsers_root}" -maxdepth 3 -type f -name chrome -path '*chromium-*' 2>/dev/null | head -1
+}
+
+shipped_headless_shell_binary() {
+	local browsers_root="$1"
+
+	find "${browsers_root}" -maxdepth 3 -type f \
+		\( -name headless_shell -o -name chrome-headless-shell \) 2>/dev/null | head -1
+}
+
+# Prints one "<name> <revision>" line per chromium browser of one installed
+# playwright-core manifest.
+playwright_wanted_revisions() {
+	local manifest="$1"
+
+	node -e '
+		const fs = require("fs");
+		const manifest = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+		for (const browser of manifest.browsers) {
+			if (browser.name === "chromium" || browser.name === "chromium-headless-shell") {
+				console.log(browser.name, browser.revision);
+			}
+		}
+	' "${manifest}" 2>/dev/null
+}
+
+# Aliases one wanted revision onto the shipped build. Returns non-zero when it
+# creates nothing: an unknown browser name, no shipped build for it, or a
+# revision directory that already exists.
+alias_playwright_revision() {
+	local browsers_root="$1"
+	local name="$2"
+	local revision="$3"
+	local shipped_chrome="$4"
+	local shipped_shell="$5"
+	local alias_directory
+
+	case ${name} in
+	chromium)
+		[[ -n ${shipped_chrome} ]] || return 1
+		alias_directory="${browsers_root}/chromium-${revision}"
+		[[ -e ${alias_directory} ]] && return 1
+		mkdir -p "${alias_directory}"
+		ln -s "$(dirname "${shipped_chrome}")" "${alias_directory}/chrome-linux64"
+		;;
+	chromium-headless-shell)
+		[[ -n ${shipped_shell} ]] || return 1
+		alias_directory="${browsers_root}/chromium_headless_shell-${revision}"
+		[[ -e ${alias_directory} ]] && return 1
+		mkdir -p "${alias_directory}/chrome-headless-shell-linux64"
+		ln -s "${shipped_shell}" "${alias_directory}/chrome-headless-shell-linux64/chrome-headless-shell"
+		;;
+	*)
+		return 1
+		;;
+	esac
+
+	return 0
 }
 
 # Every exit below runs the browser aliasing first: it reads the Playwright
