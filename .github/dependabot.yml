@@ -163,6 +163,22 @@ updates:
           - minor
           - patch
 
+      # ESLint publishes its core package and JavaScript configuration package
+      # from the same release line. Move this exact pair together at every
+      # version level. Do not pull independent plugin or formatter majors into
+      # the same change. Do not filter by dependency type: Dependabot does not
+      # reliably classify pnpm catalog entries by their consuming manifest
+      # section.
+      eslint-core:
+        applies-to: version-updates
+        patterns:
+          - eslint
+          - "@eslint/js"
+        update-types:
+          - major
+          - minor
+          - patch
+
       # Catch-all so ungrouped production stragglers arrive as one weekly PR
       # instead of one PR each. Explicit exclusions preserve the named group
       # boundaries even if the group order changes later.
@@ -215,6 +231,8 @@ updates:
           - sonner
           - jotai
           - zod
+          - eslint
+          - "@eslint/js"
         update-types:
           - minor
           - patch
@@ -234,6 +252,8 @@ updates:
           - vite
           - vitest
           - "@vitest/*"
+          - eslint
+          - "@eslint/js"
 
       vercel-cli-security:
         applies-to: security-updates
