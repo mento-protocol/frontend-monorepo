@@ -1,6 +1,4 @@
 #!/usr/bin/env node
-/* eslint-env node */
-
 import console from "node:console";
 import fs from "node:fs";
 import path from "node:path";
