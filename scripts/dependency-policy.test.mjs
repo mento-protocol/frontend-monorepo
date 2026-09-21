@@ -1049,7 +1049,7 @@ test("Wagmi paths share one use-sync-external-store peer snapshot", () => {
   );
 });
 
-test("Dependabot groups isolate protected runtimes and couple test tooling", () => {
+test("Dependabot groups isolate protected runtimes and couple toolchains", () => {
   const dependabotSource = read(".github/dependabot.yml");
   const config = parse(dependabotSource, { uniqueKeys: true });
   const web3Patterns = [
@@ -1347,6 +1347,55 @@ test("Dependabot groups isolate protected runtimes and couple test tooling", () 
     assert.ok(npmConfig.groups.tooling["exclude-patterns"].includes(pattern));
   }
 
+  const eslintCorePatterns = ["eslint", "@eslint/js"];
+  assert.deepEqual(npmConfig.groups["eslint-core"], {
+    "applies-to": "version-updates",
+    patterns: eslintCorePatterns,
+    "update-types": ["major", "minor", "patch"],
+  });
+  for (const dependency of eslintCorePatterns) {
+    for (const dependencyType of ["production", "development"]) {
+      for (const updateType of ["major", "minor", "patch"]) {
+        assert.deepEqual(
+          matchingDependabotGroups(
+            npmConfig.groups,
+            dependency,
+            dependencyType,
+            updateType,
+          ),
+          ["eslint-core"],
+          `${dependency} ${dependencyType} ${updateType} must be coupled only through eslint-core`,
+        );
+      }
+    }
+  }
+  for (const pattern of eslintCorePatterns) {
+    assert.ok(npmConfig.groups.tooling["exclude-patterns"].includes(pattern));
+    assert.ok(
+      npmConfig.groups["production-misc"]["exclude-patterns"].includes(pattern),
+    );
+  }
+  assert.equal(
+    firstDependabotGroup(
+      npmConfig.groups,
+      "eslint-plugin-react",
+      "development",
+      "major",
+    ),
+    "tooling",
+    "independent plugin majors must stay outside eslint-core",
+  );
+  assert.equal(
+    firstDependabotGroup(
+      npmConfig.groups,
+      "eslint-config-turbo",
+      "production",
+      "minor",
+    ),
+    "production-misc",
+    "independent config updates must stay outside eslint-core",
+  );
+
   const namedProductionGroups = ["frontend-core", "web3-stack", "ui-styling"];
   assert.deepEqual(
     web3Patterns,
@@ -1361,6 +1410,7 @@ test("Dependabot groups isolate protected runtimes and couple test tooling", () 
     ...npmConfig.groups["playwright-runtime"].patterns,
     ...npmConfig.groups["vercel-cli"].patterns,
     ...npmConfig.groups["pnpm-runtime"].patterns,
+    ...npmConfig.groups["eslint-core"].patterns,
   ];
   assert.deepEqual(
     [...npmConfig.groups["production-misc"]["exclude-patterns"]].sort(),
@@ -1441,7 +1491,7 @@ test("Dependabot groups isolate protected runtimes and couple test tooling", () 
   );
   assert.equal(
     firstDependabotGroup(npmConfig.groups, "eslint", "development", "patch"),
-    "tooling",
+    "eslint-core",
   );
 
   assert.deepEqual(npmConfig.groups["web3-stack-security"], {
