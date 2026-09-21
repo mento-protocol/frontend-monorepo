@@ -13,7 +13,9 @@ const publicClientCache: Record<
   ReturnType<typeof createPublicClient> | undefined
 > = {};
 
-export function getPublicClient(chainId: ChainId) {
+export function getPublicClient(
+  chainId: ChainId,
+): ReturnType<typeof createPublicClient> {
   const cachedClient = publicClientCache[chainId];
   if (cachedClient) return cachedClient;
 
