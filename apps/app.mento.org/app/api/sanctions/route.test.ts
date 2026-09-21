@@ -1,9 +1,13 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { afterEach, describe, expect, it, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 
 vi.mock("@/env.mjs", () => ({
   env: { CHAINALYSIS_API_KEY: "test-api-key" },
 }));
+
+const mockConfig = vi.hoisted(() => ({ SANCTIONS_CHECK_FAIL_OPEN: false }));
+
+vi.mock("./config", () => mockConfig);
 
 vi.mock("@sentry/nextjs", () => ({
   captureException: vi.fn(),
@@ -124,6 +128,60 @@ describe("GET /api/sanctions", () => {
       const body = await response.json();
       expect(body.isSanctioned).toBeNull();
       expect(body.error).toBe("check_failed");
+    });
+  });
+
+  describe("SANCTIONS_CHECK_FAIL_OPEN", () => {
+    afterEach(() => {
+      mockConfig.SANCTIONS_CHECK_FAIL_OPEN = false;
+    });
+
+    it("lets the user through when the upstream check fails", async () => {
+      mockConfig.SANCTIONS_CHECK_FAIL_OPEN = true;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({ ok: false, status: 500 }),
+      );
+
+      const response = await GET(createRequest(VALID_ADDRESS, "1.2.3.4"));
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.isSanctioned).toBe(false);
+      expect(body.degraded).toBe(true);
+    });
+
+    it("lets the user through when a 200 response has an error body", async () => {
+      mockConfig.SANCTIONS_CHECK_FAIL_OPEN = true;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: () =>
+            Promise.resolve({ status: "500", message: "Server Error" }),
+        }),
+      );
+
+      const response = await GET(createRequest(VALID_ADDRESS, "1.2.3.4"));
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.isSanctioned).toBe(false);
+      expect(body.degraded).toBe(true);
+    });
+
+    it("still blocks addresses Chainalysis identifies", async () => {
+      mockConfig.SANCTIONS_CHECK_FAIL_OPEN = true;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: () =>
+            Promise.resolve({ identifications: [{ category: "sanctions" }] }),
+        }),
+      );
+
+      const response = await GET(createRequest(VALID_ADDRESS, "1.2.3.4"));
+      const body = await response.json();
+      expect(body.isSanctioned).toBe(true);
     });
   });
 
