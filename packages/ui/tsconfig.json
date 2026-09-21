@@ -3,13 +3,13 @@
   "include": ["src", "src/types"],
   "exclude": ["dist", "build", "node_modules"],
   "compilerOptions": {
-    "baseUrl": ".",
     "incremental": true,
     "module": "ESNext",
     "moduleResolution": "bundler",
     "paths": {
       "@/*": ["./src/*"]
     },
+    "types": ["node"],
     "tsBuildInfoFile": "./tsconfig.tsbuildinfo"
   }
 }
