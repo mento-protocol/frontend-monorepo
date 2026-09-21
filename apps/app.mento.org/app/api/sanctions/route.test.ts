@@ -150,6 +150,24 @@ describe("GET /api/sanctions", () => {
       expect(body.degraded).toBe(true);
     });
 
+    it("lets the user through when a 200 response has an error body", async () => {
+      mockConfig.SANCTIONS_CHECK_FAIL_OPEN = true;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: () =>
+            Promise.resolve({ status: "500", message: "Server Error" }),
+        }),
+      );
+
+      const response = await GET(createRequest(VALID_ADDRESS, "1.2.3.4"));
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.isSanctioned).toBe(false);
+      expect(body.degraded).toBe(true);
+    });
+
     it("still blocks addresses Chainalysis identifies", async () => {
       mockConfig.SANCTIONS_CHECK_FAIL_OPEN = true;
       vi.stubGlobal(
