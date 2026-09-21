@@ -542,8 +542,6 @@ export const LockFormFields = forwardRef<
                 onChange={field.onChange}
                 formatter={(date) => date.toLocaleDateString()}
                 disabled={isDateDisabled}
-                fromDate={minLockDate}
-                toDate={maxDate}
                 startMonth={minLockDate}
                 endMonth={
                   validWednesdays[validWednesdays.length - 1] || maxDate

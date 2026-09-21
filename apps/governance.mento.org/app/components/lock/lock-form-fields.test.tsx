@@ -34,24 +34,24 @@ vi.mock("@mento-protocol/ui", () => ({
     onChange,
     formatter,
     disabled,
-    fromDate,
-    toDate,
+    startMonth,
+    endMonth,
   }: {
     value?: Date;
     onChange: (date: Date) => void;
     formatter: (date: Date) => string;
     disabled: (date: Date) => boolean;
-    fromDate: Date;
-    toDate: Date;
+    startMonth: Date;
+    endMonth: Date;
   }) => (
     <div>
       <span>{value ? formatter(value) : "no date"}</span>
-      <button type="button" onClick={() => onChange(fromDate)}>
+      <button type="button" onClick={() => onChange(startMonth)}>
         pick date
       </button>
       <span data-testid="dateChecks">
         {String(disabled(new Date("2020-01-01")))}:
-        {String(disabled(new Date("2035-01-01")))}:{String(disabled(toDate))}
+        {String(disabled(new Date("2035-01-01")))}:{String(disabled(endMonth))}
       </span>
     </div>
   ),
