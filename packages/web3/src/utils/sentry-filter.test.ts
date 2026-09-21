@@ -98,6 +98,37 @@ describe("sentry-filter", () => {
     expect(filterNoisySentryEvents(event)).toBe(event);
   });
 
+  it("drops relay subscribe interruptions raised as browser promise rejections", () => {
+    const event = makeEvent({
+      exceptionValue: "Connection interrupted while trying to subscribe",
+      exceptionType: "Error",
+      mechanismType: "auto.browser.global_handlers.onunhandledrejection",
+    });
+
+    expect(filterNoisySentryEvents(event)).toBeNull();
+  });
+
+  it("keeps relay subscribe interruptions outside browser promise rejections", () => {
+    const event = makeEvent({
+      exceptionValue: "Connection interrupted while trying to subscribe",
+      exceptionType: "Error",
+      frames: ["/var/task/.next/server/app/swap/page.js"],
+    });
+
+    expect(filterNoisySentryEvents(event)).toBe(event);
+  });
+
+  it("keeps first-party errors that merely mention a relay interruption", () => {
+    const event = makeEvent({
+      exceptionValue:
+        "Swap failed: Connection interrupted while trying to subscribe to pool updates",
+      exceptionType: "Error",
+      mechanismType: "auto.browser.global_handlers.onunhandledrejection",
+    });
+
+    expect(filterNoisySentryEvents(event)).toBe(event);
+  });
+
   it("drops browser IndexedDB-unavailable vendor errors", () => {
     const event = makeEvent({
       exceptionValue: "Can't find variable: indexedDB",
@@ -164,6 +195,83 @@ describe("sentry-filter", () => {
       exceptionType: "ReferenceError",
       mechanismType: "auto.browser.global_handlers.onunhandledrejection",
       frames: ["app:///_next/static/chunks/d626ed93ff8bab4e.js"],
+    });
+
+    expect(filterNoisySentryEvents(event)).toBe(event);
+  });
+
+  it.each([
+    ["Chromium", "Failed to fetch", "@reown/appkit-controllers/dist/index.js"],
+    ["WebKit", "Load failed", "@walletconnect/core/dist/index.es.js"],
+    [
+      "Firefox",
+      "NetworkError when attempting to fetch resource",
+      "@reown/appkit-controllers/dist/index.js",
+    ],
+  ])(
+    "drops the %s wording of a wallet-library fetch failure that reaches no application code",
+    (_browser, exceptionValue, vendorModule) => {
+      const event = makeEvent({
+        exceptionValue,
+        exceptionType: "TypeError",
+        mechanismType: "auto.browser.global_handlers.onunhandledrejection",
+        frames: [`node_modules/${vendorModule}`],
+      });
+
+      expect(filterNoisySentryEvents(event)).toBeNull();
+    },
+  );
+
+  it("keeps wallet-library fetch failures that also touch first-party frames", () => {
+    const event = makeEvent({
+      exceptionValue: "Failed to fetch",
+      exceptionType: "TypeError",
+      mechanismType: "auto.browser.global_handlers.onunhandledrejection",
+      frames: [
+        "app:///_next/static/chunks/main.js",
+        "node_modules/@reown/appkit-controllers/dist/index.js",
+      ],
+    });
+
+    expect(filterNoisySentryEvents(event)).toBe(event);
+  });
+
+  it("keeps wallet-library fetch failures that something awaited", () => {
+    const event = makeEvent({
+      exceptionValue: "Failed to fetch",
+      exceptionType: "TypeError",
+      frames: ["node_modules/@reown/appkit-controllers/dist/index.js"],
+    });
+
+    expect(filterNoisySentryEvents(event)).toBe(event);
+  });
+
+  it.each([
+    ["missing", ""],
+    ["blank", "   "],
+  ])(
+    "keeps wallet-library fetch failures when a frame has a %s filename",
+    (_shape, unattributedFrame) => {
+      const event = makeEvent({
+        exceptionValue: "Failed to fetch",
+        exceptionType: "TypeError",
+        mechanismType: "auto.browser.global_handlers.onunhandledrejection",
+        frames: [
+          unattributedFrame,
+          "node_modules/@reown/appkit-controllers/dist/index.js",
+        ],
+      });
+
+      expect(filterNoisySentryEvents(event)).toBe(event);
+    },
+  );
+
+  it("keeps vendor-only fetch failures from outside the wallet libraries", () => {
+    const event = makeEvent({
+      exceptionValue: "Failed to fetch",
+      exceptionType: "TypeError",
+      mechanismType: "auto.browser.global_handlers.onunhandledrejection",
+      frames: ["https://cdn.example.com/widget.js"],
     });
 
     expect(filterNoisySentryEvents(event)).toBe(event);
