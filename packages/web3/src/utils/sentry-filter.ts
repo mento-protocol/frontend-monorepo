@@ -11,7 +11,14 @@ const ALWAYS_IGNORE_ERROR_PATTERNS = [
   /WebSocket connection failed for host: wss:\/\/relay\.walletconnect\.org/i,
 ] as const;
 
-const walletConnectProposalExpiredPattern = /^Proposal expired$/i;
+// Vendor messages that only ever reach us as an unawaited promise rejection
+// from the wallet-connection library. `Connection interrupted while trying to
+// subscribe` is the literal string `@walletconnect/core`'s relayer throws when
+// its socket drops mid-subscribe; no first-party code produces either message.
+const walletConnectUnhandledRejectionPatterns = [
+  /^Proposal expired$/i,
+  /^Connection interrupted while trying to subscribe$/i,
+] as const;
 
 const indexedDatabaseUnavailableErrorPatterns = [
   /^(?:Can't find variable: indexedDB|indexedDB is not defined)$/i,
@@ -21,6 +28,16 @@ const walletConnectFramePatterns = [
   /(?:^|[/\\])node_modules[/\\](?:\.pnpm[/\\])?@walletconnect(?:\+|[/\\])/i,
   /(?:^|[/\\])node_modules[/\\](?:\.pnpm[/\\])?@reown(?:\+|[/\\])/i,
   /^\.\.\/\.\.\/src\/walletConnect\.ts$/i,
+] as const;
+
+// Browser spellings of a generic fetch transport failure: Chromium, Firefox
+// and WebKit each word it differently. Word boundaries rather than anchors,
+// because the value can reach `beforeSend` wrapped with the exception type,
+// while `Upload failed` must not match `Load failed`.
+const FETCH_TRANSPORT_FAILURE_PATTERNS = [
+  /\bFailed to fetch\b/i,
+  /\bNetworkError when attempting to fetch resource\b/i,
+  /\bLoad failed\b/i,
 ] as const;
 
 const CHUNK_LOAD_ERROR_PATTERNS = [
@@ -128,6 +145,16 @@ function hasWalletConnectFrames(event: ErrorEvent): boolean {
   );
 }
 
+// A frame with no filename, or a blank one, names nothing: `getFrameFilenames`
+// drops it and a blank matches no pattern, so it reads as "not first-party"
+// when it is really "unknown". A rule that suppresses on the absence of
+// first-party frames has to fail open on it.
+function hasUnattributedFrames(event: ErrorEvent): boolean {
+  return (event.exception?.values ?? [])
+    .flatMap((value) => value.stacktrace?.frames ?? [])
+    .some((frame) => !frame.filename?.trim());
+}
+
 function isBrowserUnhandledRejection(event: ErrorEvent): boolean {
   return (event.exception?.values ?? []).some(
     ({ mechanism }) =>
@@ -168,7 +195,9 @@ export function filterNoisySentryEvents(
   }
 
   if (
-    walletConnectProposalExpiredPattern.test(message) &&
+    walletConnectUnhandledRejectionPatterns.some((pattern) =>
+      pattern.test(message),
+    ) &&
     isBrowserUnhandledRejection(event)
   ) {
     return null;
@@ -179,6 +208,21 @@ export function filterNoisySentryEvents(
       pattern.test(message),
     ) &&
     hasWalletConnectFrames(event) &&
+    isBrowserUnhandledRejection(event)
+  ) {
+    return null;
+  }
+
+  // The wallet picker loads its wallet list from the wallet library's own
+  // directory API. On a stalled connection that fetch rejects with nothing
+  // awaiting it, so it arrives as an unhandled rejection whose stack reaches
+  // no application code. Nothing here can catch or retry it. Every frame must
+  // be attributable before we conclude that none of them is ours.
+  if (
+    FETCH_TRANSPORT_FAILURE_PATTERNS.some((pattern) => pattern.test(message)) &&
+    hasWalletConnectFrames(event) &&
+    !hasFirstPartyFrames(event) &&
+    !hasUnattributedFrames(event) &&
     isBrowserUnhandledRejection(event)
   ) {
     return null;
