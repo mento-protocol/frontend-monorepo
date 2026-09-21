@@ -1323,28 +1323,33 @@ test("Dependabot groups isolate protected runtimes and couple toolchains", () =>
       );
     }
   }
+  const testToolchainPatterns = ["vite", "vitest", "@vitest/*"];
   assert.deepEqual(npmConfig.groups["test-toolchain"], {
     "applies-to": "version-updates",
-    "dependency-type": "development",
-    patterns: ["vite", "vitest", "@vitest/*"],
+    patterns: testToolchainPatterns,
     "update-types": ["major", "minor", "patch"],
   });
   for (const dependency of ["vite", "vitest", "@vitest/coverage-v8"]) {
-    for (const updateType of ["major", "minor", "patch"]) {
-      assert.deepEqual(
-        matchingDependabotGroups(
-          npmConfig.groups,
-          dependency,
-          "development",
-          updateType,
-        ),
-        ["test-toolchain"],
-        `${dependency} must be coupled only through test-toolchain`,
-      );
+    for (const dependencyType of ["production", "development"]) {
+      for (const updateType of ["major", "minor", "patch"]) {
+        assert.deepEqual(
+          matchingDependabotGroups(
+            npmConfig.groups,
+            dependency,
+            dependencyType,
+            updateType,
+          ),
+          ["test-toolchain"],
+          `${dependency} ${dependencyType} ${updateType} must be coupled only through test-toolchain`,
+        );
+      }
     }
   }
-  for (const pattern of ["vite", "vitest", "@vitest/*"]) {
+  for (const pattern of testToolchainPatterns) {
     assert.ok(npmConfig.groups.tooling["exclude-patterns"].includes(pattern));
+    assert.ok(
+      npmConfig.groups["production-misc"]["exclude-patterns"].includes(pattern),
+    );
   }
 
   const eslintCorePatterns = ["eslint", "@eslint/js"];
@@ -1405,19 +1410,20 @@ test("Dependabot groups isolate protected runtimes and couple toolchains", () =>
   const namedProductionPatterns = namedProductionGroups.flatMap(
     (groupName) => npmConfig.groups[groupName].patterns,
   );
-  const protectedProductionPatterns = [
+  const focusedVersionPatterns = [
     ...npmConfig.groups["next-runtime"].patterns,
     ...npmConfig.groups["playwright-runtime"].patterns,
     ...npmConfig.groups["vercel-cli"].patterns,
     ...npmConfig.groups["pnpm-runtime"].patterns,
     ...npmConfig.groups["eslint-core"].patterns,
+    ...testToolchainPatterns,
   ];
   assert.deepEqual(
     [...npmConfig.groups["production-misc"]["exclude-patterns"]].sort(),
     [
-      ...new Set([...namedProductionPatterns, ...protectedProductionPatterns]),
+      ...new Set([...namedProductionPatterns, ...focusedVersionPatterns]),
     ].sort(),
-    "production-misc exclusions must mirror named and protected production groups",
+    "production-misc exclusions must mirror focused version-update groups",
   );
   for (const [groupName, dependencies] of Object.entries({
     "frontend-core": [

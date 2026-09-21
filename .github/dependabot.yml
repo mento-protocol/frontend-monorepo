@@ -151,9 +151,11 @@ updates:
           - minor
           - patch
 
+      # Incident: PRs #988 and #989 opened separately on 2026-09-21.
+      # Do not filter by dependency type: Dependabot does not reliably
+      # classify pnpm catalog entries by their consuming manifest section.
       test-toolchain:
         applies-to: version-updates
-        dependency-type: development
         patterns:
           - vite
           - vitest
@@ -231,6 +233,9 @@ updates:
           - sonner
           - jotai
           - zod
+          - vite
+          - vitest
+          - "@vitest/*"
           - eslint
           - "@eslint/js"
         update-types:
