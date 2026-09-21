@@ -17,7 +17,7 @@ catalog:
   "@vercel/analytics": ^2.0.1
   concurrently: ^10.0.5
   esbuild-plugin-preserve-directives: ^0.0.11
-  eslint: ^9.39.2
+  eslint: ^10.9.1
   eslint-config-prettier: ^10.1.8
   jotai: ^2.20.2
   lucide-react: ^1.28.0
