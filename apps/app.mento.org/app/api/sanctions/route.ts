@@ -2,6 +2,7 @@ import { env } from "@/env.mjs";
 import * as Sentry from "@sentry/nextjs";
 import { NextRequest, NextResponse } from "next/server";
 import { isAddress } from "viem";
+import { SANCTIONS_CHECK_FAIL_OPEN } from "./config";
 
 const CHAINALYSIS_API_BASE = "https://public.chainalysis.com/api/v1/address";
 const RATE_LIMIT_WINDOW_MS = 60_000;
@@ -55,6 +56,10 @@ function isRateLimited(ip: string): boolean {
 }
 
 function failClosed() {
+  if (SANCTIONS_CHECK_FAIL_OPEN) {
+    Sentry.captureMessage("Sanctions check failed open", { level: "warning" });
+    return NextResponse.json({ isSanctioned: false, degraded: true });
+  }
   return NextResponse.json(
     { isSanctioned: null, error: "check_failed" },
     { status: 502 },
