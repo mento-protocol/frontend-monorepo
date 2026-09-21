@@ -78,7 +78,7 @@ overrides:
   ws@>=7.0.0 <7.5.11: 7.5.11
   yaml@>=2.0.0 <2.8.3: '>=2.8.3'
   yaml@<1.10.3: '>=1.10.3 <2'
-  zod: ^4.5.4
+  zod: ^4.6.2
   zustand>use-sync-external-store: 1.4.0
 
 importers:
@@ -1649,8 +1649,8 @@ packages:
   yauzl@2.10.0:
     resolution: {integrity: sha512-p4a9I6X6nu6IhoGmBqAcbJy1mlC4j27vEPZX9F4L4/vZT3Lyq1VkFHw/V/PUcB9Buo+DG3iHkT0x3Qya58zc3g==}
 
-  zod@4.5.4:
-    resolution: {integrity: sha512-sC95tT5iHHH9gtpj6A81kh+NEaRAUFN+qlUPDUbRfOMvNf5QCBqsb3WgvnpVtK5Y+4UfA6KqufotuTvMGiTlsA==}
+  zod@4.6.5:
+    resolution: {integrity: sha512-v5l/aFXZQeai4awLbOpSoHecE9UiMrnfx75tEXLjNonXVARxQ5mOeipTjROUchszUNCqnE+hqAMujRsRHsut2Q==}
 
 snapshots:
 
@@ -2009,7 +2009,7 @@ snapshots:
       srvx: 0.11.16
       ts-morph: 12.0.0
       tsx: 4.21.0
-      zod: 4.5.4
+      zod: 4.6.5
     transitivePeerDependencies:
       - '@emnapi/core'
       - '@emnapi/runtime'
@@ -2047,12 +2047,12 @@ snapshots:
       '@vercel/cli-config': 0.2.0
       async-listen: 3.0.0
       open: 8.4.0
-      zod: 4.5.4
+      zod: 4.6.5
 
   '@vercel/cli-config@0.2.0':
     dependencies:
       xdg-app-paths: 5.5.1
-      zod: 4.5.4
+      zod: 4.6.5
 
   '@vercel/container@0.0.5': {}
 
@@ -2078,7 +2078,7 @@ snapshots:
       fs-extra: 11.1.0
       path-to-regexp: 8.4.2
       ts-morph: 12.0.0
-      zod: 4.5.4
+      zod: 4.6.5
     transitivePeerDependencies:
       - '@emnapi/core'
       - '@emnapi/runtime'
@@ -2150,7 +2150,7 @@ snapshots:
       fs-extra: 11.1.0
       path-to-regexp: 8.4.2
       ts-morph: 12.0.0
-      zod: 4.5.4
+      zod: 4.6.5
     transitivePeerDependencies:
       - encoding
       - rollup
@@ -2247,7 +2247,7 @@ snapshots:
       js-yaml: 4.3.2
       minimatch: 10.2.6
       smol-toml: 1.8.0
-      zod: 4.5.4
+      zod: 4.6.5
 
   '@vercel/python@6.51.1':
     dependencies:
@@ -2297,7 +2297,7 @@ snapshots:
       tar-stream: 3.1.7
       undici: 7.29.0
       xdg-app-paths: 5.1.0
-      zod: 4.5.4
+      zod: 4.6.5
     transitivePeerDependencies:
       - bare-abort-controller
       - react-native-b4a
@@ -2863,7 +2863,7 @@ snapshots:
       async-retry: 1.3.3
       debug: 4.4.3
       ws: 8.21.3
-      zod: 4.5.4
+      zod: 4.6.5
     transitivePeerDependencies:
       - bare-abort-controller
       - bufferutil
@@ -3009,7 +3009,7 @@ snapshots:
       sandbox: 3.4.0
       smol-toml: 1.8.0
       undici: 6.28.0
-      zod: 4.5.4
+      zod: 4.6.5
     optionalDependencies:
       '@vercel/backends': 0.8.25(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)
       '@vercel/container': 0.0.5
@@ -3086,4 +3086,4 @@ snapshots:
       buffer-crc32: 0.2.13
       fd-slicer: 1.1.0
 
-  zod@4.5.4: {}
+  zod@4.6.5: {}
