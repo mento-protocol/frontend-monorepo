@@ -98,6 +98,37 @@ describe("sentry-filter", () => {
     expect(filterNoisySentryEvents(event)).toBe(event);
   });
 
+  it("drops relay subscribe interruptions raised as browser promise rejections", () => {
+    const event = makeEvent({
+      exceptionValue: "Connection interrupted while trying to subscribe",
+      exceptionType: "Error",
+      mechanismType: "auto.browser.global_handlers.onunhandledrejection",
+    });
+
+    expect(filterNoisySentryEvents(event)).toBeNull();
+  });
+
+  it("keeps relay subscribe interruptions outside browser promise rejections", () => {
+    const event = makeEvent({
+      exceptionValue: "Connection interrupted while trying to subscribe",
+      exceptionType: "Error",
+      frames: ["/var/task/.next/server/app/swap/page.js"],
+    });
+
+    expect(filterNoisySentryEvents(event)).toBe(event);
+  });
+
+  it("keeps first-party errors that merely mention a relay interruption", () => {
+    const event = makeEvent({
+      exceptionValue:
+        "Swap failed: Connection interrupted while trying to subscribe to pool updates",
+      exceptionType: "Error",
+      mechanismType: "auto.browser.global_handlers.onunhandledrejection",
+    });
+
+    expect(filterNoisySentryEvents(event)).toBe(event);
+  });
+
   it("drops browser IndexedDB-unavailable vendor errors", () => {
     const event = makeEvent({
       exceptionValue: "Can't find variable: indexedDB",
