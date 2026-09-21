@@ -28,4 +28,21 @@ export default [
       "react-hooks/purity": "off",
     },
   },
+  {
+    // scripts/check-shell-size.mjs is a byte-identical copy of the checker in
+    // mento-protocol/agents, so it cannot carry the inline suppression comment
+    // the other scripts here use. MAX_FILE_LINES, MAX_FUNCTION_LINES and
+    // SHELL_SIZE_BASE are inputs of a check, not of a Turborepo task, so they
+    // do not belong in turbo.json. The copy also reads the Node `process`
+    // global instead of importing it. See the shell rules in AGENTS.md.
+    files: ["scripts/check-shell-size.mjs"],
+    languageOptions: {
+      globals: {
+        process: "readonly",
+      },
+    },
+    rules: {
+      "turbo/no-undeclared-env-vars": "off",
+    },
+  },
 ];

@@ -277,6 +277,18 @@ jobs:
       - name: Knip
         if: needs.changes.outputs.run_quality == 'true'
         run: pnpm knip
+      # The checkout is shallow, so the base ref the ratchet compares with is
+      # absent until it is fetched.
+      - name: Fetch the base branch for the shell size ratchet
+        if: needs.changes.outputs.run_quality == 'true' && github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: git fetch --no-tags --depth=1 origin "$BASE_REF"
+      - name: Check shell file and function sizes
+        if: needs.changes.outputs.run_quality == 'true'
+        env:
+          SHELL_SIZE_BASE: ${{ github.base_ref && format('origin/{0}', github.base_ref) || '' }}
+        run: pnpm check:shell
       - name: Trunk Code Quality
         uses: trunk-io/trunk-action@e1234e67a86010d61ddac8d8ebf4b783e2ffd2fa # v2.0.0
         with:

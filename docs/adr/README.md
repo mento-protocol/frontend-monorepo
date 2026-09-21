@@ -53,3 +53,4 @@ adds a high-signal surface without a numbered ADR.
 | [0010](0010-trusted-agent-dependabot-preparation.md)                  | Ordinary trusted OpenClaw coding workflow with bounded weekly preparation; its policy file and claim wrapper are superseded by ADR 0012 |
 | [0011](0011-delayed-slack-failure-alerts.md)                          | Delay Slack alerts and suppress failures that recover within the window                                                                 |
 | [0012](0012-dependabot-prep-policy-moves-to-shared-skill.md)          | The shared `dependabot-prep` skill owns the preparation policy and supplies the claims                                                  |
+| [0013](0013-shell-size-limits-enforced-by-a-copied-checker.md)        | Shell file and function size limits, enforced by a byte-identical copy of the checker in `mento-protocol/agents`                        |
