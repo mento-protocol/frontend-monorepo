@@ -39,7 +39,8 @@ to the helper must select the Celo app, Celo governance, and Monad E2E lanes.
 
 Every tracked `*.sh` file holds at most 500 lines, and every shell function at
 most 50 lines. Run `pnpm check:shell` before opening a pull request; the
-`static` job of `.github/workflows/ci.yml` runs it on every pull request. A
+`static` job of `.github/workflows/ci.yml` runs it on every pull request that
+is not documentation-only. A
 script that outgrows a limit is split by topic.
 
 `scripts/shell-size-baseline.txt` holds no rows. A row would exempt one file or

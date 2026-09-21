@@ -30,7 +30,8 @@ runs in. Its test suite lives beside it there.
 
 Enforce two limits on every tracked `*.sh` file: at most 500 lines per file and
 at most 50 lines per function. Run them through `pnpm check:shell` locally and
-in the `static` job of `.github/workflows/ci.yml` on every pull request.
+in the `static` job of `.github/workflows/ci.yml` on every pull request that is
+not documentation-only.
 
 Adopt the checker as a byte-identical copy of the file in
 `mento-protocol/agents`, not as a published package and not as a Trunk custom

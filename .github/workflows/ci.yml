@@ -287,7 +287,7 @@ jobs:
       - name: Check shell file and function sizes
         if: needs.changes.outputs.run_quality == 'true'
         env:
-          SHELL_SIZE_BASE: ${{ github.base_ref && format('origin/{0}', github.base_ref) || '' }}
+          SHELL_SIZE_BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || '' }}
         run: pnpm check:shell
       - name: Trunk Code Quality
         uses: trunk-io/trunk-action@e1234e67a86010d61ddac8d8ebf4b783e2ffd2fa # v2.0.0
