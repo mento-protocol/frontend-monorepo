@@ -23,7 +23,7 @@
     "@vercel/ruby": "2.5.1",
     "@vercel/rust": "1.4.0",
     "@vercel/static-build": "2.11.8",
-    "vercel": "56.5.0"
+    "vercel": "59.10.0"
   },
   "pnpm": {
     "overrides": {
