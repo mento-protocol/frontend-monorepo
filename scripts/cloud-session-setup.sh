@@ -268,10 +268,15 @@ alias_playwright_revision() {
 		;;
 	esac
 
+	# `mkdir` without `-p` is the ownership claim: it fails when the directory
+	# already exists, so two sessions racing here cannot both believe they made
+	# it. Only the one that did reaches the recovery below. The `-e` test keeps
+	# an alias an earlier session finished a silent no-op rather than a failure.
 	[[ -e ${alias_directory} ]] && return 1
+	mkdir "${alias_directory}" || return 1
 	mkdir -p "${link_parent}" && ln -s "${link_target}" "${link_path}" && return 0
 
-	# The alias is half made. The check above proves this call created the
+	# The alias is half made. The claim above proves this call created the
 	# directory, so remove it: left in place it answers the same check in every
 	# later session, and the revision is never aliased again. The script runs
 	# without `-e`, so the failure has to be caught here to be caught at all.
