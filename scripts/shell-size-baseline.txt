@@ -1,0 +1,9 @@
+# Shell files and functions that predate the size limits in AGENTS.md.
+# A file row is "<path> <count>" and allows that file <count> lines.
+# A function row is "<path> <function> <count>" and allows the longest
+# declaration of that function <count> lines.
+# A row is an upper bound: the subject may sit at or below its count, and a
+# subject below it prints an advisory line asking for the lower count, or for
+# the row to go away once the subject fits the limit.
+# Delete a row once its subject fits the limit, and keep this file even when
+# it holds no rows.

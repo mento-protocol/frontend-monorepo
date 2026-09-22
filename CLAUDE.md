@@ -39,6 +39,8 @@ pnpm exec turbo run dev --filter <app-name>    # Dev server for one app (use pac
 pnpm build                           # Build all
 pnpm exec turbo run build --filter <app-name>  # Build one app
 pnpm check-types                     # TypeScript type checking; builds workspace package types first
+pnpm check:shell                     # Enforce the shell size limits in AGENTS.md (500 lines per file, 50 per function)
+pnpm check:shell:test                # Smoke-test the copied shell size checker and its mvdan-sh dependency
 pnpm ci:action-pins                  # Verify third-party GitHub Actions use documented SHA pins
 pnpm ci:action-pins:test             # Test the action-pin scanner and REST materializer
 pnpm dependency:policy:test          # Test Dependabot schedule, grouping, and dependency policy

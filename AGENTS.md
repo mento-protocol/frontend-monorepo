@@ -35,6 +35,25 @@ an already-safe future timestamp. Keep Celo and Monad on this shared helper.
 Derive raw fork transaction deadlines from the latest block timestamp. Changes
 to the helper must select the Celo app, Celo governance, and Monad E2E lanes.
 
+## Shell scripts
+
+Every tracked `*.sh` file holds at most 500 lines, and every shell function at
+most 50 lines. Run `pnpm check:shell` before opening a pull request; the
+`static` job of `.github/workflows/ci.yml` runs it on every pull request that
+is not documentation-only. A
+script that outgrows a limit is split by topic.
+
+`scripts/shell-size-baseline.txt` holds no rows. A row would exempt one file or
+one function that predates the limits, and the check refuses a row the base
+branch lacks and a count above the base's, so an allowance can only go down.
+
+`scripts/check-shell-size.mjs` is a byte-identical copy of the checker in
+[mento-protocol/agents](https://github.com/mento-protocol/agents). Change it
+there first, then copy it again; never edit the copy. Its full test suite lives
+there. `scripts/check-shell-size.test.mjs` only proves the copy and its
+`mvdan-sh` dependency work here. See
+[ADR 0013](docs/adr/0013-shell-size-limits-enforced-by-a-copied-checker.md).
+
 ## Dependabot preparation
 
 The shared `dependabot-prep` skill in
