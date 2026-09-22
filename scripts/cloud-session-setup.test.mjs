@@ -62,9 +62,11 @@ function writeFile(target, contents, mode) {
 
 // Builds one scratch session: a repository with a .trunk/trunk.yaml carrying
 // `ref`, an installed playwright-core manifest, a shipped browser tree and the
-// stub binaries.
-function makeSession(ref) {
+// stub binaries. The tree is removed after the case, pass or fail, so a red run
+// leaves nothing behind in the temp directory.
+function makeSession(ref, t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "cloud-session-setup-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const repository = path.join(root, "repo");
   const binaries = path.join(root, "bin");
   const browsers = path.join(root, "browsers");
@@ -137,8 +139,8 @@ function countLines(text, needle) {
   return text.split("\n").filter((line) => line.includes(needle)).length;
 }
 
-test("a plain ref is cloned and both playwright aliases are linked", () => {
-  const session = makeSession("v1.7.3");
+test("a plain ref is cloned and both playwright aliases are linked", (t) => {
+  const session = makeSession("v1.7.3", t);
   const run = runSetup(session);
 
   assert.equal(run.status, 0);
@@ -162,12 +164,11 @@ test("a plain ref is cloned and both playwright aliases are linked", () => {
       )
       .isSymbolicLink(),
   );
-  fs.rmSync(session.root, { recursive: true, force: true });
 });
 
 for (const ref of ["../../escape", "-o", ".hidden", "-", "v1..2/head"]) {
-  test(`the ref ${JSON.stringify(ref)} is refused before rm -rf or git clone`, () => {
-    const session = makeSession(ref);
+  test(`the ref ${JSON.stringify(ref)} is refused before rm -rf or git clone`, (t) => {
+    const session = makeSession(ref, t);
     const run = runSetup(session);
 
     assert.equal(run.status, 0);
@@ -185,12 +186,11 @@ for (const ref of ["../../escape", "-o", ".hidden", "-", "v1..2/head"]) {
     );
     // The session still gets its install and its browsers.
     assert.match(run.stdout, /dependencies installed/);
-    fs.rmSync(session.root, { recursive: true, force: true });
   });
 }
 
-test("a failed ln leaves no alias directory, and the next run links it", () => {
-  const session = makeSession("v1.7.3");
+test("a failed ln leaves no alias directory, and the next run links it", (t) => {
+  const session = makeSession("v1.7.3", t);
   const failed = runSetup(session, { linkFails: true });
 
   assert.equal(failed.status, 0);
@@ -212,5 +212,4 @@ test("a failed ln leaves no alias directory, and the next run links it", () => {
       .lstatSync(path.join(session.browsers, "chromium-1200/chrome-linux64"))
       .isSymbolicLink(),
   );
-  fs.rmSync(session.root, { recursive: true, force: true });
 });
