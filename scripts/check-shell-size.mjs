@@ -19,6 +19,13 @@
 // A row is keyed by path, and a function row also by name, so a renamed or
 // moved function is a new function.
 //
+// Because the row covers whichever declaration is longest, a new declaration
+// of a baselined name can take the allowance over: shrink the exempt
+// declaration and add a longer one, and the row now covers the new one. That
+// is accepted, because the allowance never grows, one declaration of the name
+// is still the only one above the limit and still at or below the row, and
+// every other declaration of that name is measured at the ordinary limit.
+//
 // A row is an upper bound, not an exact count. The subject may sit at or
 // below its row: below it the run prints one advisory line and still passes,
 // so two changes that each shrink one baselined subject merge without
@@ -104,10 +111,15 @@ const git = (args) =>
     stdio: ["ignore", "pipe", "ignore"],
   });
 
+// --end-of-options goes before every argument built from SHELL_SIZE_BASE, so
+// a value that starts with a dash reaches git as a ref and not as an option.
+// It needs git 2.24 or newer.
+const END_OF_OPTIONS = "--end-of-options";
+
 // Returns the text of a path at BASE_REF, or null when the ref lacks it.
 function atBase(path) {
   try {
-    return git(["show", `${BASE_REF}:${path}`]);
+    return git(["show", END_OF_OPTIONS, `${BASE_REF}:${path}`]);
   } catch {
     return null;
   }
@@ -339,11 +351,40 @@ function checkBaseRef() {
     return false;
   }
   try {
-    git(["rev-parse", "--verify", "--quiet", `${BASE_REF}^{commit}`]);
+    git([
+      "rev-parse",
+      "--verify",
+      "--quiet",
+      END_OF_OPTIONS,
+      `${BASE_REF}^{commit}`,
+    ]);
     return true;
   } catch {
     problem(`SHELL_SIZE_BASE=${BASE_REF} does not resolve to a commit`);
     return false;
+  }
+}
+
+// Every path in the base's tree, or null after reporting that git could not
+// list it. atBase and repositoryRoot fail closed the same way, so a git
+// failure here reports a problem instead of ending the run with a stack
+// trace.
+function baseTreePaths() {
+  try {
+    // -z, so a path holding a non-ASCII or unusual byte arrives raw. Without
+    // it git quotes such a path, the name no longer matches, and the run
+    // would treat a base that has a baseline as one that has none.
+    return git([
+      "ls-tree",
+      "-r",
+      "--name-only",
+      "-z",
+      END_OF_OPTIONS,
+      BASE_REF,
+    ]).split("\0");
+  } catch {
+    problem(`cannot list the tree of ${BASE_REF}; the baseline is uncompared`);
+    return null;
   }
 }
 
@@ -354,12 +395,9 @@ function checkBaseRef() {
 function baseBaseline() {
   const here = atBase(BASELINE_REL);
   if (here !== null) return { text: here };
-  // -z, so a path holding a non-ASCII or unusual byte arrives raw. Without it
-  // git quotes such a path, the name no longer matches, and the run would
-  // treat a base that has a baseline as one that has none.
-  const paths = git(["ls-tree", "-r", "--name-only", "-z", BASE_REF])
-    .split("\0")
-    .filter((path) => path.split("/").pop() === BASELINE_NAME);
+  const tree = baseTreePaths();
+  if (tree === null) return null;
+  const paths = tree.filter((path) => path.split("/").pop() === BASELINE_NAME);
   if (paths.length > 1) {
     problem(
       `${BASE_REF} holds more than one ${BASELINE_NAME} (${paths.join(" ")}); keep one`,
