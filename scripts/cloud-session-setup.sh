@@ -227,9 +227,15 @@ playwright_wanted_revisions() {
 		const fs = require("fs");
 		const manifest = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
 		for (const browser of manifest.browsers) {
-			if (browser.name === "chromium" || browser.name === "chromium-headless-shell") {
-				console.log(browser.name, browser.revision);
-			}
+			const name = browser.name;
+			if (name !== "chromium" && name !== "chromium-headless-shell") continue;
+			// The revision becomes a directory name below, and the manifest
+			// comes from node_modules, which this repository installs from its
+			// own lockfile. Playwright writes a plain number here, so anything
+			// else -- a path segment above all -- is dropped rather than built
+			// into a path that is created and, on a failed link, removed.
+			if (!/^[0-9]+$/.test(String(browser.revision))) continue;
+			console.log(name, browser.revision);
 		}
 	' "${manifest}" 2>/dev/null
 }

@@ -195,6 +195,29 @@ for (const ref of ["../../escape", "-o", ".hidden", "-", "v1..2/head"]) {
   });
 }
 
+test("a revision that is not a plain number is never built into a path", (t) => {
+  const session = makeSession("v1.7.3", t);
+  const escape = "1200/../../../escaped";
+  writeFile(
+    path.join(
+      session.repository,
+      "node_modules/.pnpm/playwright-core@1.60.0/node_modules/playwright-core/browsers.json",
+    ),
+    JSON.stringify({ browsers: [{ name: "chromium", revision: escape }] }),
+  );
+
+  const run = runSetup(session, { linkFails: true });
+
+  assert.equal(run.status, 0);
+  assert.doesNotMatch(run.stdout, /aliased playwright browsers/);
+  assert.doesNotMatch(run.stdout, /could not alias/);
+  assert.equal(
+    fs.existsSync(path.join(session.browsers, escape)),
+    false,
+    "nothing outside the browsers directory may be created",
+  );
+});
+
 test("a failed ln leaves an alias another session owns alone", (t) => {
   const session = makeSession("v1.7.3", t);
   const owned = path.join(session.browsers, "chromium-1200");
