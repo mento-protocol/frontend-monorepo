@@ -52,10 +52,19 @@ configure_trunk_for_cloud_session() {
 		return 0
 	fi
 
-	local ref
+	local ref shown
 	ref="$(trunk_plugin_ref "${trunk_config}")"
 	if [[ -z ${ref} ]]; then
 		echo "cloud-session-setup: no plugin ref in ${trunk_config}, skipping trunk setup"
+		rm -f "${user_config}"
+		return 0
+	fi
+	if ! trunk_plugin_ref_is_plain "${ref}"; then
+		# Same recovery as a missing ref: drop a generated override and carry on
+		# without trunk. Report the value stripped of unprintable bytes and cut
+		# short, so a hostile ref cannot rewrite the session's console.
+		shown="${ref//[![:print:]]/?}"
+		echo "cloud-session-setup: plugin ref in ${trunk_config} is not a plain ref, skipping trunk setup (ref: ${shown:0:60})"
 		rm -f "${user_config}"
 		return 0
 	fi
@@ -74,6 +83,19 @@ trunk_plugin_ref() {
 	local trunk_config="$1"
 
 	sed -n 's/^[[:space:]]*ref:[[:space:]]*\([^[:space:]]*\).*/\1/p' "${trunk_config}" | head -1
+}
+
+# The ref is read from a tracked file, so a pull request can set it, and it then
+# becomes both a path segment the clone step deletes with `rm -rf` and an
+# argument to `git clone`. Accept only a plain ref shape: a letter or digit
+# first, then letters, digits, dot, underscore or dash. That leaves out the two
+# shapes that escape the intended use -- a slash or `..` segment, which moves
+# the delete outside the plugin cache, and a leading dash, which git reads as an
+# option. A tag or branch the repository would really pin passes unchanged.
+trunk_plugin_ref_is_plain() {
+	local ref="$1"
+
+	[[ ${ref} =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]
 }
 
 # Clones the plugin bundle when the checkout for this ref is missing. Keying the
@@ -213,37 +235,49 @@ playwright_wanted_revisions() {
 }
 
 # Aliases one wanted revision onto the shipped build. Returns non-zero when it
-# creates nothing: an unknown browser name, no shipped build for it, or a
-# revision directory that already exists.
+# creates nothing: an unknown browser name, no shipped build for it, a revision
+# directory that already exists, or a link that could not be made.
+#
+# The case block only names the layout of each browser; one create-or-recover
+# path below serves both, so the recovery is written once.
 alias_playwright_revision() {
 	local browsers_root="$1"
 	local name="$2"
 	local revision="$3"
 	local shipped_chrome="$4"
 	local shipped_shell="$5"
-	local alias_directory
+	local alias_directory link_parent link_path link_target
 
 	case ${name} in
 	chromium)
 		[[ -n ${shipped_chrome} ]] || return 1
 		alias_directory="${browsers_root}/chromium-${revision}"
-		[[ -e ${alias_directory} ]] && return 1
-		mkdir -p "${alias_directory}"
-		ln -s "$(dirname "${shipped_chrome}")" "${alias_directory}/chrome-linux64"
+		link_parent="${alias_directory}"
+		link_path="${alias_directory}/chrome-linux64"
+		link_target="$(dirname "${shipped_chrome}")"
 		;;
 	chromium-headless-shell)
 		[[ -n ${shipped_shell} ]] || return 1
 		alias_directory="${browsers_root}/chromium_headless_shell-${revision}"
-		[[ -e ${alias_directory} ]] && return 1
-		mkdir -p "${alias_directory}/chrome-headless-shell-linux64"
-		ln -s "${shipped_shell}" "${alias_directory}/chrome-headless-shell-linux64/chrome-headless-shell"
+		link_parent="${alias_directory}/chrome-headless-shell-linux64"
+		link_path="${link_parent}/chrome-headless-shell"
+		link_target="${shipped_shell}"
 		;;
 	*)
 		return 1
 		;;
 	esac
 
-	return 0
+	[[ -e ${alias_directory} ]] && return 1
+	mkdir -p "${link_parent}" && ln -s "${link_target}" "${link_path}" && return 0
+
+	# The alias is half made. The check above proves this call created the
+	# directory, so remove it: left in place it answers the same check in every
+	# later session, and the revision is never aliased again. The script runs
+	# without `-e`, so the failure has to be caught here to be caught at all.
+	rm -rf "${alias_directory}"
+	echo "cloud-session-setup: could not alias ${name} ${revision} onto the shipped build, a later session will retry"
+	return 1
 }
 
 # Every exit below runs the browser aliasing first: it reads the Playwright
