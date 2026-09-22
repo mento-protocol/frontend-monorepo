@@ -197,7 +197,11 @@ for (const ref of ["../../escape", "-o", ".hidden", "-", "v1..2/head"]) {
 
 test("a revision that is not a plain number is never built into a path", (t) => {
   const session = makeSession("v1.7.3", t);
-  const escape = "1200/../../../escaped";
+  // The first segment names a revision directory the tree already has, so an
+  // unguarded script resolves the rest and reaches <root>/escaped, outside the
+  // browsers root it was given. A first segment that does not exist would stop
+  // at `mkdir` on its own and prove nothing about the guard.
+  const escape = "1100/../../escaped";
   writeFile(
     path.join(
       session.repository,
@@ -206,7 +210,9 @@ test("a revision that is not a plain number is never built into a path", (t) => 
     JSON.stringify({ browsers: [{ name: "chromium", revision: escape }] }),
   );
 
-  const run = runSetup(session, { linkFails: true });
+  // `ln` succeeds here, so an alias an unguarded script built from the crafted
+  // revision stays on disk rather than being removed by its own recovery.
+  const run = runSetup(session);
 
   assert.equal(run.status, 0);
   assert.doesNotMatch(run.stdout, /aliased playwright browsers/);
@@ -215,6 +221,11 @@ test("a revision that is not a plain number is never built into a path", (t) => 
     fs.existsSync(path.join(session.browsers, escape)),
     false,
     "nothing outside the browsers directory may be created",
+  );
+  assert.deepEqual(
+    fs.readdirSync(session.browsers).sort(),
+    ["chromium-1100", "chromium_headless_shell-1100"],
+    "no alias directory may be created for the crafted revision",
   );
 });
 
