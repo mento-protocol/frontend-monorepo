@@ -5,6 +5,7 @@ export * from "./blockscout";
 export * from "./chain";
 export * from "./clipboard";
 export * from "./environment";
+export * from "./error-reporter";
 export * from "./is-user-rejection";
 export * from "./logger";
 export * from "./numbers";
