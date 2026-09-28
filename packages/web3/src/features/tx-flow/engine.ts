@@ -10,11 +10,7 @@ import { isUserRejection } from "@/utils/is-user-rejection";
 import { getTransactionFeeOverrides } from "@/utils/transaction-fees";
 
 export type TxFlowStepStatus =
-  | "idle"
-  | "pending"
-  | "confirming"
-  | "confirmed"
-  | "error";
+  "idle" | "pending" | "confirming" | "confirmed" | "error";
 
 export interface TxFlowStepBase {
   id: string;
