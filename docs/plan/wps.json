@@ -71,7 +71,8 @@
       "owned": ["apps/app.mento.org/app/components/bridge/**"],
       "accept": [
         "pnpm --filter app.mento.org exec vitest run app/components/bridge",
-        "grep -q \"validateTransferHandler: validateBridgeTransfer\" apps/app.mento.org/app/components/bridge/bridge-config.ts"
+        "grep -q \"validateTransferHandler: validateBridgeTransfer\" apps/app.mento.org/app/components/bridge/bridge-view.tsx",
+        "git diff --quiet origin/audit-main-app...HEAD -- apps/app.mento.org/app/components/bridge/bridge-config.ts"
       ],
       "deps": [],
       "money": true,
@@ -97,13 +98,18 @@
         "packages/web3/src/utils/index.ts",
         "packages/web3/src/features/tx-flow/engine.ts",
         "packages/web3/src/features/swap/hooks/use-swap-transaction.tsx",
-        "packages/web3/src/features/swap/hooks/use-approve-transaction.tsx"
+        "packages/web3/src/features/swap/hooks/use-approve-transaction.tsx",
+        "apps/app.mento.org/app/lib/sentry-redaction.ts",
+        "apps/app.mento.org/app/lib/sentry-redaction.test.ts",
+        "packages/web3/src/features/tx-flow/engine-report-error.test.ts"
       ],
       "accept": [
-        "pnpm --filter app.mento.org exec vitest run app/components/errors.test.tsx app/hooks/use-sentry-wallet-context.test.ts app/hooks/use-sentry-error-reporter.test.ts",
-        "pnpm --filter @repo/web3 exec vitest run src/utils/error-reporter.test.ts",
+        "pnpm --filter app.mento.org exec vitest run app/components/errors.test.tsx app/hooks/use-sentry-wallet-context.test.ts app/hooks/use-sentry-error-reporter.test.ts app/lib/sentry-redaction.test.ts",
+        "pnpm --filter @repo/web3 exec vitest run src/utils/error-reporter.test.ts src/features/tx-flow/engine-report-error.test.ts",
         "! grep -n \"sendDefaultPii: true\" apps/app.mento.org/instrumentation-client.ts",
-        "! grep -nE \"maskAllText: false|maskAllInputs: false|blockAllMedia: false\" apps/app.mento.org/instrumentation-client.ts"
+        "! grep -nE \"maskAllText: false|maskAllInputs: false|blockAllMedia: false\" apps/app.mento.org/instrumentation-client.ts",
+        "grep -q \"beforeBreadcrumb\" apps/app.mento.org/instrumentation-client.ts",
+        "grep -q \"beforeAddRecordingEvent\" apps/app.mento.org/instrumentation-client.ts"
       ],
       "deps": [],
       "money": false,

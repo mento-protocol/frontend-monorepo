@@ -22,7 +22,7 @@
     "pnpm exec turbo run test",
     "pnpm exec eslint apps/app.mento.org packages/web3 packages/ui",
     "pnpm knip",
-    "git diff --name-only --diff-filter=ACMR origin/audit-main-app...HEAD | grep -E '\\.(ts|tsx|mjs|js|json|md|css|ya?ml)$' | grep -v '^scripts/skein/' | xargs -r pnpm exec prettier --check"
+    "git diff --name-only --diff-filter=ACMR origin/audit-main-app...HEAD | grep -E '\\.(ts|tsx|mjs|js|json|md|css|ya?ml)$' | grep -v '^scripts/skein/' | xargs -r npx --yes @trunkio/launcher check --no-fix --filter=prettier"
   ],
   "e2e": [],
   "invariants": [
