@@ -39,5 +39,75 @@
     "packages/jazzicon/**"
   ],
   "alwaysAllowed": ["docs/adr/DRAFT-*.md"],
-  "tasks": []
+  "tasks": [
+    {
+      "id": "FM-01",
+      "title": "Show the trove owner and offer management only to the owner",
+      "type": "fix",
+      "slug": "owner-aware-manage-trove",
+      "brief": "docs/plan/briefs/FM-01.md",
+      "owned": [
+        "apps/app.mento.org/app/components/borrow/manage-trove/manage-trove-view.tsx",
+        "apps/app.mento.org/app/components/borrow/manage-trove/manage-trove-view.test.tsx",
+        "packages/web3/src/features/borrow/hooks/use-trove-owner.ts",
+        "packages/web3/src/features/borrow/hooks/use-trove-owner.test.ts",
+        "packages/web3/src/features/borrow/hooks/use-adjust-trove.ts",
+        "packages/web3/src/features/borrow/hooks/index.ts"
+      ],
+      "accept": [
+        "pnpm --filter app.mento.org exec vitest run app/components/borrow/manage-trove/manage-trove-view.test.tsx",
+        "pnpm --filter @repo/web3 exec vitest run src/features/borrow/hooks/use-trove-owner.test.ts"
+      ],
+      "deps": [],
+      "money": true,
+      "pii": false
+    },
+    {
+      "id": "FM-02",
+      "title": "Screen both bridge wallets before each transfer",
+      "type": "fix",
+      "slug": "bridge-transfer-screening",
+      "brief": "docs/plan/briefs/FM-02.md",
+      "owned": ["apps/app.mento.org/app/components/bridge/**"],
+      "accept": [
+        "pnpm --filter app.mento.org exec vitest run app/components/bridge",
+        "grep -q \"validateTransferHandler: validateBridgeTransfer\" apps/app.mento.org/app/components/bridge/bridge-config.ts"
+      ],
+      "deps": [],
+      "money": true,
+      "pii": false
+    },
+    {
+      "id": "FM-03",
+      "title": "Report client errors to Sentry and stop sending personal data",
+      "type": "fix",
+      "slug": "sentry-errors-and-privacy",
+      "brief": "docs/plan/briefs/FM-03.md",
+      "owned": [
+        "apps/app.mento.org/app/components/errors.tsx",
+        "apps/app.mento.org/app/components/errors.test.tsx",
+        "apps/app.mento.org/app/components/providers.tsx",
+        "apps/app.mento.org/instrumentation-client.ts",
+        "apps/app.mento.org/app/hooks/use-sentry-wallet-context.ts",
+        "apps/app.mento.org/app/hooks/use-sentry-wallet-context.test.ts",
+        "apps/app.mento.org/app/hooks/use-sentry-error-reporter.ts",
+        "apps/app.mento.org/app/hooks/use-sentry-error-reporter.test.ts",
+        "packages/web3/src/utils/error-reporter.ts",
+        "packages/web3/src/utils/error-reporter.test.ts",
+        "packages/web3/src/utils/index.ts",
+        "packages/web3/src/features/tx-flow/engine.ts",
+        "packages/web3/src/features/swap/hooks/use-swap-transaction.tsx",
+        "packages/web3/src/features/swap/hooks/use-approve-transaction.tsx"
+      ],
+      "accept": [
+        "pnpm --filter app.mento.org exec vitest run app/components/errors.test.tsx app/hooks/use-sentry-wallet-context.test.ts app/hooks/use-sentry-error-reporter.test.ts",
+        "pnpm --filter @repo/web3 exec vitest run src/utils/error-reporter.test.ts",
+        "! grep -n \"sendDefaultPii: true\" apps/app.mento.org/instrumentation-client.ts",
+        "! grep -nE \"maskAllText: false|maskAllInputs: false|blockAllMedia: false\" apps/app.mento.org/instrumentation-client.ts"
+      ],
+      "deps": [],
+      "money": false,
+      "pii": true
+    }
+  ]
 }
