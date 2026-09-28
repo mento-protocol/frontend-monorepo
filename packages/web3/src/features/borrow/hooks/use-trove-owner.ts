@@ -53,7 +53,7 @@ export function useTroveOwner(troveId: string | undefined, symbol = "GBPm") {
         BigInt(troveId!),
       ),
     enabled: !!publicClient && !!troveId,
-    retry: false,
+    retry: 1,
     refetchInterval: 15_000,
   });
 }

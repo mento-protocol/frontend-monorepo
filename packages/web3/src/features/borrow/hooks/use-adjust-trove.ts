@@ -12,6 +12,8 @@ import { useBorrowService } from "./use-borrow-service";
 import { fetchTroveOwner, isTroveOwner } from "./use-trove-owner";
 
 const NOT_OWNER_MESSAGE = "Only the owner of this position can adjust it.";
+const OWNER_UNCONFIRMED_MESSAGE =
+  "The owner of this position couldn't be confirmed. Please try again.";
 
 interface AdjustTroveMutationParams {
   symbol: string;
@@ -42,12 +44,18 @@ export function useAdjustTrove() {
       const chainId = getChainId(wagmiConfig);
       const publicClient = getPublicClient(wagmiConfig, { chainId });
       if (!publicClient) throw new Error("Public client not available");
-      const owner = await fetchTroveOwner(
-        publicClient as PublicClient,
-        chainId,
-        symbol,
-        BigInt(params.troveId),
-      );
+      let owner: string;
+      try {
+        owner = await fetchTroveOwner(
+          publicClient as PublicClient,
+          chainId,
+          symbol,
+          BigInt(params.troveId),
+        );
+      } catch (error) {
+        toast.error(OWNER_UNCONFIRMED_MESSAGE);
+        throw error;
+      }
       if (!isTroveOwner(owner, account)) {
         toast.error(NOT_OWNER_MESSAGE);
         throw new Error(NOT_OWNER_MESSAGE);
