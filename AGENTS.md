@@ -340,7 +340,9 @@ merges. Everyone else can skip this section.
 2. Work in small Conventional Commits on your branch only (`fix(scope): …`,
    `test(scope): …`). Commitlint runs in CI, and body lines stay at or under 100
    characters. Format the files you touch with
-   `pnpm exec prettier --write <files>`.
+   `npx @trunkio/launcher fmt <files>`, never `pnpm exec prettier`: Trunk pins
+   the Prettier that CI enforces, and the workspace Prettier formats some
+   syntax differently.
 3. Run the gate until it passes:
 
    ```bash
