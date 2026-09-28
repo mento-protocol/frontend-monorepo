@@ -8,6 +8,7 @@ import {
 } from "@/features/swap/error-handlers";
 import { formatWithMaxDecimals, parseSlippage } from "@/features/swap/utils";
 import { validateAddress } from "@/utils/addresses";
+import { reportError } from "@/utils/error-reporter";
 import { logger } from "@/utils/logger";
 import { TokenSymbol, getTokenAddress } from "@mento-protocol/mento-sdk";
 import { toast } from "@mento-protocol/ui";
@@ -183,6 +184,7 @@ export function useSwapTransaction(
       });
       toast.error(toastError);
       logger.error(`Swap transaction failed: ${error.message}`, error);
+      reportError(error, { flow: "swap" });
     },
   });
 
