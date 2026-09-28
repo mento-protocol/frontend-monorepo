@@ -4,7 +4,6 @@ import {
   nttRoutes,
   type NttRoute,
 } from "@wormhole-foundation/wormhole-connect/ntt";
-import { validateBridgeTransfer } from "./transfer-screening";
 
 export function getBridgeTheme(mode: "dark" | "light"): WormholeConnectTheme {
   const isDark = mode === "dark";
@@ -181,7 +180,6 @@ const nttConfig: NttRoute.Config = {
 
 export const bridgeConfig: config.WormholeConnectConfig = {
   network: "Mainnet",
-  validateTransferHandler: validateBridgeTransfer,
   // Only USDm and EURm are deployed on Polygon, so the other tokens have no
   // Polygon NTT leg or token config. The widget cannot express a per-token
   // chain matrix; it resolves those combinations to "No route available."

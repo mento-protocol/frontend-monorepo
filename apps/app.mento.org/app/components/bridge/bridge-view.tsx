@@ -15,6 +15,7 @@ import {
 import { useAccount, useChainId } from "@repo/web3/wagmi";
 import { ArrowRightLeft } from "lucide-react";
 import { patchBridgeWidgetAccessibility } from "./bridge-widget-accessibility";
+import { validateBridgeTransfer } from "./transfer-screening";
 
 const WormholeConnect = dynamic(
   () => import("@wormhole-foundation/wormhole-connect"),
@@ -27,6 +28,11 @@ const WormholeConnect = dynamic(
     ),
   },
 );
+
+const bridgeWidgetConfig: typeof bridgeConfig = {
+  ...bridgeConfig,
+  validateTransferHandler: validateBridgeTransfer,
+};
 
 function BridgeNetworkIcons() {
   return (
@@ -182,7 +188,7 @@ export function BridgeView() {
           <BridgeConnectState />
         ) : (
           <div ref={widgetRef} className="bridge-widget">
-            <WormholeConnect theme={theme} config={bridgeConfig} />
+            <WormholeConnect theme={theme} config={bridgeWidgetConfig} />
           </div>
         )}
       </div>

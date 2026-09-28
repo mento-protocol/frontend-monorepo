@@ -3,15 +3,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { BridgeView } from "./bridge-view";
 import { patchBridgeWidgetAccessibility } from "./bridge-widget-accessibility";
+import { validateBridgeTransfer } from "./transfer-screening";
 
-const { accountState, chainState } = vi.hoisted(() => ({
+const { accountState, chainState, widgetProps } = vi.hoisted(() => ({
   accountState: { isConnected: false },
   chainState: { chainId: 42220, supported: true },
+  widgetProps: { current: undefined as { config?: unknown } | undefined },
 }));
 
 vi.mock("next/dynamic", () => ({
   default: () =>
-    function BridgeWidgetStub() {
+    function BridgeWidgetStub(props: { config?: unknown }) {
+      widgetProps.current = props;
       return <div data-testid="bridge-widget" />;
     },
 }));
@@ -55,6 +58,7 @@ describe("BridgeView", () => {
     chainState.chainId = 42220;
     chainState.supported = true;
     vi.mocked(patchBridgeWidgetAccessibility).mockClear();
+    widgetProps.current = undefined;
   });
 
   it("asks for a wallet connection before showing the widget", () => {
@@ -73,6 +77,9 @@ describe("BridgeView", () => {
     render(<BridgeView />);
 
     expect(screen.getByTestId("bridge-widget")).toBeTruthy();
+    expect(widgetProps.current?.config).toMatchObject({
+      validateTransferHandler: validateBridgeTransfer,
+    });
     expect(
       screen.queryByRole("heading", { name: "Connect your wallet to bridge" }),
     ).toBeNull();
