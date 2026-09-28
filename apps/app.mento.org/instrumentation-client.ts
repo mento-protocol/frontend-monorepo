@@ -4,6 +4,7 @@
 
 import * as Sentry from "@sentry/nextjs";
 import { env } from "@/env.mjs";
+import { redactWalletData } from "@/lib/sentry-redaction";
 import {
   createDedupedSentryEventFilter,
   filterNoisySentryEvents,
@@ -13,10 +14,17 @@ import {
 
 const vercelEnv = process.env.NEXT_PUBLIC_VERCEL_ENV ?? "development";
 
-const beforeSend =
+const filterEvent =
   vercelEnv === "preview"
     ? createDedupedSentryEventFilter()
     : filterNoisySentryEvents;
+
+// Kept events have wallet addresses, calldata and transaction hashes redacted
+// from their exception values, message, extra, request URL and breadcrumbs.
+const beforeSend: typeof filterEvent = (event, hint) => {
+  const keptEvent = filterEvent(event, hint);
+  return keptEvent ? redactWalletData(keptEvent) : null;
+};
 
 Sentry.init({
   dsn: env.NEXT_PUBLIC_SENTRY_DSN_SWAP,
@@ -30,7 +38,10 @@ Sentry.init({
   integrations: [
     Sentry.zodErrorsIntegration(),
     // Defaults mask all text and inputs and block media in replays.
-    Sentry.replayIntegration(),
+    // Recorded console and network events have wallet data redacted.
+    Sentry.replayIntegration({
+      beforeAddRecordingEvent: (event) => redactWalletData(event),
+    }),
   ],
 
   // Do not attach request headers or user IP addresses to events, for more info visit:
@@ -40,6 +51,7 @@ Sentry.init({
   ignoreErrors: sentryIgnoreErrors,
   denyUrls: sentryDenyUrls,
   beforeSend,
+  beforeBreadcrumb: (breadcrumb) => redactWalletData(breadcrumb),
 
   tracesSampleRate: vercelEnv === "production" ? 0.1 : 0,
 
