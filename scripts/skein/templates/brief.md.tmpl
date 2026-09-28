@@ -1,0 +1,32 @@
+# {{ID}}: {{TITLE}}
+
+## Objective
+<!-- What exists today, verified with file:line citations. What is wrong or missing. What
+     this task changes and, just as important, what it does not. Two or three paragraphs. -->
+
+## Read first
+- `AGENTS.md`, all of it.
+<!-- The files, in order, with line ranges, that the worker must read before writing. -->
+
+## You own
+{{OWNED}}
+
+Nothing else. If a file outside this list seems to need a change, report `BLOCKED` with the
+exact change rather than editing it.
+
+## Hard rules for this task
+<!-- The invariants this task must not break, stated as rules, with the reason. -->
+
+## Work
+1. <!-- Numbered, concrete steps. Each one names the file, the change, and the test. -->
+
+## What "done" looks like
+`{{GATE}} {{ID}}` ends `status=PASS`. <!-- Plus the observable outcome: the command output,
+the response shape, the count of tests, the thing the reviewer can check. -->
+
+## Acceptance
+`{{GATE}} {{ID}}`, whose `accept` step runs:
+{{ACCEPT}}
+
+Be direct and economical. Do not poll GitHub. Finish with the completion envelope from
+`AGENTS.md`.

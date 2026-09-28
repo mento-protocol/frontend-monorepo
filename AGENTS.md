@@ -276,3 +276,123 @@ Validate the current PR with
 validator tests with `pnpm pr:description:test`. The `PR description format`
 job is designed to be a required status and therefore must keep running without
 path filters.
+
+## Skein workers
+
+This section applies only when `skein` dispatched you with a task id (`FM-01`,
+`FM-02`, …). Several workers fix audit findings in parallel, each in its own
+Superset workspace and branch. One gate verifies every claim, and the owner
+merges. Everyone else can skip this section.
+
+### Read before you write
+
+1. Your brief, `docs/plan/briefs/<task-id>.md`. It names the paths you own and
+   how you will be judged.
+2. `docs/plan/wps.json`: which task owns which paths, and what is
+   coordinator-owned.
+3. `CLAUDE.md`, the rules below, and whatever the brief lists under "Read
+   first".
+
+### Worker rules
+
+1. **Stay inside your paths.** Change only files that match your task's `owned`
+   globs in `docs/plan/wps.json`, plus `docs/adr/DRAFT-*.md`. Never edit
+   anything under `coordinatorOwned`: `AGENTS.md`, `CLAUDE.md`, `.skein/**`,
+   `scripts/**`, `docs/plan/**`, `.github/**`, `.superset/**`, the package
+   manifests and lockfile, and the shared configs. If one of them seems to need
+   a change, report `BLOCKED` with the exact change you propose.
+2. **Never weaken a test to get green.** No `.skip`, `.only` or `.todo`, no
+   `@ts-nocheck` or `@ts-ignore`, no file-wide lint disables, and no widened
+   tolerances. A failing test is information: fix the code or report it.
+3. **Money paths are exact.** Anything a user signs must round in the user's
+   favour and be pinned by a unit test that asserts the encoded value. That
+   covers amounts, minimums, approvals, recipients, chain ids and deadlines.
+   Approvals are exact amounts, never unlimited (#401); the gate rejects
+   `maxUint256`.
+4. **No real transactions, keys or deploys.** Never send a transaction or sign
+   with a real key. Exercise wallet flows only on a local anvil fork with the
+   E2E test wallet (`docs/wallet-testing.md`). Never run `vercel` or any
+   `pnpm vercel:*` script: every merge to `main` deploys to production.
+5. **Secrets.** Worker workspaces get `.env` files with `CHAINALYSIS_API_KEY`,
+   `SENTRY_AUTH_TOKEN` and `ETHERSCAN_API_KEY` blanked. Do not try to obtain
+   them; test code that needs them with mocks, as
+   `apps/app.mento.org/app/api/sanctions/route.test.ts` does. Never commit a
+   `.env` file. Never log a key or a token, or a wallet address together with
+   anything else that identifies the user.
+6. **No new dependencies.** The package manifests and `pnpm-lock.yaml` are
+   coordinator-owned, because CLAUDE.md requires approval for every new npm
+   dependency. If the brief's work genuinely needs one, report `BLOCKED` and
+   name it.
+7. **Sensitive tasks.** When the brief says `Sensitive: yes`, describe the
+   change as hardening wherever it is visible: code comments, test names, commit
+   messages and the pull request. Say what the code now does. Never describe how
+   the previous behaviour could be abused, and never mention an audit write-up.
+   The repository is public.
+8. **Stay in scope and use only your gate.** Do what the brief says, and note
+   anything else you find in your hand-off instead of fixing it. Do not invoke
+   `/ship`, `/review`, `/qa` or any workflow that merges, bumps versions or opens
+   pull requests for you. Do not poll GitHub (`gh pr checks --watch` and the
+   like): every agent shares the API limits, and the coordinator reads CI.
+
+### Workflow
+
+1. Read the brief and everything it lists under "Read first".
+2. Work in small Conventional Commits on your branch only (`fix(scope): …`,
+   `test(scope): …`). Commitlint runs in CI, and body lines stay at or under 100
+   characters. Format the files you touch with
+   `pnpm exec prettier --write <files>`.
+3. Run the gate until it passes:
+
+   ```bash
+   scripts/skein/skein gate --base origin/audit-main-app <task-id>
+   ```
+
+   It checks a clean tree, path ownership, committed secrets, test integrity and
+   the invariants in `.skein/config.json`. Then it runs the standard commands and
+   your task's acceptance commands. CI also runs Trunk and the fork E2E suites
+   on your pull request.
+
+4. Push your branch and open a pull request **against `audit-main-app`** with
+   `gh pr create --base audit-main-app`. Open it ready for review, not as a
+   draft, as "Pull request state" above requires. The title is a
+   conventional-commit subject that ends with the task id, such as
+   `fix(swap): surface reverted swap receipts (FM-03)`. The body follows "Pull
+   request descriptions" above. Never push to `audit-main-app` or `main`, never
+   merge, and never force-push a branch that is not yours.
+5. End your final message with exactly one envelope.
+
+### Completion envelope
+
+```text
+FM_WORKER_DONE
+task: <task-id>
+summary: <one-line outcome>
+pr: <pull request url>
+files: <comma-separated top-level paths, or none>
+checks: <the SKEIN_GATE_RESULT line, verbatim>
+handoff: <what the next task or the reviewer needs to know, or none>
+```
+
+```text
+FM_WORKER_BLOCKED
+task: <task-id>
+reason: <specific blocker>
+needs: <the decision, access, contract change or dependency required>
+```
+
+Report `BLOCKED` early rather than working around a problem. A precise blocker is
+a good outcome; a silent workaround is not. If the architecture or a contract is
+ambiguous, write `docs/adr/DRAFT-<task-id>-<slug>.md` with the context, the
+decision you took and its consequences, and mention it in your hand-off.
+
+### Commands
+
+```bash
+pnpm install --frozen-lockfile --prefer-offline
+pnpm check-types
+pnpm exec turbo run test
+pnpm exec eslint apps/app.mento.org packages/web3 packages/ui
+pnpm knip
+scripts/skein/skein gate --base origin/audit-main-app <task-id>
+scripts/skein/skein gate --base origin/audit-main-app <task-id> --only boundary,secrets,test-integrity,invariants
+```

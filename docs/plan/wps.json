@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "project": "frontend-monorepo",
+  "notes": [
+    "Source of truth for the task DAG. Coordinator-owned: no task edits this file.",
+    "A task may change only paths matching its `owned` globs, plus `alwaysAllowed`. `coordinatorOwned` always wins.",
+    "`brief: null` means NOT DISPATCHABLE. Write docs/plan/briefs/<id>.md first, then set the path here.",
+    "Keep `owned` globs disjoint between tasks that run at the same time; `skein plan` prints overlaps.",
+    "money: true and pii: true make a cross-model review mandatory before merge. `done: true` is set by skein merge.",
+    "Base branch is audit-main-app. The owner merges PRs by hand, and plan.mjs only detects merges on origin/main, so the coordinator sets `done: true` here after each merge."
+  ],
+  "modelPolicy": {
+    "principle": "The defects that matter are found by cross-model review, whichever model wrote the code. The reviewer is where model strength has the most leverage.",
+    "structure": "disjoint file ownership per brief; known-issue notes in briefs so nobody re-investigates; fix rounds resume the author session rather than starting a fresh agent"
+  },
+  "coordinatorOwned": [
+    "AGENTS.md",
+    "CLAUDE.md",
+    ".skein/**",
+    "scripts/**",
+    "docs/plan/**",
+    ".github/**",
+    ".superset/**",
+    ".trunk/**",
+    "package.json",
+    "apps/*/package.json",
+    "packages/*/package.json",
+    "pnpm-lock.yaml",
+    "pnpm-workspace.yaml",
+    "turbo.json",
+    "knip.json",
+    "osv-scanner.toml",
+    "eslint.config.mjs",
+    "apps/*/next.config.ts",
+    "apps/*/.env.example",
+    "packages/eslint-config/**",
+    "packages/typescript-config/**",
+    "packages/vitest-config/**",
+    "packages/jazzicon/**"
+  ],
+  "alwaysAllowed": ["docs/adr/DRAFT-*.md"],
+  "tasks": []
+}

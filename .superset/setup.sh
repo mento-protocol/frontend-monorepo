@@ -19,6 +19,19 @@ step() { printf '\n==> %s\n' "$1"; }
 warn() { printf '  ! %s\n' "$1"; }
 ok() { printf '  ✓ %s\n' "$1"; }
 
+# skein dispatches each worker into a workspace named "<type>: <slug> (FM-12)",
+# or "fm-12" when a task has no type and slug. Worker workspaces get the root
+# checkout's env files with live credentials blanked, and a per-worktree
+# pre-push guard instead of the shared Trunk hooks. See the "Skein workers"
+# section of AGENTS.md.
+workspace_name="${SUPERSET_WORKSPACE_NAME:-${PWD##*/}}"
+skein_worker_pattern='\(FM-[0-9]+\)$|^fm-[0-9]+$'
+withheld_env='CHAINALYSIS_API_KEY|SENTRY_AUTH_TOKEN|ETHERSCAN_API_KEY'
+is_skein_worker=0
+if [[ ${workspace_name} =~ ${skein_worker_pattern} ]]; then
+	is_skein_worker=1
+fi
+
 if [[ ! -f package.json || ! -f pnpm-workspace.yaml ]]; then
 	echo "setup.sh must run from the frontend-monorepo root" >&2
 	exit 1
@@ -69,8 +82,14 @@ for app_dir in apps/*/; do
 			continue
 		fi
 		if [[ -n ${root} && -f "${root}/${target}" ]]; then
-			cp "${root}/${target}" "${target}"
-			ok "${target} copied from root checkout"
+			if ((is_skein_worker)); then
+				sed -E "s/^(${withheld_env})=.*/\1=/" "${root}/${target}" >"${target}"
+				chmod 600 "${target}"
+				ok "${target} copied from root checkout (credentials withheld)"
+			else
+				cp "${root}/${target}" "${target}"
+				ok "${target} copied from root checkout"
+			fi
 		fi
 	done
 	if [[ ! -e "${app}/.env" && ! -e "${app}/.env.local" && -f "${app}/.env.example" ]]; then
@@ -89,6 +108,15 @@ if [[ ${SUPERSET_SKIP_PACKAGE_BUILD:-0} != 1 ]]; then
 	ok "shared packages built"
 fi
 
-printf '\nWorkspace %s ready.\n' "${SUPERSET_WORKSPACE_NAME:-${PWD##*/}}"
+if ((is_skein_worker)); then
+	step "Scoping git hooks to this worktree"
+	git config extensions.worktreeConfig true
+	git config --worktree core.hooksPath scripts/githooks
+	ok "pre-push guard active: pushes to audit-main-app are refused"
+fi
+
+printf '\nWorkspace %s ready.\n' "${workspace_name}"
+# skein dispatch waits for this exact line before it launches a worker.
+echo "workspace '${workspace_name}' ready"
 echo "  Run button starts app.mento.org on http://localhost:3000 (edit .superset/config.json to pick another app)."
 echo "  Optional local fork for wallet flows: pnpm fork:mainnet && pnpm fork:seed (see docs/wallet-testing.md)."

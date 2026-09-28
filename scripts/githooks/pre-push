@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Refuse a push to audit-main-app. Kit-owned (installed by skein init; AGENTS.md workflow 4).
+#
+# Branch protection with the gate as a required check is the real guard where the repo's
+# plan allows it. This hook stops the accident on every machine regardless: the lifecycle
+# setup points core.hooksPath at this directory in every workspace.
+#
+# The coordinator, and only the coordinator, pushes the plan and merges to audit-main-app:
+#     FM_COORDINATOR=1 git push origin HEAD:audit-main-app
+# A guard, not a permission system: anyone can set the variable.
+set -uo pipefail
+while read -r _local_ref _local_sha remote_ref _remote_sha; do
+  [ -n "${remote_ref:-}" ] || continue
+  if [ "$remote_ref" = "refs/heads/audit-main-app" ] && [ "${FM_COORDINATOR:-}" != "1" ]; then
+    echo "pre-push: refusing to push to audit-main-app." >&2
+    echo "  Work on your task's branch and open a draft pull request (AGENTS.md, workflow 4)." >&2
+    echo "  The coordinator merges with 'skein merge'. Coordinator pushes: FM_COORDINATOR=1 git push origin HEAD:audit-main-app" >&2
+    exit 1
+  fi
+done
+exit 0

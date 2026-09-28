@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# skein: coordinate a flock of coding agents on one repo, with no fixed leader.
+#
+# Runs from the kit (~/.claude/skills/skein/bin/skein) or from a repo's vendored copy
+# (scripts/skein/skein). Commands live in ../commands, shared code in ../lib.
+set -uo pipefail
+
+# Resolve this script through symlinks without `readlink -f`, which BSD readlink (macOS) lacks.
+SELF="${BASH_SOURCE[0]}"
+while [ -L "$SELF" ]; do
+  target="$(readlink "$SELF")"
+  case "$target" in /*) SELF="$target" ;; *) SELF="$(dirname "$SELF")/$target" ;; esac
+done
+SELF="$(cd "$(dirname "$SELF")" && pwd -P)/$(basename "$SELF")"
+SKEIN_HOME="$(cd "$(dirname "$SELF")/.." && pwd -P)"
+# A vendored copy keeps bin/ flat: scripts/skein/skein next to lib/ and commands/.
+[ -d "$SKEIN_HOME/commands" ] || SKEIN_HOME="$(dirname "$SELF")"
+export SKEIN_HOME
+
+usage() {
+  cat <<USAGE
+skein $(cat "$SKEIN_HOME/VERSION" 2>/dev/null || echo dev) — a flock of agents, rotating lead, one gate
+
+Usage: skein <command> [args]
+
+Setup
+  init [--name n --prefix P --board github|superset|none --driver superset|local]
+                         scaffold a repo: .skein/config.json, vendored scripts, templates
+  upgrade                resync the vendored scripts from the installed kit
+  doctor                 check this machine: driver, board, auth, hooks, caps
+
+Planning
+  plan                   the task DAG: status, dispatchable now, ownership overlaps
+  brief <TASK> [--check] validate a brief against its task (the skill writes it)
+
+Running
+  dispatch <TASK> [--tag t] [--model m] [--agent a]
+                         claim on the board, create the workspace, launch the worker
+  watch <TASK> [ws] [term] [max-hours] [poll-s]
+                         wait for the worker's completion envelope
+  status                 every running task, board and local, plus both caps
+  send <TASK> "message"  talk to a running worker
+
+Finishing
+  gate <TASK> [--only a,b] [--base ref]
+                         the merge gate (worker before DONE, coordinator before merge)
+  review <TASK>          cross-model review of the PR in a read-only worktree
+  merge <TASK>           gate, squash-merge, release the claim, delete the workspace
+
+Config: .skein/config.json (repo) and ~/.skein/config.json (this machine: maxAgents).
+USAGE
+}
+
+cmd="${1:-}"; shift || true
+case "$cmd" in
+  ""|-h|--help|help) usage; exit 0 ;;
+  --version|version) cat "$SKEIN_HOME/VERSION"; exit 0 ;;
+esac
+script="$SKEIN_HOME/commands/$cmd.sh"
+[ -f "$script" ] || { echo "skein: unknown command '$cmd'" >&2; usage >&2; exit 2; }
+exec bash "$script" "$@"
