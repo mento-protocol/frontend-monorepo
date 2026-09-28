@@ -29,17 +29,13 @@ Sentry.init({
   // Add optional integrations for additional features
   integrations: [
     Sentry.zodErrorsIntegration(),
-    Sentry.replayIntegration({
-      // There is no sensitive data on this site, all data is public on-chain so this shouldn't be a privacy concern
-      maskAllText: false,
-      maskAllInputs: false,
-      blockAllMedia: false,
-    }),
+    // Defaults mask all text and inputs and block media in replays.
+    Sentry.replayIntegration(),
   ],
 
-  // Adds request headers and IP for users, for more info visit:
+  // Do not attach request headers or user IP addresses to events, for more info visit:
   // https://docs.sentry.io/platforms/javascript/guides/nextjs/configuration/options/#sendDefaultPii
-  sendDefaultPii: true,
+  sendDefaultPii: false,
 
   ignoreErrors: sentryIgnoreErrors,
   denyUrls: sentryDenyUrls,
