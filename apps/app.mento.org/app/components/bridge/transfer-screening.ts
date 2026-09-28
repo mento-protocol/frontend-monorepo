@@ -18,7 +18,7 @@ export const UNVERIFIED =
  */
 export async function screenAddress(
   address: string,
-  fetchImpl: typeof fetch = fetch,
+  fetchImpl: typeof fetch = (...args) => fetch(...args),
 ): Promise<ScreeningResult> {
   if (!address.trim()) return "unverified";
 
@@ -45,7 +45,7 @@ export async function screenAddress(
  * destination wallet must be cleared before the widget submits a transfer.
  */
 export function createBridgeTransferValidator(
-  fetchImpl: typeof fetch = fetch,
+  fetchImpl: typeof fetch = (...args) => fetch(...args),
 ): BridgeTransferValidator {
   return async ({ fromWalletAddress, toWalletAddress }) => {
     const addresses = [fromWalletAddress, toWalletAddress];
