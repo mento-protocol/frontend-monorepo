@@ -27,6 +27,11 @@ export { useStabilityPoolStats } from "./use-stability-pool-stats";
 export { useSurplusCollateral } from "./use-surplus-collateral";
 export { useSystemParams } from "./use-system-params";
 export { useTroveData } from "./use-trove-data";
+export {
+  fetchTroveOwner,
+  isTroveOwner,
+  useTroveOwner,
+} from "./use-trove-owner";
 export { useTroveOperations } from "./use-trove-operations";
 export type {
   TroveOperation,
