@@ -84,6 +84,32 @@ describe("createBridgeTransferValidator", () => {
     });
   });
 
+  it("rejects the transfer when a non-2xx response reports the wallet as cleared", async () => {
+    const fetchImpl = fakeFetch(() =>
+      jsonResponse({ isSanctioned: false }, 503),
+    );
+    const validate = createBridgeTransferValidator(fetchImpl);
+
+    await expect(validate(transfer(SOURCE, DESTINATION))).resolves.toEqual({
+      isValid: false,
+      error: UNVERIFIED,
+    });
+  });
+
+  it("reports the ineligible message when one wallet is ineligible and the other unverified", async () => {
+    const fetchImpl = fakeFetch((address) =>
+      address === SOURCE
+        ? jsonResponse({ isSanctioned: true })
+        : jsonResponse({ isSanctioned: null, error: "check_failed" }, 502),
+    );
+    const validate = createBridgeTransferValidator(fetchImpl);
+
+    await expect(validate(transfer(SOURCE, DESTINATION))).resolves.toEqual({
+      isValid: false,
+      error: BLOCKED,
+    });
+  });
+
   it("rejects the transfer when the check is rate limited", async () => {
     const fetchImpl = fakeFetch(() =>
       jsonResponse({ error: "Too many requests" }, 429),

@@ -2,6 +2,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { BridgeView } from "./bridge-view";
+import { patchBridgeWidgetAccessibility } from "./bridge-widget-accessibility";
 
 const { accountState, chainState } = vi.hoisted(() => ({
   accountState: { isConnected: false },
@@ -18,6 +19,10 @@ vi.mock("next/dynamic", () => ({
 vi.mock("./bridge-config", () => ({
   bridgeConfig: {},
   getBridgeTheme: () => ({}),
+}));
+
+vi.mock("./bridge-widget-accessibility", () => ({
+  patchBridgeWidgetAccessibility: vi.fn(),
 }));
 
 vi.mock("next-themes", () => ({
@@ -49,6 +54,7 @@ describe("BridgeView", () => {
     accountState.isConnected = false;
     chainState.chainId = 42220;
     chainState.supported = true;
+    vi.mocked(patchBridgeWidgetAccessibility).mockClear();
   });
 
   it("asks for a wallet connection before showing the widget", () => {
@@ -70,6 +76,18 @@ describe("BridgeView", () => {
     expect(
       screen.queryByRole("heading", { name: "Connect your wallet to bridge" }),
     ).toBeNull();
+  });
+
+  it("attaches the accessibility patch when the widget mounts after connecting", () => {
+    const { container, rerender } = render(<BridgeView />);
+    expect(patchBridgeWidgetAccessibility).not.toHaveBeenCalled();
+
+    accountState.isConnected = true;
+    rerender(<BridgeView />);
+
+    const widgetRoot = container.querySelector(".bridge-widget");
+    expect(widgetRoot).not.toBeNull();
+    expect(patchBridgeWidgetAccessibility).toHaveBeenCalledWith(widgetRoot);
   });
 
   it("shows the mainnet-only state on an unsupported chain", () => {
