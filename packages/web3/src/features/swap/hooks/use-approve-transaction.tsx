@@ -1,6 +1,7 @@
 import { chainIdToChain } from "@/config/chains";
 import { buildApproveTransactionRequest } from "@/features/swap/hooks/build-approve-transaction-request";
 import { logger } from "@/utils";
+import { reportError } from "@/utils/error-reporter";
 import { toViemAddress, validateAddress } from "@/utils/addresses";
 import { isUserRejection } from "@/utils/is-user-rejection";
 import { TokenSymbol } from "@mento-protocol/mento-sdk";
@@ -177,6 +178,7 @@ export function useApproveTransaction({
       return hash;
     } catch (err) {
       logger.error(err);
+      reportError(err, { flow: "approve" });
       const message = getApproveToastErrorMessage(
         err instanceof Error ? err.message : String(err),
       );
