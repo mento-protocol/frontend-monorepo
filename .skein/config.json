@@ -49,7 +49,7 @@
   "secretAllow": [],
   "worker": {
     "agent": "claude",
-    "model": "claude-opus-5-5",
+    "model": "opus",
     "effort": "high"
   },
   "workerPrompt": "You are worker {ID} in a multi-agent build of {NAME}. Read AGENTS.md (including the \"Skein workers\" section), then {BRIEF}, and follow the brief exactly. Work only in this workspace and on this branch. Your gate is `{GATE} {ID}`; do not use any other workflow or skill to test, review or ship. When the gate passes, push the branch, open a pull request against audit-main-app that is ready for review, not a draft (`gh pr create --base audit-main-app`; see \"Pull request state\" and \"Pull request descriptions\" in AGENTS.md), and end your final message with the completion envelope described in AGENTS.md. Never merge a pull request and never push to audit-main-app or main.",
