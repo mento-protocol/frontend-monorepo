@@ -294,6 +294,9 @@ describe("ManageTroveView — owner-only management", () => {
     expectFormsRendered(false);
     expect(screen.queryByText("Adjust Position")).toBeNull();
     expect(screen.getAllByTestId("skeleton").length).toBeGreaterThan(0);
+    expect(
+      screen.queryByText(/The owner of this position couldn.t be confirmed/),
+    ).toBeNull();
   });
 
   it("(b) shows the closed notice when the status is not active or zombie", () => {
@@ -317,6 +320,20 @@ describe("ManageTroveView — owner-only management", () => {
   it("(c) shows the unconfirmed-owner notice when the owner lookup fails", () => {
     mockOwner = undefined;
     mockOwnerIsError = true;
+
+    renderView();
+
+    expectFormsRendered(false);
+    expect(
+      screen.getByText(/The owner of this position couldn.t be confirmed/),
+    ).toBeTruthy();
+    expect(screen.getByText("Unknown")).toBeTruthy();
+  });
+
+  it("(c) hides management when a refetch fails after the owner was read", () => {
+    mockOwner = OWNER;
+    mockOwnerIsError = true;
+    mockAccount = OWNER;
 
     renderView();
 
