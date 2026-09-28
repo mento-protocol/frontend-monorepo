@@ -19,16 +19,19 @@ step() { printf '\n==> %s\n' "$1"; }
 warn() { printf '  ! %s\n' "$1"; }
 ok() { printf '  ✓ %s\n' "$1"; }
 
-# skein dispatches each worker into a workspace named "<type>: <slug> (FM-12)",
-# or "fm-12" when a task has no type and slug. Worker workspaces get the root
+# skein dispatches each worker onto a branch named "<type>/<slug>-fm-12", or
+# "fm-12" when a task has no type and slug. The branch is the reliable signal:
+# workspaces created through the Superset CLI do not export
+# SUPERSET_WORKSPACE_NAME to this script. Worker workspaces get the root
 # checkout's env files with live credentials blanked, and a per-worktree
 # pre-push guard instead of the shared Trunk hooks. See the "Skein workers"
 # section of AGENTS.md.
 workspace_name="${SUPERSET_WORKSPACE_NAME:-${PWD##*/}}"
-skein_worker_pattern='\(FM-[0-9]+\)$|^fm-[0-9]+$'
+branch_name="$(git branch --show-current 2>/dev/null || true)"
+skein_worker_branch_pattern='(^|-)fm-[0-9]+$'
 withheld_env='CHAINALYSIS_API_KEY|SENTRY_AUTH_TOKEN|ETHERSCAN_API_KEY'
 is_skein_worker=0
-if [[ ${workspace_name} =~ ${skein_worker_pattern} ]]; then
+if [[ ${branch_name} =~ ${skein_worker_branch_pattern} ]]; then
 	is_skein_worker=1
 fi
 
