@@ -68,7 +68,10 @@
       "type": "fix",
       "slug": "bridge-transfer-screening",
       "brief": "docs/plan/briefs/FM-02.md",
-      "owned": ["apps/app.mento.org/app/components/bridge/**"],
+      "owned": [
+        "apps/app.mento.org/app/components/bridge/**",
+        "apps/app.mento.org/e2e/disconnected.visual.spec.ts"
+      ],
       "accept": [
         "pnpm --filter app.mento.org exec vitest run app/components/bridge",
         "grep -q \"validateTransferHandler: validateBridgeTransfer\" apps/app.mento.org/app/components/bridge/bridge-view.tsx",
