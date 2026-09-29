@@ -54,3 +54,9 @@ adds a high-signal surface without a numbered ADR.
 | [0011](0011-delayed-slack-failure-alerts.md)                          | Delay Slack alerts and suppress failures that recover within the window                                                                 |
 | [0012](0012-dependabot-prep-policy-moves-to-shared-skill.md)          | The shared `dependabot-prep` skill owns the preparation policy and supplies the claims                                                  |
 | [0013](0013-shell-size-limits-enforced-by-a-copied-checker.md)        | Shell file and function size limits, enforced by a byte-identical copy of the checker in `mento-protocol/agents`                        |
+
+### App
+
+| ADR                                                        | Decision                                                                                     |
+| ---------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| [0014](0014-sanctions-screening-uses-the-ofac-sdn-list.md) | `app.mento.org` screens wallets against OFAC's SDN list, cached in the app, and fails closed |
