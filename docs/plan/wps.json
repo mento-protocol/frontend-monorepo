@@ -60,7 +60,8 @@
       ],
       "deps": [],
       "money": true,
-      "pii": false
+      "pii": false,
+      "done": true
     },
     {
       "id": "FM-02",
@@ -116,7 +117,8 @@
       ],
       "deps": [],
       "money": false,
-      "pii": true
+      "pii": true,
+      "done": true
     }
   ]
 }
