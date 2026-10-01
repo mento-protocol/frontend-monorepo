@@ -33,7 +33,7 @@ catalog:
   tsup: ^8.5.1
   typescript: ^6.0.3
   typescript-eslint: ^8.65.0
-  viem: ^2.55.10
+  viem: ^2.56.8
   wagmi: ^2.16.9
   zod: ^4.6.2
   vitest: 4.1.11
