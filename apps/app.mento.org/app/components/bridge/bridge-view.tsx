@@ -128,7 +128,11 @@ function BridgeConnectState() {
         Polygon.
       </p>
 
-      <ConnectButton size="lg" text="Connect Wallet" />
+      <ConnectButton
+        size="lg"
+        text="Connect Wallet"
+        className="justify-center"
+      />
     </div>
   );
 }
