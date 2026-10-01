@@ -44,7 +44,7 @@
     "zod": "catalog:"
   },
   "devDependencies": {
-    "@argos-ci/playwright": "7.4.2",
+    "@argos-ci/playwright": "7.6.0",
     "@playwright/test": "1.63.0",
     "@repo/eslint-config": "workspace:*",
     "@repo/typescript-config": "workspace:*",
