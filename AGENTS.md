@@ -11,7 +11,7 @@ one, and run the advisory `pnpm adr:check` reminder before publishing.
 When an app-level Turbo task adds `passThroughEnv`, include
 `"$TURBO_EXTENDS$"` before app-specific names. A child `passThroughEnv` array
 replaces the root array. Without the sentinel, the task drops root build secrets
-such as `CHAINALYSIS_API_KEY` and `ETHERSCAN_API_KEY`.
+such as `ETHERSCAN_API_KEY`.
 
 ## Pull request state
 
