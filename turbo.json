@@ -32,7 +32,7 @@
         "NEXT_PUBLIC_WALLET_CONNECT_ID",
         "SENTRY_AUTH_TOKEN"
       ],
-      "passThroughEnv": ["CHAINALYSIS_API_KEY", "ETHERSCAN_API_KEY"],
+      "passThroughEnv": ["ETHERSCAN_API_KEY"],
       "outputs": ["dist/**", ".next/**", "!.next/cache/**"],
       "cache": true
     },

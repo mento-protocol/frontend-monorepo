@@ -1718,8 +1718,6 @@ These are not part of the prebuilt candidate environment unless they are added
 to the reviewed inventory above with `ciClassification: vercel-pull`; raw
 unknown values are intentionally omitted rather than passed through. They are
 not missing-build failures.
-`CHAINALYSIS_API_KEY` is optional in the app schema and is not a prebuilt-build
-prerequisite.
 
 ### Required GitHub secrets
 
