@@ -7,11 +7,11 @@ catalog:
   "@mento-protocol/mento-sdk": 3.4.0
   "@playwright/test": 1.63.0
   "@rainbow-me/rainbowkit": ^2.2.11
-  "@sentry/nextjs": ^10.35.0
+  "@sentry/nextjs": ^10.75.3
   "@t3-oss/env-nextjs": ^0.13.11
   "@tailwindcss/postcss": ^4.3.3
-  "@tanstack/react-query": 5.102.8
-  "@types/node": ^26.4.0
+  "@tanstack/react-query": 5.104.0
+  "@types/node": ^26.6.3
   "@types/react": ^19.2.18
   "@types/react-dom": ^19.2.4
   "@vercel/analytics": ^2.0.1
@@ -32,7 +32,7 @@ catalog:
   tailwindcss: ^4.3.3
   tsup: ^8.5.1
   typescript: ^6.0.3
-  typescript-eslint: ^8.65.0
+  typescript-eslint: ^8.70.1
   viem: ^2.55.10
   wagmi: ^2.16.9
   zod: ^4.6.2
