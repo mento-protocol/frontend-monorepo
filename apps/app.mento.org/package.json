@@ -20,7 +20,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@hookform/resolvers": "^5.2.2",
+    "@hookform/resolvers": "^5.9.1",
     "@mento-protocol/mento-sdk": "catalog:",
     "@mento-protocol/ui": "workspace:*",
     "@rainbow-me/rainbowkit": "catalog:",
