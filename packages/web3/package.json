@@ -74,14 +74,14 @@
     "@repo/typescript-config": "workspace:*",
     "@repo/vitest-config": "workspace:*",
     "@sentry/nextjs": "catalog:",
-    "@testing-library/react": "^16.3.0",
+    "@testing-library/react": "^16.3.3",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "esbuild-plugin-preserve-directives": "catalog:",
     "eslint": "catalog:",
-    "jsdom": "^29.1.1",
+    "jsdom": "^30.0.1",
     "tsup": "catalog:",
     "vitest": "catalog:"
   }
