@@ -18,7 +18,7 @@ const cases: { name: string; props: ButtonProps }[] = [
 ];
 
 describe("Button", () => {
-  it.each(cases)("renders the $name variant unchanged", ({ props }) => {
+  it.each(cases)("renders the '$name' variant unchanged", ({ props }) => {
     const { container } = render(<Button {...props}>Label</Button>);
     expect(container.firstChild).toMatchSnapshot();
   });

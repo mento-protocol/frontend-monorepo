@@ -12,7 +12,7 @@ const cases: { name: string; props: ComponentProps<"input"> }[] = [
 ];
 
 describe("Input", () => {
-  it.each(cases)("renders the $name state unchanged", ({ props }) => {
+  it.each(cases)("renders the '$name' state unchanged", ({ props }) => {
     const { container } = render(<Input {...props} />);
     expect(container.firstChild).toMatchSnapshot();
   });
