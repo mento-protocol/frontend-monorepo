@@ -40,15 +40,7 @@ catalog:
   "@vitest/coverage-v8": 4.1.11
 
 # Dependabot maps its seven-day npm cooldown to pnpm minimumReleaseAge.
-minimumReleaseAgeExclude:
-  # Remove after 2026-08-25T15:17:37.059Z or when the reviewed lock entry changes.
-  - turbo@2.10.11
-  - "@turbo/darwin-64@2.10.11"
-  - "@turbo/darwin-arm64@2.10.11"
-  - "@turbo/linux-64@2.10.11"
-  - "@turbo/linux-arm64@2.10.11"
-  - "@turbo/windows-64@2.10.11"
-  - "@turbo/windows-arm64@2.10.11"
+minimumReleaseAgeExclude: []
 
 onlyBuiltDependencies:
   - "@parcel/watcher"
