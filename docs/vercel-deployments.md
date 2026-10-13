@@ -3304,7 +3304,7 @@ used exact head `deb769c17bec83a711f816ed668334f245856173`. Controller run
 selected App only, and worker run
 [`29957526709`](https://github.com/mento-protocol/frontend-monorepo/actions/runs/29957526709)
 created GitHub Deployment `5562894740` in `preview/app/pr-610` for the immutable
-URL <https://appmento-dedwx4psr-mentolabs.vercel.app/>. The reusable smoke
+URL `https://appmento-dedwx4psr-mentolabs.vercel.app/` (historical canary reference). The reusable smoke
 passed its bundled-Chromium interaction, root/asset/header, build-identity, console,
 and same-origin network checks. Terminal callback run
 [`29958427106`](https://github.com/mento-protocol/frontend-monorepo/actions/runs/29958427106)
