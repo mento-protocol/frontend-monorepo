@@ -946,30 +946,13 @@ test("the OSV head scan refuses inputs that leave the candidate checkout", () =>
   }
 });
 
-test("pnpm release-age exclusions stay exact and bounded", () => {
+test("pnpm release-age exclusions stay empty after the Turbo exception retires", () => {
   const workspace = yaml("pnpm-workspace.yaml");
-  const turboReleaseAgeExclusions = [
-    "turbo@2.10.11",
-    "@turbo/darwin-64@2.10.11",
-    "@turbo/darwin-arm64@2.10.11",
-    "@turbo/linux-64@2.10.11",
-    "@turbo/linux-arm64@2.10.11",
-    "@turbo/windows-64@2.10.11",
-    "@turbo/windows-arm64@2.10.11",
-  ];
-
   assert.deepEqual(
     workspace.minimumReleaseAgeExclude,
-    turboReleaseAgeExclusions,
+    [],
+    "release-age exclusions must remain empty after the reviewed Turbo exception expires",
   );
-
-  const lockfile = yaml("pnpm-lock.yaml");
-  for (const packageSelector of turboReleaseAgeExclusions) {
-    assert.ok(
-      lockfile.packages[packageSelector],
-      `remove the release-age exclusion when ${packageSelector} leaves the reviewed lockfile`,
-    );
-  }
 });
 
 test("Wormhole Connect owns isolated UI dependencies", () => {
