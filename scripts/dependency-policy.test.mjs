@@ -1688,6 +1688,11 @@ test("both agent guides carry the same Dependabot preparation facts", () => {
     "136622811",
     "@coderabbitai review",
     "at most once per exact head",
+    "advisory technical reviewer for Dependabot PRs, not a preparation gate",
+    "does not block readiness and does not require provisioning a bot seat",
+    "Required CI checks remain mandatory on the current head",
+    "require independent review of the final repair diff",
+    "Read all review feedback, address actual findings",
   ]) {
     assert.ok(wording.includes(fact), fact);
   }
