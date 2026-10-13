@@ -3,7 +3,7 @@ packages:
   - packages/*
 
 catalog:
-  "@eslint/js": ^9.39.5
+  "@eslint/js": ^10.0.1
   "@mento-protocol/mento-sdk": 3.4.0
   "@playwright/test": 1.63.0
   "@rainbow-me/rainbowkit": ^2.2.11
@@ -17,7 +17,7 @@ catalog:
   "@vercel/analytics": ^2.0.1
   concurrently: ^10.0.5
   esbuild-plugin-preserve-directives: ^0.0.11
-  eslint: ^10.9.1
+  eslint: ^10.11.0
   eslint-config-prettier: ^10.1.8
   jotai: ^2.20.2
   lucide-react: ^1.28.0
