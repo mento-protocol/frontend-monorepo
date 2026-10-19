@@ -90,7 +90,9 @@ export function useZapOutQuote({
         };
       } catch (error) {
         const errorMessage = getZapOutQuoteRawError(error);
-        throw new Error(toZapOutQuoteErrorMessage(errorMessage));
+        throw new Error(toZapOutQuoteErrorMessage(errorMessage), {
+          cause: error,
+        });
       }
     },
     enabled: isValidAmount,

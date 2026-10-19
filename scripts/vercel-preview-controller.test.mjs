@@ -16802,7 +16802,7 @@ function driveCoalescingEpochs(epochs, { syncs = 16 } = {}) {
   let liveResults = [];
   let state = null;
   let checkpoint = null;
-  let journal = null;
+  let journal;
   const perEpoch = [];
 
   for (let epoch = 0; epoch < epochs; epoch += 1) {

@@ -940,7 +940,7 @@ async function smokeMainCandidateUrl({
       continue;
     }
 
-    let retryableStatus = false;
+    let retryableStatus;
     try {
       let responseUrl = null;
       try {

@@ -435,6 +435,7 @@ function decodeManifestBody(metadata) {
   } catch (error) {
     throw new Error(
       `Main candidate release manifest encoding is malformed: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
     );
   }
   return parsed;

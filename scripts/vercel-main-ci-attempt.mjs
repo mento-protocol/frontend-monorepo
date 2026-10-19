@@ -451,7 +451,9 @@ async function requestJson(
       }
     } catch (error) {
       if (signal?.aborted) {
-        throw new Error("GitHub API verification was cancelled");
+        throw new Error("GitHub API verification was cancelled", {
+          cause: error,
+        });
       }
       if (error instanceof RetryableGitHubApiError) {
         finalReason = error.reason;
