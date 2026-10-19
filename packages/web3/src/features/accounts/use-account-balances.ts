@@ -54,7 +54,9 @@ async function getTokenBalance({
     // or return a default/error indicator string if you want to show partial success.
     // For now, re-throwing to make it clear that this specific token balance fetch failed.
     // _fetchAccountBalances will handle this with Promise.allSettled.
-    throw new Error(`Failed to fetch balance for ${tokenSymbol}`);
+    throw new Error(`Failed to fetch balance for ${tokenSymbol}`, {
+      cause: error,
+    });
   }
 }
 

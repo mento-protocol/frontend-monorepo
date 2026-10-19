@@ -333,7 +333,7 @@ export const VoteCardContent = ({
   const isVotedForAbstain = recordedVoteSupport === 2;
   const isVotedForReject = recordedVoteSupport === 0;
   const quorumLabel = useMemo(() => {
-    let label = "";
+    let label: string;
 
     if (isVotingOpen) label = hasQuorum ? "Quorum met" : "Quorum not yet met";
     else label = hasQuorum ? "Quorum met" : "Quorum not met";

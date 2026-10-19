@@ -141,14 +141,18 @@ export function useSwapTransaction(
         const estimateMessage = extractFullErrorString(estimateError);
 
         if (isInsufficientLiquidityError(estimateMessage)) {
-          throw new Error(SWAP_INSUFFICIENT_LIQUIDITY_LABEL);
+          throw new Error(SWAP_INSUFFICIENT_LIQUIDITY_LABEL, {
+            cause: estimateError,
+          });
         }
 
         if (
           estimateMessage.includes("No route found for tokens") ||
           estimateMessage.includes("tradable path")
         ) {
-          throw new Error("No route found for this token pair.");
+          throw new Error("No route found for this token pair.", {
+            cause: estimateError,
+          });
         }
 
         throw estimateError;

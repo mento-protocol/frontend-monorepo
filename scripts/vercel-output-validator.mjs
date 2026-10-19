@@ -102,7 +102,9 @@ function assertContainedFunctionDependencyLink(
       targetEntry = lstatSync(current);
     } catch (error) {
       if (error?.code === "ENOENT") return;
-      throw new Error("Prebuilt function symbolic link target is invalid");
+      throw new Error("Prebuilt function symbolic link target is invalid", {
+        cause: error,
+      });
     }
     const final = index === targetParts.length - 1;
     if (

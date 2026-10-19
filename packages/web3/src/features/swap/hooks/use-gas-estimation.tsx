@@ -200,7 +200,9 @@ export async function fetchGasEstimation(
 
       // Insufficient liquidity - surface to UI instead of falling back
       if (isInsufficientLiquidityError(errorMessage)) {
-        throw new Error(SWAP_INSUFFICIENT_LIQUIDITY_LABEL);
+        throw new Error(SWAP_INSUFFICIENT_LIQUIDITY_LABEL, {
+          cause: estimateError,
+        });
       }
 
       // Estimation failed for another reason — the fee is unavailable.
