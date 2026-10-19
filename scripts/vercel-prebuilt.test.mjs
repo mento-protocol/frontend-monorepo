@@ -980,7 +980,7 @@ test("sharp postbuild assertion requires one complete runtime trace", () => {
         assertSharpOutputTrace(buildDirectory, {
           runtimePlatform: "linux-x64",
         }),
-      /No single Next output trace contains sharp 0\.35\.4.*libvips 8\.18\.6/,
+      /No single Next output trace contains sharp 0\.35\.5.*libvips 8\.18\.7/,
     );
   } finally {
     rmSync(directory, { force: true, recursive: true });
