@@ -213,7 +213,11 @@ test("documentation-only changes retain the always-on Trunk static checks", () =
     /- name: Install pnpm dependencies\n {8}uses: \.\/\.github\/actions\/pnpm-install/,
     "Trunk's repository plugins require dependencies on every diff",
   );
-  for (const stepName of ["Type check", "Knip"]) {
+  for (const stepName of [
+    "Type check",
+    "Knip",
+    "Check shell file and function sizes",
+  ]) {
     assert.match(
       staticJob,
       new RegExp(

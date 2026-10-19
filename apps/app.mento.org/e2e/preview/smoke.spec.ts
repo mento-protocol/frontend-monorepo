@@ -173,7 +173,7 @@ test("mock wallet connects on a preview host", async ({ page }) => {
     page.getByText("0xf39F...2266").filter({ visible: true }),
   ).toBeVisible({ timeout: 20_000 });
 
-  // The preview env has CHAINALYSIS_API_KEY configured and the junk address
+  // The preview route screens against OFAC's SDN list and the junk address
   // is not sanctioned — if this block screen appears, that's a genuine smoke
   // failure (sanctions-guard.tsx), not a flake.
   for (const heading of BLOCK_SCREEN_HEADINGS) {

@@ -1,18 +1,18 @@
-import { afterEach, describe, expect, it, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
-vi.mock("@/env.mjs", () => ({
-  env: { CHAINALYSIS_API_KEY: "test-api-key" },
+const ofacList = vi.hoisted(() => ({
+  getSanctionedEvmAddresses: vi.fn(),
 }));
 
-const mockConfig = vi.hoisted(() => ({ SANCTIONS_CHECK_FAIL_OPEN: false }));
+vi.mock("./ofac-list", () => ofacList);
 
-vi.mock("./config", () => mockConfig);
-
-vi.mock("@sentry/nextjs", () => ({
+const sentry = vi.hoisted(() => ({
   captureException: vi.fn(),
   captureMessage: vi.fn(),
 }));
+
+vi.mock("@sentry/nextjs", () => sentry);
 
 function createRequest(address?: string, ip?: string): NextRequest {
   const url = address
@@ -23,13 +23,18 @@ function createRequest(address?: string, ip?: string): NextRequest {
   return new NextRequest(url, { headers });
 }
 
-const VALID_ADDRESS = "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045";
+// An SDN-listed address, stored lowercase as the list loader does.
+const LISTED_ADDRESS = "0x098B716B8Aaf21512996dC57EB0615e2383E2f96";
+const CLEAN_ADDRESS = "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045";
 
 describe("GET /api/sanctions", () => {
   let GET: (request: NextRequest) => Promise<Response>;
 
   beforeEach(async () => {
-    vi.restoreAllMocks();
+    vi.clearAllMocks();
+    ofacList.getSanctionedEvmAddresses.mockResolvedValue(
+      new Set([LISTED_ADDRESS.toLowerCase()]),
+    );
     // Re-import module each test to reset the in-memory rate limit map
     vi.resetModules();
     const mod = await import("./route");
@@ -49,243 +54,77 @@ describe("GET /api/sanctions", () => {
       expect(response.status).toBe(400);
       const body = await response.json();
       expect(body.error).toBe("Invalid or missing address parameter");
+      expect(ofacList.getSanctionedEvmAddresses).not.toHaveBeenCalled();
     });
   });
 
-  describe("clean address", () => {
-    it("returns isSanctioned: false for a clean address", async () => {
-      const fetchMock = vi.fn().mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve({ identifications: [] }),
+  describe("listed address", () => {
+    it.each([
+      ["checksummed", LISTED_ADDRESS],
+      ["lowercase", LISTED_ADDRESS.toLowerCase()],
+    ])("returns isSanctioned: true for a %s address", async (_, address) => {
+      const response = await GET(createRequest(address, "1.2.3.4"));
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ isSanctioned: true });
+    });
+
+    it("reports the attempt without the address", async () => {
+      await GET(createRequest(LISTED_ADDRESS, "1.2.3.4"));
+      expect(sentry.captureMessage).toHaveBeenCalledWith(
+        "Sanctioned address attempted connection",
+        { level: "warning" },
+      );
+    });
+  });
+
+  describe("unlisted address", () => {
+    it("returns isSanctioned: false", async () => {
+      const response = await GET(createRequest(CLEAN_ADDRESS, "1.2.3.4"));
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ isSanctioned: false });
+      expect(sentry.captureMessage).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("no list available (fail-closed)", () => {
+    it("returns 502 with isSanctioned: null", async () => {
+      const error = new Error("OFAC SDN download failed: 503");
+      ofacList.getSanctionedEvmAddresses.mockRejectedValue(error);
+
+      const response = await GET(createRequest(CLEAN_ADDRESS, "1.2.3.4"));
+      expect(response.status).toBe(502);
+      expect(await response.json()).toEqual({
+        isSanctioned: null,
+        error: "check_failed",
       });
-      vi.stubGlobal("fetch", fetchMock);
-
-      const response = await GET(createRequest(VALID_ADDRESS, "1.2.3.4"));
-      expect(response.status).toBe(200);
-      const body = await response.json();
-      expect(body.isSanctioned).toBe(false);
-      expect(body.error).toBeUndefined();
-    });
-
-    it("forwards X-API-KEY header to Chainalysis", async () => {
-      const fetchMock = vi.fn().mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve({ identifications: [] }),
+      expect(sentry.captureException).toHaveBeenCalledWith(error, {
+        extra: { context: "sanctions_check" },
       });
-      vi.stubGlobal("fetch", fetchMock);
-
-      await GET(createRequest(VALID_ADDRESS, "1.2.3.4"));
-
-      expect(fetchMock).toHaveBeenCalledOnce();
-      const [url, options] = fetchMock.mock.calls[0]!;
-      expect(url).toContain(VALID_ADDRESS);
-      expect(options.headers["X-API-KEY"]).toBe("test-api-key");
     });
   });
 
-  describe("sanctioned address", () => {
-    it("returns isSanctioned: true when identifications are present", async () => {
-      vi.stubGlobal(
-        "fetch",
-        vi.fn().mockResolvedValue({
-          ok: true,
-          json: () =>
-            Promise.resolve({
-              identifications: [{ category: "sanctions", name: "OFAC SDN" }],
-            }),
-        }),
-      );
+  describe("response contract", () => {
+    it("never carries a degraded field", async () => {
+      const bodies = [];
+      for (const address of [LISTED_ADDRESS, CLEAN_ADDRESS]) {
+        bodies.push(await (await GET(createRequest(address))).json());
+      }
+      ofacList.getSanctionedEvmAddresses.mockRejectedValue(new Error("down"));
+      bodies.push(await (await GET(createRequest(CLEAN_ADDRESS))).json());
 
-      const response = await GET(createRequest(VALID_ADDRESS, "1.2.3.4"));
-      expect(response.status).toBe(200);
-      const body = await response.json();
-      expect(body.isSanctioned).toBe(true);
-    });
-  });
-
-  describe("API failure (fail-closed)", () => {
-    it("returns 502 with isSanctioned: null on upstream error", async () => {
-      vi.stubGlobal(
-        "fetch",
-        vi.fn().mockResolvedValue({ ok: false, status: 500 }),
-      );
-
-      const response = await GET(createRequest(VALID_ADDRESS, "1.2.3.4"));
-      expect(response.status).toBe(502);
-      const body = await response.json();
-      expect(body.isSanctioned).toBeNull();
-      expect(body.error).toBe("check_failed");
-    });
-
-    it("returns 502 with isSanctioned: null on network error", async () => {
-      vi.stubGlobal(
-        "fetch",
-        vi.fn().mockRejectedValue(new Error("Network error")),
-      );
-
-      const response = await GET(createRequest(VALID_ADDRESS, "1.2.3.4"));
-      expect(response.status).toBe(502);
-      const body = await response.json();
-      expect(body.isSanctioned).toBeNull();
-      expect(body.error).toBe("check_failed");
-    });
-  });
-
-  describe("SANCTIONS_CHECK_FAIL_OPEN", () => {
-    afterEach(() => {
-      mockConfig.SANCTIONS_CHECK_FAIL_OPEN = false;
-    });
-
-    it("lets the user through when the upstream check fails", async () => {
-      mockConfig.SANCTIONS_CHECK_FAIL_OPEN = true;
-      vi.stubGlobal(
-        "fetch",
-        vi.fn().mockResolvedValue({ ok: false, status: 500 }),
-      );
-
-      const response = await GET(createRequest(VALID_ADDRESS, "1.2.3.4"));
-      expect(response.status).toBe(200);
-      const body = await response.json();
-      expect(body.isSanctioned).toBe(false);
-      expect(body.degraded).toBe(true);
-    });
-
-    it("lets the user through when a 200 response has an error body", async () => {
-      mockConfig.SANCTIONS_CHECK_FAIL_OPEN = true;
-      vi.stubGlobal(
-        "fetch",
-        vi.fn().mockResolvedValue({
-          ok: true,
-          json: () =>
-            Promise.resolve({ status: "500", message: "Server Error" }),
-        }),
-      );
-
-      const response = await GET(createRequest(VALID_ADDRESS, "1.2.3.4"));
-      expect(response.status).toBe(200);
-      const body = await response.json();
-      expect(body.isSanctioned).toBe(false);
-      expect(body.degraded).toBe(true);
-    });
-
-    it("still blocks addresses Chainalysis identifies", async () => {
-      mockConfig.SANCTIONS_CHECK_FAIL_OPEN = true;
-      vi.stubGlobal(
-        "fetch",
-        vi.fn().mockResolvedValue({
-          ok: true,
-          json: () =>
-            Promise.resolve({ identifications: [{ category: "sanctions" }] }),
-        }),
-      );
-
-      const response = await GET(createRequest(VALID_ADDRESS, "1.2.3.4"));
-      const body = await response.json();
-      expect(body.isSanctioned).toBe(true);
-    });
-  });
-
-  describe("malformed API response (fail-closed)", () => {
-    it("returns 502 when identifications field is missing", async () => {
-      vi.stubGlobal(
-        "fetch",
-        vi.fn().mockResolvedValue({
-          ok: true,
-          json: () => Promise.resolve({}),
-        }),
-      );
-
-      const response = await GET(createRequest(VALID_ADDRESS, "1.2.3.4"));
-      expect(response.status).toBe(502);
-      const body = await response.json();
-      expect(body.isSanctioned).toBeNull();
-      expect(body.error).toBe("check_failed");
-    });
-
-    it("returns 502 when identifications is not an array", async () => {
-      vi.stubGlobal(
-        "fetch",
-        vi.fn().mockResolvedValue({
-          ok: true,
-          json: () => Promise.resolve({ identifications: "not-an-array" }),
-        }),
-      );
-
-      const response = await GET(createRequest(VALID_ADDRESS, "1.2.3.4"));
-      expect(response.status).toBe(502);
-      const body = await response.json();
-      expect(body.isSanctioned).toBeNull();
-      expect(body.error).toBe("check_failed");
-    });
-
-    it("returns 502 when response body is null", async () => {
-      vi.stubGlobal(
-        "fetch",
-        vi.fn().mockResolvedValue({
-          ok: true,
-          json: () => Promise.resolve(null),
-        }),
-      );
-
-      const response = await GET(createRequest(VALID_ADDRESS, "1.2.3.4"));
-      expect(response.status).toBe(502);
-      const body = await response.json();
-      expect(body.isSanctioned).toBeNull();
-    });
-  });
-
-  describe("missing API key", () => {
-    it("returns 502 when CHAINALYSIS_API_KEY is not set", async () => {
-      vi.resetModules();
-      vi.doMock("@/env.mjs", () => ({
-        env: { CHAINALYSIS_API_KEY: undefined },
-      }));
-      vi.doMock("@sentry/nextjs", () => ({
-        captureException: vi.fn(),
-        captureMessage: vi.fn(),
-      }));
-      const { GET: getWithoutKey } = await import("./route");
-
-      const response = await getWithoutKey(
-        createRequest(VALID_ADDRESS, "1.2.3.4"),
-      );
-      expect(response.status).toBe(502);
-      const body = await response.json();
-      expect(body.isSanctioned).toBeNull();
-      expect(body.error).toBe("check_failed");
-    });
-  });
-
-  describe("fetch timeout", () => {
-    it("returns 502 when fetch is aborted", async () => {
-      vi.stubGlobal(
-        "fetch",
-        vi.fn().mockRejectedValue(new DOMException("Aborted", "AbortError")),
-      );
-
-      const response = await GET(createRequest(VALID_ADDRESS, "1.2.3.4"));
-      expect(response.status).toBe(502);
-      const body = await response.json();
-      expect(body.isSanctioned).toBeNull();
-      expect(body.error).toBe("check_failed");
+      for (const body of bodies) {
+        expect(body).not.toHaveProperty("degraded");
+      }
     });
   });
 
   describe("rate limiting", () => {
     it("returns 429 after exceeding rate limit", async () => {
-      vi.stubGlobal(
-        "fetch",
-        vi.fn().mockResolvedValue({
-          ok: true,
-          json: () => Promise.resolve({ identifications: [] }),
-        }),
-      );
-
       const ip = "10.0.0.1";
       const responses = [];
 
       for (let i = 0; i < 62; i++) {
-        responses.push(await GET(createRequest(VALID_ADDRESS, ip)));
+        responses.push(await GET(createRequest(CLEAN_ADDRESS, ip)));
       }
 
       const lastResponse = responses[responses.length - 1]!;

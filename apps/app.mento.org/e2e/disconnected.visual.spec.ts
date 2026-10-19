@@ -2,15 +2,12 @@ import type { Page } from "@playwright/test";
 
 import { snapshotPage, test, type Theme } from "./fixtures";
 
-// The bridge form is the Wormhole widget, dynamically imported (ssr:false) with
-// a loading-dot fallback. It mounts client-side after `networkidle` (its blocked
-// external calls abort instantly), so wait for its disconnected "Connect source
-// wallet" CTA to render — otherwise the snapshot races the skeleton vs the form.
-const waitForBridgeWidget = async (page: Page): Promise<void> => {
+// The bridge shows a connect prompt until a wallet is connected in the app, so
+// a disconnected visitor never mounts the Wormhole widget. Wait for the prompt's
+// heading so the snapshot is deterministic.
+const waitForBridgeConnectState = async (page: Page): Promise<void> => {
   await page
-    .locator(".bridge-widget")
-    .getByText(/connect source wallet/i)
-    .first()
+    .getByRole("heading", { name: /connect your wallet to bridge/i })
     .waitFor();
 };
 
@@ -25,7 +22,7 @@ const PAGES: {
   { url: "/borrow/open", name: "borrow-open" },
   { url: "/earn", name: "earn" },
   { url: "/pools", name: "pools" },
-  { url: "/bridge", name: "bridge", ready: waitForBridgeWidget },
+  { url: "/bridge", name: "bridge", ready: waitForBridgeConnectState },
 ];
 
 const THEMES: Theme[] = ["dark", "light"];

@@ -2,6 +2,7 @@
 
 import { links } from "@mento-protocol/ui";
 import { logger } from "@repo/web3";
+import * as Sentry from "@sentry/nextjs";
 import { Frown } from "lucide-react";
 import { Component, PropsWithChildren, type ErrorInfo } from "react";
 
@@ -25,6 +26,10 @@ export class ErrorBoundary extends Component<
       errorInfo,
     });
     logger.error("Error caught by error boundary", error, errorInfo);
+    // Next.js does not report errors caught by a client boundary in production.
+    Sentry.captureException(error, {
+      contexts: { react: { componentStack: errorInfo.componentStack ?? "" } },
+    });
   }
 
   render() {

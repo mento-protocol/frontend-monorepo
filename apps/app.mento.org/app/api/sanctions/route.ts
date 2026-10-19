@@ -1,13 +1,10 @@
-import { env } from "@/env.mjs";
 import * as Sentry from "@sentry/nextjs";
 import { NextRequest, NextResponse } from "next/server";
 import { isAddress } from "viem";
-import { SANCTIONS_CHECK_FAIL_OPEN } from "./config";
+import { getSanctionedEvmAddresses } from "./ofac-list";
 
-const CHAINALYSIS_API_BASE = "https://public.chainalysis.com/api/v1/address";
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX_REQUESTS = 60;
-const FETCH_TIMEOUT_MS = 10_000;
 
 const requestCounts = new Map<string, { count: number; resetAt: number }>();
 
@@ -55,17 +52,6 @@ function isRateLimited(ip: string): boolean {
   return entry.count > RATE_LIMIT_MAX_REQUESTS;
 }
 
-function failClosed() {
-  if (SANCTIONS_CHECK_FAIL_OPEN) {
-    Sentry.captureMessage("Sanctions check failed open", { level: "warning" });
-    return NextResponse.json({ isSanctioned: false, degraded: true });
-  }
-  return NextResponse.json(
-    { isSanctioned: null, error: "check_failed" },
-    { status: 502 },
-  );
-}
-
 export async function GET(request: NextRequest) {
   const ip = getClientIp(request);
 
@@ -82,67 +68,27 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  if (!env.CHAINALYSIS_API_KEY) {
-    Sentry.captureException(new Error("CHAINALYSIS_API_KEY is not configured"));
-    return failClosed();
-  }
-
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-
-  // Address is validated by isAddress() above (0x-prefixed hex string).
-  // encodeURIComponent prevents any path traversal or injection.
-  const sanitizedAddress = encodeURIComponent(address);
-  const url = `${CHAINALYSIS_API_BASE}/${sanitizedAddress}`;
-
+  let sanctionedAddresses: ReadonlySet<string>;
   try {
-    const response = await fetch(url, {
-      headers: {
-        "X-API-KEY": env.CHAINALYSIS_API_KEY,
-        Accept: "application/json",
-      },
-      signal: controller.signal,
-    });
-
-    if (!response.ok) {
-      Sentry.captureException(
-        new Error(`Chainalysis API error: ${response.status}`),
-        { extra: { status: response.status } },
-      );
-      return failClosed();
-    }
-
-    const data = await response.json();
-
-    // Validate response shape — fail closed on unexpected payloads
-    if (
-      !data ||
-      typeof data !== "object" ||
-      !Array.isArray(data.identifications)
-    ) {
-      Sentry.captureException(
-        new Error("Chainalysis API returned unexpected response shape"),
-        { extra: { dataKeys: data ? Object.keys(data) : null } },
-      );
-      return failClosed();
-    }
-
-    const isSanctioned = data.identifications.length > 0;
-
-    if (isSanctioned) {
-      Sentry.captureMessage("Sanctioned address attempted connection", {
-        level: "warning",
-        extra: { address },
-      });
-    }
-
-    return NextResponse.json({ isSanctioned });
+    sanctionedAddresses = await getSanctionedEvmAddresses();
   } catch (error) {
+    // No verified list has been loaded, so there is no verdict to give.
     Sentry.captureException(error, {
       extra: { context: "sanctions_check" },
     });
-    return failClosed();
-  } finally {
-    clearTimeout(timeout);
+    return NextResponse.json(
+      { isSanctioned: null, error: "check_failed" },
+      { status: 502 },
+    );
   }
+
+  const isSanctioned = sanctionedAddresses.has(address.toLowerCase());
+
+  if (isSanctioned) {
+    Sentry.captureMessage("Sanctioned address attempted connection", {
+      level: "warning",
+    });
+  }
+
+  return NextResponse.json({ isSanctioned });
 }

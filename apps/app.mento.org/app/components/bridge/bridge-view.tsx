@@ -8,12 +8,14 @@ import { getBridgeTheme, bridgeConfig } from "./bridge-config";
 import { Button } from "@mento-protocol/ui";
 import {
   Celo,
+  ConnectButton,
   isFeatureConfiguredOnChain,
   useSwitchChainWithFeedback,
 } from "@repo/web3";
-import { useChainId } from "@repo/web3/wagmi";
+import { useAccount, useChainId } from "@repo/web3/wagmi";
 import { ArrowRightLeft } from "lucide-react";
 import { patchBridgeWidgetAccessibility } from "./bridge-widget-accessibility";
+import { validateBridgeTransfer } from "./transfer-screening";
 
 const WormholeConnect = dynamic(
   () => import("@wormhole-foundation/wormhole-connect"),
@@ -27,6 +29,61 @@ const WormholeConnect = dynamic(
   },
 );
 
+const bridgeWidgetConfig: typeof bridgeConfig = {
+  ...bridgeConfig,
+  validateTransferHandler: validateBridgeTransfer,
+};
+
+function BridgeNetworkIcons() {
+  return (
+    <div className="mb-7 flex justify-center">
+      <div className="gap-4 flex items-center">
+        <div className="h-14 w-14 shadow-lg flex items-center justify-center rounded-full bg-[#FCFF52] shadow-[#FCFF52]/20">
+          <Image
+            src="/tokens/CELO.svg"
+            alt="Celo"
+            width={40}
+            height={40}
+            className="h-10 w-10"
+          />
+        </div>
+
+        <div className="gap-1 flex flex-col items-center">
+          <div className="w-10 h-[2px] bg-gradient-to-r from-primary/60 via-primary to-primary/60" />
+          <ArrowRightLeft className="h-5 w-5 text-primary" />
+          <div className="w-10 h-[2px] bg-gradient-to-r from-primary/60 via-primary to-primary/60" />
+        </div>
+
+        <div className="h-14 w-14 shadow-lg flex items-center justify-center rounded-full shadow-[#836EF9]/20">
+          <Image
+            src="/networks/monad.svg"
+            alt="Monad"
+            width={56}
+            height={56}
+            className="h-14 w-14"
+          />
+        </div>
+
+        <div className="gap-1 flex flex-col items-center">
+          <div className="w-10 h-[2px] bg-gradient-to-r from-primary/60 via-primary to-primary/60" />
+          <ArrowRightLeft className="h-5 w-5 text-primary" />
+          <div className="w-10 h-[2px] bg-gradient-to-r from-primary/60 via-primary to-primary/60" />
+        </div>
+
+        <div className="h-14 w-14 shadow-lg flex items-center justify-center rounded-full shadow-[#6c00f6]/20">
+          <Image
+            src="/networks/polygon.svg"
+            alt="Polygon"
+            width={56}
+            height={56}
+            className="h-14 w-14"
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function BridgeTestnetState() {
   const { switchToChain } = useSwitchChainWithFeedback();
 
@@ -38,51 +95,7 @@ function BridgeTestnetState() {
     <div className="px-6 py-14 relative overflow-hidden rounded-xl bg-card text-center">
       <div className="top-0 w-48 absolute left-1/2 h-[2px] -translate-x-1/2 bg-gradient-to-r from-transparent via-primary/50 to-transparent" />
 
-      <div className="mb-7 flex justify-center">
-        <div className="gap-4 flex items-center">
-          <div className="h-14 w-14 shadow-lg flex items-center justify-center rounded-full bg-[#FCFF52] shadow-[#FCFF52]/20">
-            <Image
-              src="/tokens/CELO.svg"
-              alt="Celo"
-              width={40}
-              height={40}
-              className="h-10 w-10"
-            />
-          </div>
-
-          <div className="gap-1 flex flex-col items-center">
-            <div className="w-10 h-[2px] bg-gradient-to-r from-primary/60 via-primary to-primary/60" />
-            <ArrowRightLeft className="h-5 w-5 text-primary" />
-            <div className="w-10 h-[2px] bg-gradient-to-r from-primary/60 via-primary to-primary/60" />
-          </div>
-
-          <div className="h-14 w-14 shadow-lg flex items-center justify-center rounded-full shadow-[#836EF9]/20">
-            <Image
-              src="/networks/monad.svg"
-              alt="Monad"
-              width={56}
-              height={56}
-              className="h-14 w-14"
-            />
-          </div>
-
-          <div className="gap-1 flex flex-col items-center">
-            <div className="w-10 h-[2px] bg-gradient-to-r from-primary/60 via-primary to-primary/60" />
-            <ArrowRightLeft className="h-5 w-5 text-primary" />
-            <div className="w-10 h-[2px] bg-gradient-to-r from-primary/60 via-primary to-primary/60" />
-          </div>
-
-          <div className="h-14 w-14 shadow-lg flex items-center justify-center rounded-full shadow-[#6c00f6]/20">
-            <Image
-              src="/networks/polygon.svg"
-              alt="Polygon"
-              width={56}
-              height={56}
-              className="h-14 w-14"
-            />
-          </div>
-        </div>
-      </div>
+      <BridgeNetworkIcons />
 
       <h2 className="mb-2.5 text-xl font-bold tracking-tight">
         Bridging is currently mainnet-only
@@ -100,8 +113,33 @@ function BridgeTestnetState() {
   );
 }
 
+function BridgeConnectState() {
+  return (
+    <div className="px-6 py-14 relative overflow-hidden rounded-xl bg-card text-center">
+      <div className="top-0 w-48 absolute left-1/2 h-[2px] -translate-x-1/2 bg-gradient-to-r from-transparent via-primary/50 to-transparent" />
+
+      <BridgeNetworkIcons />
+
+      <h2 className="mb-2.5 text-xl font-bold tracking-tight">
+        Connect your wallet to bridge
+      </h2>
+      <p className="mb-8 max-w-sm text-sm leading-relaxed mx-auto text-muted-foreground">
+        Connect your wallet to bridge Mento stablecoins between Celo, Monad and
+        Polygon.
+      </p>
+
+      <ConnectButton
+        size="lg"
+        text="Connect Wallet"
+        className="justify-center"
+      />
+    </div>
+  );
+}
+
 export function BridgeView() {
   const chainId = useChainId();
+  const { isConnected } = useAccount();
   const widgetRef = useRef<HTMLDivElement>(null);
   const isBridgeSupportedChain =
     !chainId ||
@@ -117,7 +155,7 @@ export function BridgeView() {
 
   useEffect(() => {
     const root = widgetRef.current;
-    if (!root || !isBridgeSupportedChain) return;
+    if (!root || !isBridgeSupportedChain || !isConnected) return;
 
     patchBridgeWidgetAccessibility(root);
 
@@ -133,7 +171,7 @@ export function BridgeView() {
     });
 
     return () => observer.disconnect();
-  }, [isBridgeSupportedChain]);
+  }, [isBridgeSupportedChain, isConnected]);
 
   return (
     <div className="mb-6 px-4 md:px-0 relative w-full max-w-[568px]">
@@ -150,9 +188,11 @@ export function BridgeView() {
         </div>
         {!isBridgeSupportedChain ? (
           <BridgeTestnetState />
+        ) : !isConnected ? (
+          <BridgeConnectState />
         ) : (
           <div ref={widgetRef} className="bridge-widget">
-            <WormholeConnect theme={theme} config={bridgeConfig} />
+            <WormholeConnect theme={theme} config={bridgeWidgetConfig} />
           </div>
         )}
       </div>

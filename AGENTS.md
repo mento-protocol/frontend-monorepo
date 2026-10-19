@@ -11,7 +11,7 @@ one, and run the advisory `pnpm adr:check` reminder before publishing.
 When an app-level Turbo task adds `passThroughEnv`, include
 `"$TURBO_EXTENDS$"` before app-specific names. A child `passThroughEnv` array
 replaces the root array. Without the sentinel, the task drops root build secrets
-such as `CHAINALYSIS_API_KEY` and `ETHERSCAN_API_KEY`.
+such as `ETHERSCAN_API_KEY`.
 
 ## Pull request state
 
@@ -35,21 +35,51 @@ an already-safe future timestamp. Keep Celo and Monad on this shared helper.
 Derive raw fork transaction deadlines from the latest block timestamp. Changes
 to the helper must select the Celo app, Celo governance, and Monad E2E lanes.
 
+## Shell scripts
+
+Every tracked `*.sh` file holds at most 500 lines, and every shell function at
+most 50 lines. Run `pnpm check:shell` before opening a pull request; the
+`static` job of `.github/workflows/ci.yml` runs it on every pull request that
+is not documentation-only. A
+script that outgrows a limit is split by topic.
+
+`scripts/shell-size-baseline.txt` holds no rows. A row would exempt one file or
+one function that predates the limits, and the check refuses a row the base
+branch lacks and a count above the base's, so an allowance can only go down.
+
+`scripts/check-shell-size.mjs` is a byte-identical copy of the checker in
+[mento-protocol/agents](https://github.com/mento-protocol/agents). Change it
+there first, then copy it again; never edit the copy. Its full test suite lives
+there. `scripts/check-shell-size.test.mjs` only proves the copy and its
+`mvdan-sh` dependency work here. See
+[ADR 0013](docs/adr/0013-shell-size-limits-enforced-by-a-copied-checker.md).
+
 ## Dependabot preparation
 
 The shared `dependabot-prep` skill in
 [mento-protocol/agents](https://github.com/mento-protocol/agents) owns Dependabot
 preparation and its per-pull-request claims. This repository carries no
-preparation policy file, so the skill's Mento defaults apply unchanged. The
-OpenClaw job on the scheduled host owns the schedule, the stored prompt
+preparation policy file, so the skill's Mento defaults apply except for the
+review requirements below. The OpenClaw job on the scheduled host owns the schedule, the stored prompt
 and the Slack destination; none of the three lives in this repository.
 
 Two facts the skill cannot know belong here. The budget is six hours including
 waits, 45 active repair minutes and three attempts per pull request, cumulative
 across resume; an interactive run has to be given the same numbers, because the
-skill defaults to one hour and 30 active repair minutes. The technical reviewer
-is `coderabbitai[bot]`, GitHub user id `136622811`, requested with the exact
-`@coderabbitai review` comment at most once per exact head.
+skill defaults to one hour and 30 active repair minutes. CodeRabbit
+(`coderabbitai[bot]`, GitHub user id `136622811`) is an advisory technical
+reviewer for Dependabot PRs, not a preparation gate. Its status check and review
+are advisory: an absent, skipped, stale, or licensing-refused CodeRabbit review
+does not block readiness and does not require provisioning a bot seat. If a
+review is requested, use the exact `@coderabbitai review` comment at most once
+per exact head.
+
+Required CI checks remain mandatory on the current head. Agent-written repairs
+require independent review of the final repair diff; CodeRabbit's advisory
+status does not waive that review. Read all review feedback, address actual
+findings, and report missing or skipped advisory review explicitly in the
+preparation handoff. Human approval and any GitHub-required reviews remain
+separate merge gates.
 
 Never approve, dismiss reviews, merge, close, alter auto-merge, or resolve or
 unresolve review threads. Publish only fast-forward updates to the authenticated

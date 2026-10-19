@@ -39,6 +39,8 @@ pnpm exec turbo run dev --filter <app-name>    # Dev server for one app (use pac
 pnpm build                           # Build all
 pnpm exec turbo run build --filter <app-name>  # Build one app
 pnpm check-types                     # TypeScript type checking; builds workspace package types first
+pnpm check:shell                     # Enforce the shell size limits in AGENTS.md (500 lines per file, 50 per function)
+pnpm check:shell:test                # Smoke-test the copied shell size checker and its mvdan-sh dependency
 pnpm ci:action-pins                  # Verify third-party GitHub Actions use documented SHA pins
 pnpm ci:action-pins:test             # Test the action-pin scanner and REST materializer
 pnpm dependency:policy:test          # Test Dependabot schedule, grouping, and dependency policy
@@ -420,7 +422,7 @@ To test connected-wallet flows (swaps, approvals, locking) locally without a rea
 
 1. `pnpm fork:mainnet` — anvil fork of Celo mainnet on port 8545 (Foundry >= 1.4)
 2. `pnpm fork:seed` — select a safe FX-open timestamp, fund test accounts, and refresh oracle rates (re-run after `evm_revert` or when quotes stall)
-3. `NEXT_PUBLIC_E2E_TEST=true NEXT_PUBLIC_USE_FORK=true pnpm exec turbo run dev --filter app.mento.org`, then connect the "E2E Test Wallet" (first run: copy `apps/app.mento.org/.env.example` to `.env.local` and fill it — the env schema fails startup otherwise; `CHAINALYSIS_API_KEY` needs a real key, the Sentry vars may stay empty — see the runbook's prerequisites). For governance flows (lock/voting power), start `governance.mento.org` (port 3002) the same way.
+3. `NEXT_PUBLIC_E2E_TEST=true NEXT_PUBLIC_USE_FORK=true pnpm exec turbo run dev --filter app.mento.org`, then connect the "E2E Test Wallet" (first run: copy `apps/app.mento.org/.env.example` to `.env.local` and fill it — the env schema fails startup otherwise; the Sentry vars may stay empty — see the runbook's prerequisites). For governance flows (lock/voting power), start `governance.mento.org` (port 3002) the same way.
 
 For Monad (chain 143) instead of Celo, use `pnpm fork:monad` + `pnpm fork:seed:monad` (port 8546), and dev/build with `NEXT_PUBLIC_MONAD_RPC_URL=http://localhost:8546` in place of `NEXT_PUBLIC_USE_FORK` — Monad has no `--celo`/`USE_FORK` redirect, so that env override is the seam that points both wagmi and the mento-sdk at the fork. Both seed commands use `scripts/fork-test-clock.mjs`. During real FX closures, it advances the fork to the next opening with two hours of runway and preserves that timestamp on the second seed. Monad seed-swap deadlines use the latest fork block time. The mock wallet still connects on Celo, so `/swap/monad` shows a "Switch to Monad" banner you click to move to chain 143.
 
@@ -481,16 +483,27 @@ nested workflow's `head_sha` as the controller commit.
 The shared `dependabot-prep` skill in
 [mento-protocol/agents](https://github.com/mento-protocol/agents) owns Dependabot
 preparation and its per-pull-request claims. This repository carries no
-preparation policy file, so the skill's Mento defaults apply unchanged. The
-OpenClaw job on the scheduled host owns the schedule, the stored prompt
+preparation policy file, so the skill's Mento defaults apply except for the
+review requirements below. The OpenClaw job on the scheduled host owns the schedule, the stored prompt
 and the Slack destination; none of the three lives in this repository.
 
 Two facts the skill cannot know belong here. The budget is six hours including
 waits, 45 active repair minutes and three attempts per pull request, cumulative
 across resume; an interactive run has to be given the same numbers, because the
-skill defaults to one hour and 30 active repair minutes. The technical reviewer
-is `coderabbitai[bot]`, GitHub user id `136622811`, requested with the exact
-`@coderabbitai review` comment at most once per exact head.
+skill defaults to one hour and 30 active repair minutes. CodeRabbit
+(`coderabbitai[bot]`, GitHub user id `136622811`) is an advisory technical
+reviewer for Dependabot PRs, not a preparation gate. Its status check and review
+are advisory: an absent, skipped, stale, or licensing-refused CodeRabbit review
+does not block readiness and does not require provisioning a bot seat. If a
+review is requested, use the exact `@coderabbitai review` comment at most once
+per exact head.
+
+Required CI checks remain mandatory on the current head. Agent-written repairs
+require independent review of the final repair diff; CodeRabbit's advisory
+status does not waive that review. Read all review feedback, address actual
+findings, and report missing or skipped advisory review explicitly in the
+preparation handoff. Human approval and any GitHub-required reviews remain
+separate merge gates.
 
 Never approve, dismiss reviews, merge, close, alter auto-merge, or resolve or
 unresolve review threads. Publish only fast-forward updates to the authenticated

@@ -984,7 +984,7 @@ test("Wormhole Connect owns isolated UI dependencies", () => {
   const wormholeSnapshots = Object.entries(lockfile.snapshots).filter(([key]) =>
     key.startsWith("@wormhole-foundation/wormhole-connect@6.0.0("),
   );
-  const approvedResolvedLucide = /^1\.31\.0(?:\(|$)/u;
+  const approvedResolvedLucide = /^1\.48\.0(?:\(|$)/u;
   const widgetResolvedLucide = /^0\.554\.0(?:\(|$)/u;
   const widgetOnlyUiDependencies = [
     "@emotion/react",
@@ -1002,8 +1002,8 @@ test("Wormhole Connect owns isolated UI dependencies", () => {
     "^6.0.0",
   );
   assert.equal(appManifest.dependencies["lucide-react"], "catalog:");
-  assert.equal(uiManifest.dependencies["lucide-react"], "^1.28.0");
-  assert.equal(workspace.catalog["lucide-react"], "^1.28.0");
+  assert.equal(uiManifest.dependencies["lucide-react"], "^1.48.0");
+  assert.equal(workspace.catalog["lucide-react"], "^1.48.0");
   assert.equal(appLucide.specifier, "catalog:");
   assert.match(appLucide.version, approvedResolvedLucide);
   assert.equal(
@@ -1687,6 +1687,11 @@ test("both agent guides carry the same Dependabot preparation facts", () => {
     "136622811",
     "@coderabbitai review",
     "at most once per exact head",
+    "advisory technical reviewer for Dependabot PRs, not a preparation gate",
+    "does not block readiness and does not require provisioning a bot seat",
+    "Required CI checks remain mandatory on the current head",
+    "require independent review of the final repair diff",
+    "Read all review feedback, address actual findings",
   ]) {
     assert.ok(wording.includes(fact), fact);
   }

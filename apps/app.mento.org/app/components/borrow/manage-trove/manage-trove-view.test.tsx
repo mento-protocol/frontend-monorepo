@@ -21,6 +21,14 @@ let mockTroveData: object | null = null;
 let mockIsLoading = false;
 let mockIsError = false;
 
+const OWNER = "0xAbCdEf0123456789aBcDeF0123456789AbCdEf01";
+const OTHER_ACCOUNT = "0x9999999999999999999999999999999999999999";
+
+let mockOwner: string | undefined = undefined;
+let mockOwnerIsPending = false;
+let mockOwnerIsError = false;
+let mockAccount: string | undefined = undefined;
+
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: pushMock }),
 }));
@@ -79,6 +87,11 @@ vi.mock("@repo/web3", () => ({
           locale: "en-US",
           collateralSymbol: "USDm",
         },
+  getExplorerUrl: () => "https://explorer.test",
+  isTroveOwner: (owner?: string, account?: string) =>
+    !!owner && !!account && owner.toLowerCase() === account.toLowerCase(),
+  shortenAddress: (address: string) =>
+    `${address.slice(0, 6)}...${address.slice(-4)}`,
   useLoanDetails: () => null,
   useTroveData: () => ({
     data: mockTroveData,
@@ -86,9 +99,15 @@ vi.mock("@repo/web3", () => ({
     isError: mockIsError,
     error: null,
   }),
+  useTroveOwner: () => ({
+    data: mockOwner,
+    isPending: mockOwnerIsPending,
+    isError: mockOwnerIsError,
+  }),
 }));
 
 vi.mock("@repo/web3/wagmi", () => ({
+  useAccount: () => ({ address: mockAccount }),
   useChainId: () => 42220,
 }));
 
@@ -140,6 +159,10 @@ describe("ManageTroveView — token validation", () => {
     mockTroveData = null;
     mockIsLoading = false;
     mockIsError = false;
+    mockOwner = undefined;
+    mockOwnerIsPending = false;
+    mockOwnerIsError = false;
+    mockAccount = undefined;
     pushMock.mockReset();
   });
 
@@ -221,5 +244,168 @@ describe("ManageTroveView — token validation", () => {
 
     expect(copyButton.classList.contains("h-6")).toBe(true);
     expect(copyButton.classList.contains("w-6")).toBe(true);
+  });
+});
+
+describe("ManageTroveView — owner-only management", () => {
+  const FORM_TEST_IDS = ["adjust-form", "rate-form", "close-form"];
+
+  function expectFormsRendered(rendered: boolean) {
+    for (const testId of FORM_TEST_IDS) {
+      if (rendered) {
+        expect(screen.getByTestId(testId)).toBeTruthy();
+      } else {
+        expect(screen.queryByTestId(testId)).toBeNull();
+      }
+    }
+  }
+
+  function renderView() {
+    render(<ManageTroveView troveId="0xabc123456789" tokenSymbol="GBPm" />);
+  }
+
+  beforeEach(() => {
+    mockSupportedDebtTokens = [GBPm];
+    mockTroveData = {
+      status: "active",
+      collateral: 1n,
+      debt: 1n,
+      annualInterestRate: 1n,
+    };
+    mockIsLoading = false;
+    mockIsError = false;
+    mockOwner = OWNER;
+    mockOwnerIsPending = false;
+    mockOwnerIsError = false;
+    mockAccount = OWNER;
+    pushMock.mockReset();
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("(a) shows a placeholder and no management tab while the owner is loading", () => {
+    mockOwner = undefined;
+    mockOwnerIsPending = true;
+
+    renderView();
+
+    expectFormsRendered(false);
+    expect(screen.queryByText("Adjust Position")).toBeNull();
+    expect(screen.getAllByTestId("skeleton").length).toBeGreaterThan(0);
+    expect(
+      screen.queryByText(/The owner of this position couldn.t be confirmed/),
+    ).toBeNull();
+  });
+
+  it("(b) shows the closed notice when the status is not active or zombie", () => {
+    mockTroveData = {
+      status: "closedByOwner",
+      collateral: 0n,
+      debt: 0n,
+      annualInterestRate: 0n,
+    };
+    mockOwner = undefined;
+    mockOwnerIsError = true;
+
+    renderView();
+
+    expectFormsRendered(false);
+    expect(
+      screen.getByText("This position is closed and can no longer be managed."),
+    ).toBeTruthy();
+  });
+
+  it("(c) shows the unconfirmed-owner notice when the owner lookup fails", () => {
+    mockOwner = undefined;
+    mockOwnerIsError = true;
+
+    renderView();
+
+    expectFormsRendered(false);
+    expect(
+      screen.getByText(/The owner of this position couldn.t be confirmed/),
+    ).toBeTruthy();
+    expect(screen.getByText("Unknown")).toBeTruthy();
+  });
+
+  it("(c) hides management when a refetch fails after the owner was read", () => {
+    mockOwner = OWNER;
+    mockOwnerIsError = true;
+    mockAccount = OWNER;
+
+    renderView();
+
+    expectFormsRendered(false);
+    expect(
+      screen.getByText(/The owner of this position couldn.t be confirmed/),
+    ).toBeTruthy();
+    expect(screen.getByText("Unknown")).toBeTruthy();
+  });
+
+  it("(d) asks for the owner's wallet when no wallet is connected", () => {
+    mockAccount = undefined;
+
+    renderView();
+
+    expectFormsRendered(false);
+    expect(
+      screen.getByText("Connect the owner's wallet to manage this position."),
+    ).toBeTruthy();
+  });
+
+  it("(e) shows the stats read-only with the owner when another wallet is connected", () => {
+    mockAccount = OTHER_ACCOUNT;
+
+    renderView();
+
+    expectFormsRendered(false);
+    expect(
+      screen.getByText(/Only the owner.s wallet can manage it/),
+    ).toBeTruthy();
+    expect(screen.getByText("Collateral")).toBeTruthy();
+
+    const ownerLinks = screen
+      .getAllByRole("link")
+      .filter(
+        (link) =>
+          link.getAttribute("href") ===
+          `https://explorer.test/address/${OWNER}`,
+      );
+    expect(ownerLinks.length).toBe(2);
+    for (const link of ownerLinks) {
+      expect(link.getAttribute("target")).toBe("_blank");
+      expect(link.getAttribute("rel")).toBe("noopener noreferrer");
+    }
+  });
+
+  it("(f) renders the management tabs when the connected wallet is the owner", () => {
+    renderView();
+
+    expectFormsRendered(true);
+    expect(screen.getByText("Adjust Position")).toBeTruthy();
+  });
+
+  it("(f) renders the management tabs for a zombie trove owned by the connected wallet", () => {
+    mockTroveData = {
+      status: "zombie",
+      collateral: 1n,
+      debt: 1n,
+      annualInterestRate: 1n,
+    };
+
+    renderView();
+
+    expectFormsRendered(true);
+  });
+
+  it("matches the owner and the connected wallet regardless of address case", () => {
+    mockOwner = OWNER.toLowerCase();
+    mockAccount = `0x${OWNER.slice(2).toUpperCase()}`;
+
+    renderView();
+
+    expectFormsRendered(true);
   });
 });

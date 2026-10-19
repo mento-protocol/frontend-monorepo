@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Card,
@@ -18,11 +18,15 @@ import {
   formatInterestRate,
   formatPrice,
   getDebtTokenConfig,
+  getExplorerUrl,
+  isTroveOwner,
   type RiskLevel,
+  shortenAddress,
   useLoanDetails,
   useTroveData,
+  useTroveOwner,
 } from "@repo/web3";
-import { useChainId } from "@repo/web3/wagmi";
+import { useAccount, useChainId } from "@repo/web3/wagmi";
 import { getTokenAddress, type TokenSymbol } from "@mento-protocol/mento-sdk";
 import type { Address } from "viem";
 import { Check, ChevronLeft, Copy } from "lucide-react";
@@ -119,6 +123,31 @@ function LtvHealthBar({
   );
 }
 
+const MANAGEABLE_STATUSES = new Set(["active", "zombie"]);
+
+function OwnerLink({ owner, chainId }: { owner: string; chainId: number }) {
+  return (
+    <a
+      href={`${getExplorerUrl(chainId)}/address/${owner}`}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="font-mono underline-offset-2 hover:text-foreground hover:underline"
+    >
+      {shortenAddress(owner, false)}
+    </a>
+  );
+}
+
+function ManagementNotice({ children }: { children: ReactNode }) {
+  return (
+    <Card className="!gap-0 !py-0">
+      <CardContent className="!px-6 py-5">
+        <p className="text-sm text-muted-foreground">{children}</p>
+      </CardContent>
+    </Card>
+  );
+}
+
 function shortenId(id: string): string {
   if (id.length <= 14) return id;
   return `${id.slice(0, 8)}...${id.slice(-6)}`;
@@ -135,6 +164,7 @@ export function ManageTroveView({
 }: ManageTroveViewProps) {
   const router = useRouter();
   const chainId = useChainId();
+  const { address: account } = useAccount();
   const [copied, setCopied] = useState(false);
   const supportedDebtTokens = getSupportedDebtTokens(chainId);
   const resolvedDebtToken = tokenSymbol
@@ -155,6 +185,13 @@ export function ManageTroveView({
     isError,
     error,
   } = useTroveData(isValidToken ? troveId : undefined, debtToken.symbol);
+  // The owner comes from TroveNFT.ownerOf only. Management stays hidden until
+  // it resolves and matches the connected wallet.
+  const {
+    data: owner,
+    isPending: isOwnerPending,
+    isError: isOwnerError,
+  } = useTroveOwner(isValidToken ? troveId : undefined, debtToken.symbol);
 
   const loanDetails = useLoanDetails(
     isValidToken ? (troveData?.collateral ?? null) : null,
@@ -203,6 +240,8 @@ export function ManageTroveView({
       })
     : null;
   const isZombieTrove = troveData?.status === "zombie";
+  const isManageableStatus =
+    !!troveData?.status && MANAGEABLE_STATUSES.has(troveData.status);
 
   if (isLoading) {
     return (
@@ -310,6 +349,16 @@ export function ManageTroveView({
                 )}
               </button>
             </div>
+            <div className="mt-0.5 gap-2 text-xs flex items-center text-muted-foreground">
+              <span>Owner</span>
+              {owner && !isOwnerError ? (
+                <OwnerLink owner={owner} chainId={chainId} />
+              ) : isOwnerError ? (
+                <span>Unknown</span>
+              ) : (
+                <Skeleton className="h-3 w-24" />
+              )}
+            </div>
           </div>
         </div>
 
@@ -375,63 +424,85 @@ export function ManageTroveView({
         </div>
       )}
 
-      <Card className="!gap-0 !py-0">
-        <CardContent className="!p-0">
-          <Tabs defaultValue="adjust">
-            <TabsList className="p-0 w-full justify-start rounded-none border-b border-border bg-transparent">
-              <TabsTrigger
-                value="adjust"
-                className="px-0 py-4 flex-1 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-              >
-                Adjust Position
-              </TabsTrigger>
-              <TabsTrigger
-                value="interest-rate"
-                className="px-0 py-4 flex-1 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-              >
-                Interest Rate
-              </TabsTrigger>
-              <TabsTrigger
-                value="close"
-                className="px-0 py-4 flex-1 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-              >
-                Close Trove
-              </TabsTrigger>
-            </TabsList>
-            <div className="p-6">
-              <TabsContent value="adjust" className="mt-0">
-                {troveData && (
-                  <AdjustForm
-                    troveId={troveId}
-                    troveData={troveData}
-                    debtToken={debtToken}
-                    collateralSymbol={collateralSymbol}
-                  />
-                )}
-              </TabsContent>
-              <TabsContent value="interest-rate" className="mt-0">
-                {troveData && (
-                  <RateForm
-                    troveId={troveId}
-                    troveData={troveData}
-                    debtToken={debtToken}
-                  />
-                )}
-              </TabsContent>
-              <TabsContent value="close" className="mt-0">
-                {troveData && (
-                  <CloseForm
-                    troveId={troveId}
-                    troveData={troveData}
-                    debtToken={debtToken}
-                    collateralSymbol={collateralSymbol}
-                  />
-                )}
-              </TabsContent>
-            </div>
-          </Tabs>
-        </CardContent>
-      </Card>
+      {isOwnerPending ? (
+        <Skeleton className="h-64 w-full rounded-lg" />
+      ) : !isManageableStatus ? (
+        <ManagementNotice>
+          This position is closed and can no longer be managed.
+        </ManagementNotice>
+      ) : isOwnerError || !owner ? (
+        <ManagementNotice>
+          The owner of this position couldn&apos;t be confirmed, so management
+          is unavailable. Please try again later.
+        </ManagementNotice>
+      ) : !account ? (
+        <ManagementNotice>
+          Connect the owner&apos;s wallet to manage this position.
+        </ManagementNotice>
+      ) : !isTroveOwner(owner, account) ? (
+        <ManagementNotice>
+          This position belongs to <OwnerLink owner={owner} chainId={chainId} />
+          . Only the owner&apos;s wallet can manage it.
+        </ManagementNotice>
+      ) : (
+        <Card className="!gap-0 !py-0">
+          <CardContent className="!p-0">
+            <Tabs defaultValue="adjust">
+              <TabsList className="p-0 w-full justify-start rounded-none border-b border-border bg-transparent">
+                <TabsTrigger
+                  value="adjust"
+                  className="px-0 py-4 flex-1 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                >
+                  Adjust Position
+                </TabsTrigger>
+                <TabsTrigger
+                  value="interest-rate"
+                  className="px-0 py-4 flex-1 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                >
+                  Interest Rate
+                </TabsTrigger>
+                <TabsTrigger
+                  value="close"
+                  className="px-0 py-4 flex-1 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                >
+                  Close Trove
+                </TabsTrigger>
+              </TabsList>
+              <div className="p-6">
+                <TabsContent value="adjust" className="mt-0">
+                  {troveData && (
+                    <AdjustForm
+                      troveId={troveId}
+                      troveData={troveData}
+                      debtToken={debtToken}
+                      collateralSymbol={collateralSymbol}
+                    />
+                  )}
+                </TabsContent>
+                <TabsContent value="interest-rate" className="mt-0">
+                  {troveData && (
+                    <RateForm
+                      troveId={troveId}
+                      troveData={troveData}
+                      debtToken={debtToken}
+                    />
+                  )}
+                </TabsContent>
+                <TabsContent value="close" className="mt-0">
+                  {troveData && (
+                    <CloseForm
+                      troveId={troveId}
+                      troveData={troveData}
+                      debtToken={debtToken}
+                      collateralSymbol={collateralSymbol}
+                    />
+                  )}
+                </TabsContent>
+              </div>
+            </Tabs>
+          </CardContent>
+        </Card>
+      )}
 
       <TroveActivityPanel
         troveId={troveId}

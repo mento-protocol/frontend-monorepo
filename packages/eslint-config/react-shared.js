@@ -3,6 +3,10 @@ import pluginReact from "eslint-plugin-react";
 import pluginNext from "@next/eslint-plugin-next";
 import globals from "globals";
 
+// eslint-plugin-react's "detect" calls context.getFilename(), which ESLint 10
+// removed, so every run crashed. Keep this in step with the catalog's react.
+const REACT_VERSION = "19.2";
+
 /**
  * Shared React configuration that can be extended by both Next.js and React internal configs.
  * This eliminates duplication between the two configurations.
@@ -28,7 +32,7 @@ export const reactSharedConfig = [
     },
     settings: {
       react: {
-        version: "detect",
+        version: REACT_VERSION,
       },
     },
   },
@@ -36,7 +40,7 @@ export const reactSharedConfig = [
     plugins: {
       "react-hooks": pluginReactHooks,
     },
-    settings: { react: { version: "detect" } },
+    settings: { react: { version: REACT_VERSION } },
     rules: {
       ...pluginReactHooks.configs.recommended.rules,
       // React scope no longer necessary with new JSX transform.

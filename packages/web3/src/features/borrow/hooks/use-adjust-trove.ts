@@ -1,12 +1,19 @@
 import { toast } from "@mento-protocol/ui";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSetAtom } from "jotai";
+import type { PublicClient } from "viem";
 import type { Config } from "wagmi";
+import { getChainId, getPublicClient } from "wagmi/actions";
 import { borrowFlowAtom } from "../atoms/flow-atoms";
 import type { AdjustTroveParams, CallParams, TroveStatus } from "../types";
 import { executeFlow } from "../tx-flows/flow";
 import { buildAdjustTroveCall } from "./adjust-trove-transaction";
 import { useBorrowService } from "./use-borrow-service";
+import { fetchTroveOwner, isTroveOwner } from "./use-trove-owner";
+
+const NOT_OWNER_MESSAGE = "Only the owner of this position can adjust it.";
+const OWNER_UNCONFIRMED_MESSAGE =
+  "The owner of this position couldn't be confirmed. Please try again.";
 
 interface AdjustTroveMutationParams {
   symbol: string;
@@ -32,6 +39,27 @@ export function useAdjustTrove() {
       successHref,
     }: AdjustTroveMutationParams) => {
       if (!sdk) throw new Error("Borrow service not available");
+
+      // Only the trove's on-chain owner may start an adjustment.
+      const chainId = getChainId(wagmiConfig);
+      const publicClient = getPublicClient(wagmiConfig, { chainId });
+      if (!publicClient) throw new Error("Public client not available");
+      let owner: string;
+      try {
+        owner = await fetchTroveOwner(
+          publicClient as PublicClient,
+          chainId,
+          symbol,
+          BigInt(params.troveId),
+        );
+      } catch (error) {
+        toast.error(OWNER_UNCONFIRMED_MESSAGE);
+        throw error;
+      }
+      if (!isTroveOwner(owner, account)) {
+        toast.error(NOT_OWNER_MESSAGE);
+        throw new Error(NOT_OWNER_MESSAGE);
+      }
 
       const flowId = `adjust-trove-${Date.now()}`;
       const result = await executeFlow(

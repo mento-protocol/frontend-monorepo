@@ -12,6 +12,7 @@ import { useIsSsr } from "@/lib/utils/ssr";
 
 import { Web3Provider } from "@repo/web3";
 import { State } from "@repo/web3/wagmi";
+import { useSentryErrorReporter } from "@/hooks/use-sentry-error-reporter";
 import { useSentryWalletContext } from "@/hooks/use-sentry-wallet-context";
 import { SanctionsGuard } from "./sanctions-guard";
 
@@ -25,6 +26,7 @@ function SafeHydrate({ children }: PropsWithChildren<unknown>) {
 
 function WalletContextTracker() {
   useSentryWalletContext();
+  useSentryErrorReporter();
   return null;
 }
 

@@ -56,7 +56,8 @@ async function blockNetwork(page: Page): Promise<void> {
 // Modeled on blockNetwork above (same CDN-placeholder + localhost passthrough
 // logic), with one addition: fulfill /api/sanctions with the route's clean-check
 // success shape (see app/api/sanctions/route.ts + app/hooks/use-sanctions-check.ts)
-// so the sanctions gate doesn't fail closed without a CHAINALYSIS_API_KEY.
+// so the sanctions gate doesn't fail closed when the blocked network keeps the
+// route from loading OFAC's SDN list.
 async function connectedNetworkPolicy(page: Page): Promise<void> {
   await page.route("**/*", (route) => {
     const url = new URL(route.request().url());

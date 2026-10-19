@@ -18,9 +18,11 @@ runs against an anvil fork of Celo mainnet — no real network is ever touched.
   `NEXT_PUBLIC_SENTRY_DSN_SWAP` must be present but may be empty strings for
   local dev (E2E mode replaces WalletConnect). `SENTRY_AUTH_TOKEN` is needed
   only for Vercel production source-map uploads.
-- `CHAINALYSIS_API_KEY` set in the same `.env.local` (any valid key; never
-  commit it). Without it the app BLOCKS after wallet connect — the sanctions
-  API route fails closed by design. See Troubleshooting.
+- Outbound network access to OFAC's Sanctions List Service
+  (`sanctionslistservice.ofac.treas.gov`). The sanctions API route screens
+  wallets against OFAC's SDN list and needs no key, but it loads that list on
+  first use. Without it the app BLOCKS after wallet connect — the route fails
+  closed by design. See Troubleshooting.
 - Docker (optional, only for the Otterscan block explorer).
 
 ## Quick start
@@ -395,7 +397,7 @@ cast rpc evm_revert 0x0 --rpc-url http://127.0.0.1:8545        # returns true
 - NEVER set `NEXT_PUBLIC_SANCTIONS_TEST_MODE=true` in wallet/E2E tooling — it
   force-BLOCKS the app (simulates a sanctioned wallet). It is not a bypass.
 - NEVER weaken `apps/app.mento.org/app/api/sanctions/route.ts` — it fails
-  closed without `CHAINALYSIS_API_KEY` by design.
+  closed when it cannot load OFAC's SDN list, by design.
 - NEVER further loosen the E2E wallet's hostname allowlist beyond
   `localhost` / `127.0.0.1` / the anchored `*-mentolabs.vercel.app` pattern
   in `e2e-mode.ts` — extending it again requires the same no-keys/public
@@ -409,7 +411,7 @@ cast rpc evm_revert 0x0 --rpc-url http://127.0.0.1:8545        # returns true
 | `pnpm fork:mainnet` fails: port 8545 in use                          | `lsof -i :8545`, kill the stale anvil, restart.                                                                                                                                                                                                                    |
 | CELO transfers silently no-op on the fork                            | anvil started without `--celo` (manual command or pre-fix script). Use `pnpm fork:mainnet`.                                                                                                                                                                        |
 | Swap quotes stall or swaps revert after the fork has been up a while | Oracle medians expired in fork time. Re-run `pnpm fork:seed`; if still stuck, restart the fork and re-seed. The seed selects an FX-open timestamp during real weekend and year-end closures.                                                                       |
-| App shows a blocking screen right after connecting                   | Sanctions check failed closed — `CHAINALYSIS_API_KEY` missing from `apps/app.mento.org/.env.local`. Not a bug.                                                                                                                                                     |
+| App shows a blocking screen right after connecting                   | Sanctions check failed closed — the route could not download OFAC's SDN list. Check outbound access to `sanctionslistservice.ofac.treas.gov`. Not a bug.                                                                                                           |
 | "E2E Test Wallet" not in the connect modal                           | Not on localhost/127.0.0.1, or neither `NEXT_PUBLIC_E2E_TEST=true` nor `mento_e2e_wallet` set, or you forgot to reload after setting localStorage.                                                                                                                 |
 | governance.mento.org dev server has stale `@repo/web3`               | Its `dev` script does not watch `@repo/web3` (app.mento.org's does). Run `pnpm exec turbo run build --filter governance.mento.org` first.                                                                                                                          |
 | Governance proposal or lock lists look inconsistent with fork state  | Proposal AND lock lists load from a live-mainnet subgraph, not the fork (`useLocksByAccount` queries the subgraph). Lock/approve transactions still execute on the fork — verify them on-chain with `cast` (section above) instead of trusting the rendered lists. |

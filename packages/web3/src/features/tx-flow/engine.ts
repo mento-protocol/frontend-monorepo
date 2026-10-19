@@ -5,6 +5,7 @@ import {
   waitForTransactionReceipt,
 } from "wagmi/actions";
 import type { Address, Hex } from "viem";
+import { reportError } from "@/utils/error-reporter";
 import { isUserRejection } from "@/utils/is-user-rejection";
 import { getTransactionFeeOverrides } from "@/utils/transaction-fees";
 
@@ -140,6 +141,7 @@ export async function executeTxFlow<TState extends TxFlowStateBase>(
         return { success: false, txHashes };
       }
 
+      reportError(error, { step: definition.id });
       options.onStepError?.(error, definition);
 
       setFlowState((previous) =>
