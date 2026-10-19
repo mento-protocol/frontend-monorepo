@@ -1319,7 +1319,7 @@ native Vercel:
   main-deployment jobs install only the standalone runtime. The project owner approved the dependency as part of delivering the
   epic. The stable npm version was re-queried on 2026-07-14 before it was
   pinned.
-- Resolved Next.js: `16.4.2` in `pnpm-lock.yaml`.
+- Resolved Next.js: `16.4.1` in `pnpm-lock.yaml`.
 - Root `pnpm.patchedDependencies`: absent, or exactly the map that
   `scripts/vercel-cli-runtime-contract.mjs` records as
   `REVIEWED_ROOT_PATCHED_DEPENDENCIES` (currently the `jayson@4.3.0` patch),
