@@ -161,9 +161,9 @@ function hslToHex({ h, s, l }: Hsl): string {
   const c = (1 - Math.abs(2 * lNorm - 1)) * sNorm;
   const hPrime = h / 60;
   const x = c * (1 - Math.abs((hPrime % 2) - 1));
-  let r = 0;
-  let g = 0;
-  let b = 0;
+  let r: number;
+  let g: number;
+  let b: number;
   if (hPrime < 1) [r, g, b] = [c, x, 0];
   else if (hPrime < 2) [r, g, b] = [x, c, 0];
   else if (hPrime < 3) [r, g, b] = [0, c, x];
