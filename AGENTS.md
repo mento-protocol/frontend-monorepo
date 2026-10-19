@@ -41,7 +41,7 @@ The shared `dependabot-prep` skill in
 [mento-protocol/agents](https://github.com/mento-protocol/agents) owns Dependabot
 preparation and its per-pull-request claims. This repository carries no
 preparation policy file, so the skill's Mento defaults apply unchanged. The
-weekly OpenClaw job on the scheduled host owns the schedule, the stored prompt
+OpenClaw job on the scheduled host owns the schedule, the stored prompt
 and the Slack destination; none of the three lives in this repository.
 
 Two facts the skill cannot know belong here. The budget is six hours including

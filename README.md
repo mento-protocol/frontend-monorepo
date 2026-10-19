@@ -349,7 +349,7 @@ All packages referencing `"react": "catalog:"` will automatically use the new ve
 
 #### Dependabot preparation
 
-Dependabot creates native npm and GitHub Actions PRs each Monday at 06:00 UTC.
+Dependabot creates native npm and GitHub Actions PRs every second Monday at 06:00 UTC.
 The shared `dependabot-prep` skill prepares them, and each writer holds a claim
 in `refs/mento-claims/v1/pr/<number>` before it writes to a PR. Human approval,
 answered-thread resolution and merge remain with the maintainer, and Dependabot
@@ -468,8 +468,8 @@ The repository is set up with GitHub Actions for CI:
   failure. Every sustained failure otherwise posts. The message links the run
   and the managed issue; run that workflow's
   `workflow_dispatch` from the Actions tab to smoke-test the Slack wiring.
-- **Dependabot preparation**: Native updates open Monday at 06:00 UTC. The
-  weekly OpenClaw job on the scheduled host prepares them with the shared
+- **Dependabot preparation**: Native updates open every second Monday at 06:00 UTC. The
+  OpenClaw job on the scheduled host, run on the same cadence, prepares them with the shared
   `dependabot-prep` skill; the job owns its own schedule, prompt and Slack
   destination. No custom launcher and no repository policy file are required:
   the skill supplies the claim document. Every writer holds a per-pull-request

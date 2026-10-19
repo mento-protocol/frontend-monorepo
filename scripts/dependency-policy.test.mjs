@@ -1146,9 +1146,8 @@ test("Dependabot groups isolate protected runtimes and couple toolchains", () =>
 
   for (const update of [npmConfig, ...actionsConfigs]) {
     assert.deepEqual(update.schedule, {
-      interval: "weekly",
-      day: "monday",
-      time: "06:00",
+      interval: "cron",
+      cronjob: "0 6 * * mon%2",
       timezone: "UTC",
     });
   }

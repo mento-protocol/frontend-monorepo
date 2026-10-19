@@ -205,3 +205,12 @@ separately when its benefit justifies maintenance cost.
 - [Previous design](0009-external-agent-dependabot-preparation.md)
 - [Cutover tracking](https://github.com/mento-protocol/frontend-monorepo/issues/893)
 - [Manual-hygiene implementation](https://github.com/mento-protocol/frontend-monorepo/pull/920)
+
+## Amendment — 2026-10-19: biweekly cadence
+
+Dependabot version updates now run every second Monday at 06:00 UTC
+(`cronjob: "0 6 * * mon%2"`) instead of every Monday. The first runs are
+2026-10-26 and 2026-11-09. Security updates ignore the schedule. The external
+OpenClaw job should run on the same every-second-Monday cadence; its schedule
+stays outside this repository. The decision above is unchanged. The weekly
+cadence it names, and the `dependabot-weekly.md` prompt name, are historical.
