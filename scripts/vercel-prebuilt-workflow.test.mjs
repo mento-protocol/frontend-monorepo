@@ -3824,6 +3824,31 @@ test("prebuilt output rejects a sharp addon paired with another libvips", () => 
   }
 });
 
+test("prebuilt output binds the libvips library to the trusted manifest's package", () => {
+  const directory = mkdtempSync(join(tmpdir(), "vercel-sharp-mixed-output-"));
+  try {
+    const current = writeSharpRuntimeArtifacts(directory, "linux-x64");
+    const next = writeSharpRuntimeArtifacts(
+      directory,
+      "linux-x64",
+      "api.func",
+      { sharp: "0.35.5", libvipsPackage: "1.3.4", libvips: "8.18.7" },
+    );
+    rmSync(current.nativeAddon);
+    rmSync(current.versionsManifest);
+    rmSync(next.sharedLibrary);
+    assert.throws(
+      () =>
+        assertSharpPrebuiltArtifacts(directory, {
+          runtimePlatform: "linux-x64",
+        }),
+      /missing a trusted linux-x64 sharp runtime/,
+    );
+  } finally {
+    rmSync(directory, { force: true, recursive: true });
+  }
+});
+
 test("the traced sharp runtime is always a trusted pair", () => {
   assert.ok(
     TRUSTED_SHARP_RUNTIMES.some(

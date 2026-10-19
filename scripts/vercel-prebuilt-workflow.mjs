@@ -3311,15 +3311,26 @@ export function assertSharpPrebuiltArtifacts(
         return { nativeAddon };
       }
       const packageSegment = `sharp-libvips-${runtimePlatform}`;
-      const sharedLibrary = artifacts.sharedLibraries.find((path) =>
-        path.includes(packageSegment),
-      );
-      const versionsManifest = artifacts.versionsManifests.find(
-        (manifest) =>
-          manifest.vips === libvips && manifest.path.includes(packageSegment),
-      )?.path;
-      if (sharedLibrary && versionsManifest) {
-        return { nativeAddon, sharedLibrary, versionsManifest };
+      for (const manifest of artifacts.versionsManifests) {
+        if (
+          manifest.vips !== libvips ||
+          !manifest.path.includes(packageSegment)
+        ) {
+          continue;
+        }
+        // The library must come from the same libvips package as the manifest,
+        // so a traced older package cannot stand in for the trusted pair.
+        const libraryDirectory = join(dirname(manifest.path), "lib") + sep;
+        const sharedLibrary = artifacts.sharedLibraries.find((path) =>
+          path.startsWith(libraryDirectory),
+        );
+        if (sharedLibrary) {
+          return {
+            nativeAddon,
+            sharedLibrary,
+            versionsManifest: manifest.path,
+          };
+        }
       }
     }
   }
