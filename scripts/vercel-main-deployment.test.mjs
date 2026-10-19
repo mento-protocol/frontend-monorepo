@@ -4277,6 +4277,7 @@ test("production-shaped all-target terminal artifacts cover the four-operation c
     } catch (error) {
       throw new Error(
         `production-shaped journal is invalid at snapshot ${index - 1}: ${error.message}`,
+        { cause: error },
       );
     }
   }

@@ -536,7 +536,7 @@ function localReusableWorkflowPath(value) {
     stats = lstatSync(path);
   } catch (error) {
     if (error?.code === "ENOENT") {
-      throw new Error(`${relativePath} does not exist`);
+      throw new Error(`${relativePath} does not exist`, { cause: error });
     }
     throw error;
   }

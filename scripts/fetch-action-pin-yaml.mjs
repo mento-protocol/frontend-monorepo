@@ -198,6 +198,7 @@ async function requestJson(path, { token, fetchImpl }) {
   } catch (error) {
     throw new Error(
       `GitHub API request failed for ${url.pathname}: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
     );
   }
   if (!response.ok) {
