@@ -3,10 +3,15 @@ updates:
   # npm / pnpm workspace dependencies
   - package-ecosystem: npm
     directory: /
+    # Dependabot parses cron with the fugit library. `mon%2` matches Mondays
+    # whose week count since Monday 2018-12-31 is even. That gives an exact
+    # 14-day cadence; the next runs are 2026-10-26 and 2026-11-09. Plain cron
+    # cannot express "every other week". Security updates ignore this schedule
+    # and still open immediately.
+    # Source: https://github.com/dependabot/dependabot-core/issues/12246
     schedule:
-      interval: weekly
-      day: monday
-      time: "06:00" # trunk-ignore(yamllint/quoted-strings)
+      interval: cron
+      cronjob: 0 6 * * mon%2
       timezone: UTC
 
     cooldown:
@@ -20,7 +25,7 @@ updates:
 
     # Coupled deployment runtimes are deliberately isolated from ordinary
     # libraries. Leave enough room for those focused pull requests plus the
-    # ordinary weekly batches.
+    # ordinary batches per run.
     open-pull-requests-limit: 12
 
     labels:
@@ -181,7 +186,7 @@ updates:
           - minor
           - patch
 
-      # Catch-all so ungrouped production stragglers arrive as one weekly PR
+      # Catch-all so ungrouped production stragglers arrive as one PR per run
       # instead of one PR each. Explicit exclusions preserve the named group
       # boundaries even if the group order changes later.
       production-misc:
@@ -383,9 +388,8 @@ updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
-      day: monday
-      time: "06:00" # trunk-ignore(yamllint/quoted-strings)
+      interval: cron
+      cronjob: 0 6 * * mon%2
       timezone: UTC
 
     cooldown:
@@ -447,9 +451,8 @@ updates:
       - /.github/actions/vercel-main-active-transition
       - /.github/actions/vercel-protected-runtime
     schedule:
-      interval: weekly
-      day: monday
-      time: "06:00" # trunk-ignore(yamllint/quoted-strings)
+      interval: cron
+      cronjob: 0 6 * * mon%2
       timezone: UTC
 
     cooldown:
