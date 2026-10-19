@@ -1319,7 +1319,7 @@ native Vercel:
   main-deployment jobs install only the standalone runtime. The project owner approved the dependency as part of delivering the
   epic. The stable npm version was re-queried on 2026-07-14 before it was
   pinned.
-- Resolved Next.js: `16.3.4` in `pnpm-lock.yaml`.
+- Resolved Next.js: `16.4.2` in `pnpm-lock.yaml`.
 - Root `pnpm.patchedDependencies`: absent, or exactly the map that
   `scripts/vercel-cli-runtime-contract.mjs` records as
   `REVIEWED_ROOT_PATCHED_DEPENDENCIES` (currently the `jayson@4.3.0` patch),
@@ -1370,8 +1370,8 @@ platform and architecture packages to `outputFileTracingIncludes`; it must not
 fall back to another optional platform package that happens to exist in the
 pnpm store. Each app's `postbuild` lifecycle then runs
 `scripts/assert-next-sharp-trace.mjs` and fails unless one output trace contains
-the exact sharp 0.35.4 manifest, host-native versioned addon, libvips shared
-library, and libvips 8.18.6 manifest.
+the exact sharp 0.35.5 manifest, host-native versioned addon, libvips shared
+library, and libvips 8.18.7 manifest.
 
 The trusted prebuilt workflow independently scans the final
 `.vercel/output` tree before upload. It rejects an output that lacks the exact

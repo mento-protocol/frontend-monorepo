@@ -891,7 +891,7 @@ test("sharp postbuild assertion requires one complete runtime trace", () => {
     directory,
     "node_modules",
     ".pnpm",
-    "sharp@0.35.4",
+    "sharp@0.35.5",
     "node_modules",
     "sharp",
     "package.json",
@@ -900,34 +900,34 @@ test("sharp postbuild assertion requires one complete runtime trace", () => {
     directory,
     "node_modules",
     ".pnpm",
-    "@img+sharp-linux-x64@0.35.4",
+    "@img+sharp-linux-x64@0.35.5",
     "node_modules",
     "@img",
     "sharp-linux-x64",
     "lib",
-    "sharp-linux-x64-0.35.4.node",
+    "sharp-linux-x64-0.35.5.node",
   );
   const unrelatedNativeAddon = join(
     directory,
     "node_modules",
     ".pnpm",
-    "@img+sharp-win32-arm64@0.35.4",
+    "@img+sharp-win32-arm64@0.35.5",
     "node_modules",
     "@img",
     "sharp-win32-arm64",
     "lib",
-    "sharp-win32-arm64-0.35.4.node",
+    "sharp-win32-arm64-0.35.5.node",
   );
   const libvipsDirectory = join(
     directory,
     "node_modules",
     ".pnpm",
-    "@img+sharp-libvips-linux-x64@1.3.3",
+    "@img+sharp-libvips-linux-x64@1.3.4",
     "node_modules",
     "@img",
     "sharp-libvips-linux-x64",
   );
-  const sharedLibrary = join(libvipsDirectory, "lib", "libvips-cpp.so.8.18.6");
+  const sharedLibrary = join(libvipsDirectory, "lib", "libvips-cpp.so.8.18.7");
   const versionsManifest = join(libvipsDirectory, "versions.json");
   const tracePath = join(traceDirectory, "route.js.nft.json");
 
@@ -942,11 +942,11 @@ test("sharp postbuild assertion requires one complete runtime trace", () => {
       mkdirSync(join(path, ".."), { recursive: true });
     }
     mkdirSync(traceDirectory, { recursive: true });
-    writeFileSync(sharpManifest, JSON.stringify({ version: "0.35.4" }));
+    writeFileSync(sharpManifest, JSON.stringify({ version: "0.35.5" }));
     writeFileSync(nativeAddon, "native");
     writeFileSync(unrelatedNativeAddon, "unrelated native");
     writeFileSync(sharedLibrary, "libvips");
-    writeFileSync(versionsManifest, JSON.stringify({ vips: "8.18.6" }));
+    writeFileSync(versionsManifest, JSON.stringify({ vips: "8.18.7" }));
     writeFileSync(
       tracePath,
       JSON.stringify({
@@ -966,7 +966,7 @@ test("sharp postbuild assertion requires one complete runtime trace", () => {
         runtimePlatform: "linux-x64",
       }),
       {
-        libvipsVersion: "8.18.6",
+        libvipsVersion: "8.18.7",
         nativeAddon,
         sharpManifest,
         sharedLibrary,
