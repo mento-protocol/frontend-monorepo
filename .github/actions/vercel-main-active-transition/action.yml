@@ -84,7 +84,7 @@ runs:
       if: >-
         steps.dispatch-result.outcome == 'success' &&
         steps.dispatch.outputs.journal_artifact_name != 'none'
-      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: ${{ steps.dispatch.outputs.journal_artifact_name }}
         path: ${{ runner.temp }}/active-${{ inputs.slot }}-started-artifact/main-journal.json
@@ -174,7 +174,7 @@ runs:
     - name: Upload the durable command return
       id: upload-returned
       if: steps.returned.outcome == 'success'
-      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: ${{ steps.returned.outputs.journal_artifact_name }}
         path: ${{ runner.temp }}/active-${{ inputs.slot }}-returned-artifact/main-journal.json
@@ -234,7 +234,7 @@ runs:
     - name: Upload the verified mapping snapshot
       id: upload-verified
       if: steps.verify.outcome == 'success'
-      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: ${{ steps.verify.outputs.journal_artifact_name }}
         path: ${{ runner.temp }}/active-${{ inputs.slot }}-verified-artifact/main-journal.json
