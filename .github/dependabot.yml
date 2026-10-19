@@ -11,7 +11,7 @@ updates:
     # Source: https://github.com/dependabot/dependabot-core/issues/12246
     schedule:
       interval: cron
-      cronjob: "0 6 * * mon%2"
+      cronjob: 0 6 * * mon%2
       timezone: UTC
 
     cooldown:
@@ -389,7 +389,7 @@ updates:
     directory: /
     schedule:
       interval: cron
-      cronjob: "0 6 * * mon%2"
+      cronjob: 0 6 * * mon%2
       timezone: UTC
 
     cooldown:
@@ -452,7 +452,7 @@ updates:
       - /.github/actions/vercel-protected-runtime
     schedule:
       interval: cron
-      cronjob: "0 6 * * mon%2"
+      cronjob: 0 6 * * mon%2
       timezone: UTC
 
     cooldown:
