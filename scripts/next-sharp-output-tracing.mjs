@@ -6,6 +6,17 @@ export const SHARP_RUNTIME_VERSION = "0.35.5";
 export const SHARP_LIBVIPS_PACKAGE_VERSION = "1.3.4";
 export const SHARP_LIBVIPS_RUNTIME_VERSION = "8.18.7";
 
+/**
+ * Sharp and libvips runtime pairs that the trusted prebuilt workflow accepts.
+ * Main's copy checks every candidate, so a sharp upgrade first lands here as
+ * an added pair, then moves the tracing constants above, then drops the old
+ * pair. The current tracing pair must always be listed.
+ */
+export const TRUSTED_SHARP_RUNTIMES = Object.freeze([
+  Object.freeze({ sharp: "0.35.4", libvips: "8.18.6" }),
+  Object.freeze({ sharp: "0.35.5", libvips: "8.18.7" }),
+]);
+
 export function sharpRuntimePlatform() {
   let platform = process.platform;
   if (platform === "linux") {
