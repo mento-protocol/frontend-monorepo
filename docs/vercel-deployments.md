@@ -1375,7 +1375,11 @@ library, and libvips 8.18.6 manifest.
 
 The trusted prebuilt workflow independently scans the final
 `.vercel/output` tree before upload. It rejects an output that lacks the exact
-Linux runtime pair, even if the earlier Next build succeeded. Keep both checks
+Linux runtime pair, even if the earlier Next build succeeded. It accepts only
+the sharp and libvips pairs in `TRUSTED_SHARP_RUNTIMES`, and main's copy checks
+every candidate. A sharp upgrade therefore lands in three steps: add the new
+pair, move the tracing constants in the dependency PR, then drop the old pair.
+Keep both checks
 until [issue #587](https://github.com/mento-protocol/frontend-monorepo/issues/587)
 verifies that a stable Next.js release contains the upstream tracing and image
 optimizer fixes. Do not replace this with a canary Next.js release or a patched
