@@ -430,7 +430,7 @@ jobs:
           install -m 0600 "$RUNNER_TEMP/inherited-recovery-journal.json" "$RUNNER_TEMP/inherited-recovery-artifact/main-journal.json"
       - name: Upload current-attempt recovery journal before reverse mutation
         id: upload-prepared
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ steps.journal.outputs.journal_artifact_name }}
           path: ${{ runner.temp }}/inherited-recovery-artifact/main-journal.json
@@ -475,7 +475,7 @@ jobs:
           install -m 0600 "$RUNNER_TEMP/inherited-initialized-journal.json" "$RUNNER_TEMP/inherited-initialized-artifact/main-journal.json"
       - name: Upload initialized inherited recovery journal
         id: upload-initialized
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ steps.initialize.outputs.journal_artifact_name }}
           path: ${{ runner.temp }}/inherited-initialized-artifact/main-journal.json
@@ -941,7 +941,7 @@ jobs:
         run: echo "evidence=${{ steps.finalize.outputs.receipt }}" >> "$GITHUB_OUTPUT"
       - name: Upload app browser diagnostics on failure
         if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           {
             name: "vercel-main-app-${{ github.run_id }}-${{ github.run_attempt }}",
@@ -1156,7 +1156,7 @@ jobs:
         run: echo "evidence=${{ steps.finalize.outputs.receipt }}" >> "$GITHUB_OUTPUT"
       - name: Upload governance browser diagnostics on failure
         if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           {
             name: "vercel-main-governance-${{ github.run_id }}-${{ github.run_attempt }}",
@@ -1365,7 +1365,7 @@ jobs:
         run: echo "evidence=${{ steps.finalize.outputs.receipt }}" >> "$GITHUB_OUTPUT"
       - name: Upload reserve browser diagnostics on failure
         if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           {
             name: "vercel-main-reserve-${{ github.run_id }}-${{ github.run_attempt }}",
@@ -1573,7 +1573,7 @@ jobs:
         run: echo "evidence=${{ steps.finalize.outputs.receipt }}" >> "$GITHUB_OUTPUT"
       - name: Upload UI browser diagnostics on failure
         if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           {
             name: "vercel-main-ui-${{ github.run_id }}-${{ github.run_attempt }}",
@@ -1821,7 +1821,7 @@ jobs:
           needs.prepare-release.outputs.has_active_targets == 'true' &&
           needs.prepare-release.outputs.decision != 'verify-existing-release'
         id: upload-prepared
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ steps.journal.outputs.journal_artifact_name }}
           path: ${{ runner.temp }}/prepared-journal-artifact/main-journal.json
@@ -2084,7 +2084,7 @@ jobs:
           needs.prepare-release.outputs.has_active_targets == 'true' &&
           needs.prepare-release.outputs.decision != 'verify-existing-release'
         id: upload-committed
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ steps.finalize.outputs.journal_artifact_name }}
           path: ${{ runner.temp }}/committed-journal-artifact/main-journal.json
@@ -2267,7 +2267,7 @@ jobs:
         id: journal-identity
         run: node scripts/vercel-main-deployment.mjs active-journal-identity
       - name: Download only this run and attempt's journal artifacts
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           github-token: ${{ github.token }}
           pattern: ${{ steps.journal-identity.outputs.artifact_prefix }}*
@@ -2417,7 +2417,7 @@ jobs:
         if: >-
           steps.journal-presence.outputs.has_journal == 'true' &&
           steps.initialize.outputs.transition_kind == 'journal'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ steps.initialize.outputs.journal_artifact_name }}
           path: ${{ runner.temp }}/recovery-initialized-artifact/main-journal.json
