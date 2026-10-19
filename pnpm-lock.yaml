@@ -145,7 +145,7 @@ overrides:
   mdast-util-to-hast: ^13.2.1
   minimatch@>=10.0.0 <10.2.4: '>=10.2.4'
   nanoid@<3.3.18: 3.3.18
-  next: ^16.3.8
+  next: ^16.4.2
   path-to-regexp@>=8.0.0 <8.4.0: 8.4.2
   path-to-regexp@>=6.0.0 <6.3.0: 6.3.0
   picomatch: 4.0.4
@@ -273,7 +273,7 @@ importers:
         specifier: 'catalog:'
         version: 1.48.0(react@19.2.8)
       next:
-        specifier: ^16.3.8
+        specifier: ^16.4.2
         version: 16.4.2(@babel/core@7.29.7)(@opentelemetry/api@1.9.0)(@playwright/test@1.63.0)(@types/node@26.6.2)(babel-plugin-macros@3.1.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       next-themes:
         specifier: 'catalog:'
@@ -409,7 +409,7 @@ importers:
         specifier: 'catalog:'
         version: 1.48.0(react@19.2.8)
       next:
-        specifier: ^16.3.8
+        specifier: ^16.4.2
         version: 16.4.2(@babel/core@7.29.7)(@opentelemetry/api@1.9.0)(@playwright/test@1.63.0)(@types/node@26.6.2)(babel-plugin-macros@3.1.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       postcss:
         specifier: 'catalog:'
@@ -542,7 +542,7 @@ importers:
         specifier: 'catalog:'
         version: 1.48.0(react@19.2.8)
       next:
-        specifier: ^16.3.8
+        specifier: ^16.4.2
         version: 16.4.2(@babel/core@7.29.7)(@opentelemetry/api@1.9.0)(@playwright/test@1.63.0)(@types/node@26.6.2)(babel-plugin-macros@3.1.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       postcss:
         specifier: 'catalog:'
@@ -591,7 +591,7 @@ importers:
         specifier: 'catalog:'
         version: 1.48.0(react@19.2.8)
       next:
-        specifier: ^16.3.8
+        specifier: ^16.4.2
         version: 16.4.2(@babel/core@7.29.7)(@opentelemetry/api@1.9.0)(@playwright/test@1.63.0)(@types/node@26.6.2)(babel-plugin-macros@3.1.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       next-themes:
         specifier: 'catalog:'
@@ -996,7 +996,7 @@ packages:
     resolution: {integrity: sha512-aNh16zlx5rrGtP946jW+O/J7OUyoSC0dxjicFIztiw/S5tQjNqZgqmlgtOXMn7zAR8qV9VOAiKjK5UROaN8iJg==}
     peerDependencies:
       '@apollo/client': ^4.0.0
-      next: ^16.3.8
+      next: ^16.4.2
       react: ^19
       rxjs: ^7.3.0
 
@@ -5714,7 +5714,7 @@ packages:
     resolution: {integrity: sha512-Vds/cKG3SJjmdRbjXMVKXUamYCxh3oxW69ytL9Bs5sUQTUwE+9Uu8R9cZ0+eGC/c3vrUoXMn5QYGh/h8+PyeJA==}
     engines: {node: '>=18'}
     peerDependencies:
-      next: ^16.3.8
+      next: ^16.4.2
 
   '@sentry/node-core@10.36.0':
     resolution: {integrity: sha512-3K2SJCPiQGQMYSVSF3GuPIAilJPlXOWxyvrmnxY9Zw3ZbXaLynhYCJ5TjL38hS7XoMby/0lN2fY/kbXH/GlNeg==}
@@ -7571,7 +7571,7 @@ packages:
     peerDependencies:
       '@remix-run/react': ^2
       '@sveltejs/kit': ^1 || ^2
-      next: ^16.3.8
+      next: ^16.4.2
       nuxt: '>= 3'
       react: ^18 || ^19 || ^19.0.0-rc
       svelte: '>= 4'
@@ -8688,6 +8688,11 @@ packages:
     resolution: {integrity: sha512-ir1UPr3dkwexU7FdV8qBBbNDRUhMmIekYMFZfi+C/sLNnRESKPl23nB9b2pltqfOQNnGzsDdId90AEtG5tCx4A==}
     engines: {node: '>=6.0.0'}
 
+  baseline-browser-mapping@2.11.25:
+    resolution: {integrity: sha512-gMmEShwwq7FJqMwvfRwvCl00v4kN+KOfJqXn+f4nrufak5gNHJOksd/60Dvjuz7sI8Y5WiSFBa8FEYr+zoyqCw==}
+    engines: {node: '>=6.0.0'}
+    hasBin: true
+
   baseline-browser-mapping@2.11.28:
     resolution: {integrity: sha512-br0LOmjJqr6Rt4AEkadbcNf67Zpo7EPwKsWbjnRrJIa1QYFHQBqM4C7F2WTbV8ahTEcg1Eo+Y0aWjjORInYFyA==}
     engines: {node: '>=6.0.0'}
@@ -8905,6 +8910,9 @@ packages:
   camelcase@6.3.0:
     resolution: {integrity: sha512-Gmy6FhYlCY7uOElZUSbxo2UCDH8owEk996gkbrpsgGtrJLM3J7jGxl9Ic7Qwwj4ivOE5AWZWRMecDdF7hqGjFA==}
     engines: {node: '>=10'}
+
+  caniuse-lite@1.0.30001810:
+    resolution: {integrity: sha512-TITQPUkaz+aVk5GL6NhOdwk1aEaNTSDPsGFWrTuhKGtjTF70jL/Oht2W4c6rXUe5fu7Ie19VIahAXHIIiWWNeg==}
 
   caniuse-lite@1.0.30001816:
     resolution: {integrity: sha512-+8Yx7BXCoqk6IF8yTicjfUR6D/ldJzdlsodlEOiOSPmhK844WIgk67/zIQaGAOxNkZyyvBlrRFnLvqKIoqbAFw==}
@@ -25832,6 +25840,8 @@ snapshots:
 
   base64url@3.0.1: {}
 
+  baseline-browser-mapping@2.11.25: {}
+
   baseline-browser-mapping@2.11.28: {}
 
   bech32@1.1.4: {}
@@ -25961,8 +25971,8 @@ snapshots:
 
   browserslist@4.28.8:
     dependencies:
-      baseline-browser-mapping: 2.11.28
-      caniuse-lite: 1.0.30001816
+      baseline-browser-mapping: 2.11.25
+      caniuse-lite: 1.0.30001810
       electron-to-chromium: 1.5.418
       node-releases: 2.0.54
       update-browserslist-db: 1.3.2(browserslist@4.28.8)
@@ -26087,6 +26097,8 @@ snapshots:
   camelcase@5.3.1: {}
 
   camelcase@6.3.0: {}
+
+  caniuse-lite@1.0.30001810: {}
 
   caniuse-lite@1.0.30001816: {}
 
