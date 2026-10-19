@@ -54,8 +54,7 @@ import {
 } from "./vercel-build-environment.mjs";
 import {
   sharpRuntimePlatform,
-  SHARP_LIBVIPS_RUNTIME_VERSION,
-  SHARP_RUNTIME_VERSION,
+  TRUSTED_SHARP_RUNTIMES,
 } from "./next-sharp-output-tracing.mjs";
 import { PREVIEW_TARGET_CONFIG } from "./vercel-preview-targets.mjs";
 import {
@@ -3277,29 +3276,26 @@ export function assertSharpPrebuiltArtifacts(
     let artifacts = artifactsByFunction.get(functionDirectory);
     if (!artifacts) {
       artifacts = {
-        nativeAddon: undefined,
+        nativeAddons: new Map(),
         sharedLibraries: [],
         versionsManifests: [],
       };
       artifactsByFunction.set(functionDirectory, artifacts);
     }
 
-    if (
-      basename(path) ===
-      `sharp-${runtimePlatform}-${SHARP_RUNTIME_VERSION}.node`
-    ) {
-      artifacts.nativeAddon = path;
+    for (const { sharp } of TRUSTED_SHARP_RUNTIMES) {
+      if (basename(path) === `sharp-${runtimePlatform}-${sharp}.node`) {
+        artifacts.nativeAddons.set(sharp, path);
+      }
     }
     if (LIBVIPS_SHARED_LIBRARY_PATTERN.test(basename(path))) {
       artifacts.sharedLibraries.push(path);
     }
     if (basename(path) === "versions.json" && path.includes("sharp-libvips-")) {
       try {
-        if (
-          JSON.parse(readFileSync(path, "utf8")).vips ===
-          SHARP_LIBVIPS_RUNTIME_VERSION
-        ) {
-          artifacts.versionsManifests.push(path);
+        const vips = JSON.parse(readFileSync(path, "utf8")).vips;
+        if (typeof vips === "string") {
+          artifacts.versionsManifests.push({ path, vips });
         }
       } catch {
         // The exact artifact checks below fail closed.
@@ -3308,28 +3304,42 @@ export function assertSharpPrebuiltArtifacts(
   }
 
   for (const artifacts of artifactsByFunction.values()) {
-    if (!artifacts.nativeAddon) continue;
-    if (runtimePlatform.startsWith("win32-")) {
-      return { nativeAddon: artifacts.nativeAddon };
-    }
-    const packageSegment = `sharp-libvips-${runtimePlatform}`;
-    const sharedLibrary = artifacts.sharedLibraries.find((path) =>
-      path.includes(packageSegment),
-    );
-    const versionsManifest = artifacts.versionsManifests.find((path) =>
-      path.includes(packageSegment),
-    );
-    if (sharedLibrary && versionsManifest) {
-      return {
-        nativeAddon: artifacts.nativeAddon,
-        sharedLibrary,
-        versionsManifest,
-      };
+    for (const { sharp, libvips } of TRUSTED_SHARP_RUNTIMES) {
+      const nativeAddon = artifacts.nativeAddons.get(sharp);
+      if (!nativeAddon) continue;
+      if (runtimePlatform.startsWith("win32-")) {
+        return { nativeAddon };
+      }
+      const packageSegment = `sharp-libvips-${runtimePlatform}`;
+      for (const manifest of artifacts.versionsManifests) {
+        if (
+          manifest.vips !== libvips ||
+          !manifest.path.includes(packageSegment)
+        ) {
+          continue;
+        }
+        // The library must come from the same libvips package as the manifest,
+        // so a traced older package cannot stand in for the trusted pair.
+        const libraryDirectory = join(dirname(manifest.path), "lib") + sep;
+        const sharedLibrary = artifacts.sharedLibraries.find((path) =>
+          path.startsWith(libraryDirectory),
+        );
+        if (sharedLibrary) {
+          return {
+            nativeAddon,
+            sharedLibrary,
+            versionsManifest: manifest.path,
+          };
+        }
+      }
     }
   }
 
+  const accepted = TRUSTED_SHARP_RUNTIMES.map(
+    ({ sharp, libvips }) => `sharp ${sharp} with libvips ${libvips}`,
+  ).join(", or ");
   throw new Error(
-    `Prebuilt output is missing sharp ${SHARP_RUNTIME_VERSION}'s ${runtimePlatform} native addon or its matching libvips ${SHARP_LIBVIPS_RUNTIME_VERSION} runtime`,
+    `Prebuilt output is missing a trusted ${runtimePlatform} sharp runtime: ${accepted}`,
   );
 }
 
