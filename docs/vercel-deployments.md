@@ -1319,6 +1319,15 @@ native Vercel:
   main-deployment jobs install only the standalone runtime. The project owner approved the dependency as part of delivering the
   epic. The stable npm version was re-queried on 2026-07-14 before it was
   pinned.
+- Root `pnpm.overrides`: the standalone `scripts/vercel-cli-runtime/package.json`
+  carries exactly the root overrides, and `contract.json` records their digest
+  (`overridesSha256`) beside the runtime manifest and lockfile digests. A PR
+  that changes any root override therefore also mirrors it into the runtime
+  manifest, regenerates the runtime lockfile, and refreshes all three digests.
+  Otherwise `pnpm test:ci:vercel` and the preview's `check-candidate-versions`
+  fail with `Trusted Vercel CLI runtime manifest is not exact`,
+  `… lockfile is not exact`, or `… lockfile and overrides are not an approved
+pair`, depending on the step missed (#981, #1042).
 - Resolved Next.js: `16.4.1` in `pnpm-lock.yaml`.
 - Root `pnpm.patchedDependencies`: absent, or exactly the map that
   `scripts/vercel-cli-runtime-contract.mjs` records as
