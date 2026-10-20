@@ -160,11 +160,11 @@ function hasExactObjectKeys(value, expectedKeys) {
   );
 }
 
-function sha256(value) {
+export function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
 }
 
-function canonicalStringMapSha256(value, label) {
+export function canonicalStringMapSha256(value, label) {
   if (
     value === null ||
     typeof value !== "object" ||
