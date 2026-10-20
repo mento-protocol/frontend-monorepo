@@ -11,20 +11,32 @@
 // shell-size-baseline.txt, beside this file, exempts what predates the
 // limits. It holds two kinds of row:
 // - a file row, `<path> <count>`, allows that file <count> lines;
-// - a function row, `<path> <function> <count>`, allows the longest
-//   declaration of that function in that file <count> lines.
+// - a function row, `<path> <function> <count>`, allows the first
+//   declaration of that function in that file, by line, <count> lines.
 // Blank rows and rows that start with # are skipped. A file row exempts the
 // length of the file only: its functions are checked like any other. A
-// second declaration of an exempt name is checked like any other function.
-// A row is keyed by path, and a function row also by name, so a renamed or
-// moved function is a new function.
+// function row exempts one declaration only: every later declaration of the
+// name is checked like any other function. A row is keyed by path, and a
+// function row also by name, so a renamed or moved function is a new
+// function.
 //
-// Because the row covers whichever declaration is longest, a new declaration
-// of a baselined name can take the allowance over: shrink the exempt
-// declaration and add a longer one, and the row now covers the new one. That
-// is accepted, because the allowance never grows, one declaration of the name
-// is still the only one above the limit and still at or below the row, and
-// every other declaration of that name is measured at the ordinary limit.
+// The row binds to the first declaration, not to the longest, because a
+// change edits lengths freely: were the row bound to the longest declaration,
+// shrinking the exempt one and appending a longer one would hand the
+// allowance to the new code. A new declaration placed above the exempt one
+// still takes the row over; no rule inside one file can tell the two apart.
+//
+// The baseline format separates its fields with whitespace, so no row can
+// name a path that holds any. A file in such a path passes while it fits the
+// limits; a subject there that breaks one cannot be exempted, and the finding
+// says so.
+//
+// Exit status: 0 when every subject fits, 1 when the run found at least one
+// size or baseline problem, and 2 when the run could not reach a verdict:
+// git or a file could not be read, the base ref could not be compared, the
+// parser module could not be loaded, or a limit override is not a positive
+// integer. Each reason is printed. A file the parser rejects is a problem of
+// that file, so it exits 1. When both kinds occur the run exits 2.
 //
 // A row is an upper bound, not an exact count. The subject may sit at or
 // below its row: below it the run prints one advisory line and still passes,
@@ -53,15 +65,50 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, existsSync } from "node:fs";
 import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import sh from "mvdan-sh";
+
+const problems = [];
+const problem = (message) => problems.push(message);
+// An error means the run could not measure or compare something, so it
+// reaches no verdict and exits 2, whatever else it found.
+const errors = [];
+const operationalError = (message) => errors.push(message);
+// An advisory passes the run. It says a row allows more than the subject
+// needs, which the next change to that subject can lower.
+const advise = (message) => console.log(message);
+
+// A limit override is a positive integer in decimal digits, or it is an
+// error. Number() alone reads "5O0" as NaN, and a NaN limit makes every
+// comparison false, so the run would pass with nothing measured.
+function limitFrom(name, raw, fallback) {
+  if (raw === undefined) return fallback;
+  const value = Number(raw);
+  if (/^[0-9]+$/.test(raw) && value > 0 && Number.isSafeInteger(value))
+    return value;
+  operationalError(
+    `${name}=${raw} is not a positive integer; unset it or set a whole number of lines`,
+  );
+  return fallback;
+}
 
 // Bracket access on purpose, so every copy of this file reads these names
 // the same way. A consumer repository lints every .mjs with
 // turbo/no-undeclared-env-vars, which reports both the dot and the bracket
 // form; neither form silences it, and there the rule only warns.
-const MAX_FILE_LINES = Number(process.env["MAX_FILE_LINES"] ?? 500);
-const MAX_FUNCTION_LINES = Number(process.env["MAX_FUNCTION_LINES"] ?? 50);
+const MAX_FILE_LINES = limitFrom(
+  "MAX_FILE_LINES",
+  process.env["MAX_FILE_LINES"],
+  500,
+);
+const MAX_FUNCTION_LINES = limitFrom(
+  "MAX_FUNCTION_LINES",
+  process.env["MAX_FUNCTION_LINES"],
+  50,
+);
 const BASE_REF = process.env["SHELL_SIZE_BASE"] ?? "";
+
+// The shfmt parser. main() loads it, so a missing install is reported as an
+// error instead of ending the run with exit 1 and a stack trace.
+let sh = null;
 
 const BASELINE_NAME = "shell-size-baseline.txt";
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -84,11 +131,12 @@ function repositoryRoot() {
 const ROOT = repositoryRoot();
 const BASELINE_REL = relative(ROOT, BASELINE).split(sep).join("/");
 
-const problems = [];
-const problem = (message) => problems.push(message);
-// An advisory passes the run. It says a row allows more than the subject
-// needs, which the next change to that subject can lower.
-const advise = (message) => console.log(message);
+// The baseline format separates its fields with whitespace, so a row cannot
+// name a path that holds any, and a subject there that breaks a limit cannot
+// be exempted.
+const unnameable = (file) => /\s/.test(file);
+const CANNOT_EXEMPT =
+  "the baseline format cannot name a path that holds whitespace, so it cannot be exempted";
 
 // What to do with a row whose subject is now shorter than the row allows.
 // Below the ordinary limit the row can no longer be lowered, because a count
@@ -125,9 +173,18 @@ function atBase(path) {
   }
 }
 
+// Every tracked *.sh path, or null after reporting that git could not list
+// them, for example because the index is unreadable.
 function trackedShellFiles() {
-  const out = git(["ls-files", "-z", "--", "*.sh"]);
-  return out.split("\0").filter(Boolean);
+  try {
+    const out = git(["ls-files", "-z", "--", "*.sh"]);
+    return out.split("\0").filter(Boolean);
+  } catch {
+    operationalError(
+      "git cannot list the tracked *.sh files; nothing was measured",
+    );
+    return null;
+  }
 }
 
 // Counts physical lines, including a final line with no trailing newline.
@@ -202,11 +259,43 @@ function storeRow(baseline, row, count) {
   baseline.functions.get(row.path).set(row.name, count);
 }
 
-// Reads the baseline, reporting every row the checker refuses.
+// Whether the index tracks the baseline, or null after reporting that git
+// could not say. :(literal) keeps a glob character in the path literal.
+function baselineTracked() {
+  try {
+    return git(["ls-files", "-z", "--", `:(literal)${BASELINE_REL}`]) !== "";
+  } catch {
+    operationalError(`git cannot tell whether ${BASELINE_REL} is tracked`);
+    return null;
+  }
+}
+
+// Reads the baseline, reporting every row the checker refuses, or returns
+// null after reporting that the file cannot be read. A baseline the index
+// tracks but the working tree lacks, as a sparse checkout or an unstaged rm
+// leaves it, is an error: read as no baseline, it would pass the run or
+// report a removal nobody staged.
 function readBaseline(tracked) {
   const baseline = emptyBaseline();
-  if (!existsSync(BASELINE)) return baseline;
-  const lines = readFileSync(BASELINE, "utf8").split("\n");
+  if (!existsSync(BASELINE)) {
+    const indexed = baselineTracked();
+    if (indexed === null) return null;
+    if (!indexed) return baseline;
+    operationalError(
+      `${BASELINE_REL} is tracked but missing from the working tree; restore it or stage its removal`,
+    );
+    return null;
+  }
+  let text;
+  try {
+    text = readFileSync(BASELINE, "utf8");
+  } catch (error) {
+    operationalError(
+      `${BASELINE_REL}: cannot read: ${error?.code ?? String(error)}`,
+    );
+    return null;
+  }
+  const lines = text.split("\n");
   lines.forEach((raw, index) => {
     const fields = fieldsOf(raw);
     if (fields === null) return;
@@ -270,13 +359,25 @@ function parseFunctions(file, text) {
   return functions;
 }
 
-// A function row covers the longest declaration of the name. Every other
-// declaration is held to MAX_FUNCTION_LINES.
+// Reports a function over MAX_FUNCTION_LINES that no row covers.
+function overFunctionLimit(file, name, start, length) {
+  const finding = `${file}:${start}: function ${name} is ${length} lines, the limit is ${MAX_FUNCTION_LINES}`;
+  problem(
+    unnameable(file)
+      ? `${finding}; ${CANNOT_EXEMPT}; split the function or rename the file`
+      : finding,
+  );
+}
+
+// A function row covers the first declaration of the name, by line, so it
+// exempts one declaration at most. Every later declaration is held to
+// MAX_FUNCTION_LINES. The header comment says why the first and not the
+// longest.
 function checkDeclarations(file, name, declarations, allowed) {
-  const sorted = [...declarations].sort((a, b) => b.length - a.length);
-  const rest = allowed === undefined ? sorted : sorted.slice(1);
+  const ordered = [...declarations].sort((a, b) => a.start - b.start);
+  const rest = allowed === undefined ? ordered : ordered.slice(1);
   if (allowed !== undefined) {
-    const { start, length } = sorted[0];
+    const { start, length } = ordered[0];
     if (length > allowed) {
       problem(
         `${file}:${start}: function ${name} is ${length} lines, grew past its baseline of ${allowed}; split it instead of growing it`,
@@ -289,9 +390,7 @@ function checkDeclarations(file, name, declarations, allowed) {
   }
   for (const { start, length } of rest) {
     if (length > MAX_FUNCTION_LINES)
-      problem(
-        `${file}:${start}: function ${name} is ${length} lines, the limit is ${MAX_FUNCTION_LINES}`,
-      );
+      overFunctionLimit(file, name, start, length);
   }
 }
 
@@ -312,10 +411,13 @@ function checkFunctions(file, text, rows) {
 
 function checkLength(file, lines, allowed) {
   if (allowed === undefined) {
-    if (lines > MAX_FILE_LINES)
-      problem(
-        `${file}: ${lines} lines, the limit is ${MAX_FILE_LINES}; split it by topic`,
-      );
+    if (lines <= MAX_FILE_LINES) return;
+    const finding = `${file}: ${lines} lines, the limit is ${MAX_FILE_LINES}`;
+    problem(
+      unnameable(file)
+        ? `${finding}; ${CANNOT_EXEMPT}; split the file or rename it`
+        : `${finding}; split it by topic`,
+    );
     return;
   }
   if (lines > allowed) {
@@ -334,8 +436,9 @@ function checkFile(file, baseline) {
   try {
     text = readFileSync(join(ROOT, file), "utf8");
   } catch (error) {
-    // A tracked path the working tree lacks, or one this user cannot read.
-    problem(`${file}: cannot read: ${error?.code ?? String(error)}`);
+    // A tracked path the working tree lacks, such as one a sparse checkout
+    // leaves out, or one this user cannot read.
+    operationalError(`${file}: cannot read: ${error?.code ?? String(error)}`);
     return;
   }
   checkLength(file, countLines(text), baseline.files.get(file));
@@ -360,7 +463,9 @@ function checkBaseRef() {
     ]);
     return true;
   } catch {
-    problem(`SHELL_SIZE_BASE=${BASE_REF} does not resolve to a commit`);
+    operationalError(
+      `SHELL_SIZE_BASE=${BASE_REF} does not resolve to a commit`,
+    );
     return false;
   }
 }
@@ -383,7 +488,9 @@ function baseTreePaths() {
       BASE_REF,
     ]).split("\0");
   } catch {
-    problem(`cannot list the tree of ${BASE_REF}; the baseline is uncompared`);
+    operationalError(
+      `cannot list the tree of ${BASE_REF}; the baseline is uncompared`,
+    );
     return null;
   }
 }
@@ -399,13 +506,21 @@ function baseBaseline() {
   if (tree === null) return null;
   const paths = tree.filter((path) => path.split("/").pop() === BASELINE_NAME);
   if (paths.length > 1) {
-    problem(
+    operationalError(
       `${BASE_REF} holds more than one ${BASELINE_NAME} (${paths.join(" ")}); keep one`,
     );
     return null;
   }
   if (paths.length === 0) return { missing: true };
-  return { text: atBase(paths[0]) ?? "" };
+  const text = atBase(paths[0]);
+  if (text === null) {
+    // The tree lists the file, so git failed to read it.
+    operationalError(
+      `cannot read ${paths[0]} in ${BASE_REF}; the baseline is uncompared`,
+    );
+    return null;
+  }
+  return { text };
 }
 
 // Refuses removal of the baseline file once the base has one, any row the
@@ -438,52 +553,81 @@ function checkRatchet(rows) {
   }
 }
 
-// The baseline format separates its fields with whitespace, so it cannot
-// name a path that holds any.
-function checkPaths(tracked) {
-  for (const file of tracked) {
-    if (/\s/.test(file))
-      problem(
-        `${file} holds whitespace; the baseline format cannot name it; rename the file`,
-      );
-  }
-}
-
+// Prints every problem and error and exits: 2 when any error stopped the
+// verdict, 1 when the run found a problem, and 0 otherwise.
 function report() {
+  for (const message of problems) console.error(message);
+  for (const message of errors) console.error(message);
+  if (errors.length > 0) {
+    const found =
+      problems.length > 0
+        ? `; ${problems.length} problem(s) found as well`
+        : "";
+    console.error(
+      `check-shell-size: no verdict; ${errors.length} error(s) stopped the check${found}`,
+    );
+    process.exit(2);
+  }
   if (problems.length === 0) {
     console.log("check-shell-size: ok");
     return;
   }
-  for (const message of problems) console.error(message);
   console.error(
     `check-shell-size: ${problems.length} problem(s); see the shell rules in AGENTS.md`,
   );
   process.exit(1);
 }
 
-function main() {
+// Loads the shfmt parser into sh, or returns false after reporting why not.
+async function loadParser() {
+  try {
+    sh = (await import("mvdan-sh")).default;
+    return true;
+  } catch (error) {
+    operationalError(
+      `cannot load mvdan-sh: ${error?.code ?? String(error)}; install the dependencies`,
+    );
+    return false;
+  }
+}
+
+// Returns false after reporting a setup error that leaves nothing to measure.
+async function ready() {
+  if (errors.length > 0) return false; // an invalid limit override
   if (ROOT === "") {
-    problem(
+    operationalError(
       `${HERE} is not inside a git repository; run the checker from a checkout`,
     );
-    report();
-    return;
+    return false;
   }
   // The ".." segment, not the two characters: a directory may be named
   // "..tools", and the checker works at any depth below the root.
   if (BASELINE_REL === ".." || BASELINE_REL.startsWith("../")) {
-    problem(
+    operationalError(
       `${BASELINE} is outside the repository at ${ROOT}; keep ${BASELINE_NAME} beside the checker`,
     );
-    report();
-    return;
+    return false;
   }
-  const tracked = trackedShellFiles();
-  checkPaths(tracked);
-  const baseline = readBaseline(tracked);
-  if (checkBaseRef()) checkRatchet(baseline.rows);
-  for (const file of tracked) checkFile(file, baseline);
-  report();
+  return loadParser();
 }
 
-main();
+async function main() {
+  if (!(await ready())) return;
+  const tracked = trackedShellFiles();
+  if (tracked === null) return;
+  const baseline = readBaseline(tracked);
+  if (baseline === null) return;
+  if (checkBaseRef()) checkRatchet(baseline.rows);
+  for (const file of tracked) checkFile(file, baseline);
+}
+
+// An exception nothing above expected is a failure of the checker, not a
+// finding, so it ends the run with no verdict as well.
+try {
+  await main();
+} catch (error) {
+  operationalError(
+    `check-shell-size: unexpected error: ${error?.stack ?? String(error)}`,
+  );
+}
+report();
