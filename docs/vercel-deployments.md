@@ -1324,8 +1324,10 @@ native Vercel:
   (`overridesSha256`) beside the runtime manifest and lockfile digests. A PR
   that changes any root override therefore also mirrors it into the runtime
   manifest, regenerates the runtime lockfile, and refreshes all three digests.
-  Otherwise `pnpm test:ci:vercel` and the preview's `check-candidate-versions`
-  fail with `Trusted Vercel CLI runtime manifest is not exact`,
+  `pnpm vercel:cli-runtime:rotate` does all three and then runs the contract
+  check; review the regenerated runtime lockfile with `pnpm lockfile:edge-diff
+  --lockfile scripts/vercel-cli-runtime/pnpm-lock.yaml`. A missed step makes
+  `pnpm test:ci:vercel` and the preview's `check-candidate-versions` fail with `Trusted Vercel CLI runtime manifest is not exact`,
   `… lockfile is not exact`, or `… lockfile and overrides are not an approved
 pair`, depending on the step missed (#981, #1042).
 - Resolved Next.js: `16.4.1` in `pnpm-lock.yaml`.

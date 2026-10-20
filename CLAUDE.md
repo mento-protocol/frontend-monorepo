@@ -66,6 +66,8 @@ pnpm vercel:workflow:test            # Test Vercel preview and main workflows, e
 pnpm vercel:preview:test             # Test preview state plus reusable smoke trust, native-adapter, and Git-ownership boundaries
 pnpm vercel:production-shadow:test   # Test the staged-candidate toolkit and shared candidate-build actions
 pnpm vercel:versions:check           # Verify pinned Next.js/Vercel CLI custom-ID prerequisites
+pnpm vercel:cli-runtime:rotate       # After a root pnpm.overrides change: mirror it into the Vercel CLI runtime, regenerate its lockfile, refresh contract.json
+pnpm lockfile:edge-diff              # List resolved dependency edges that differ from origin/main (--base, --head, --lockfile)
 pnpm vercel:plan --base <sha> --head <sha>  # Emit the fail-closed Vercel target plan
 gh pr view --json body --jq .body | pnpm pr:description:check  # Validate the current PR body; `## Validation` is one line per check
 ```
