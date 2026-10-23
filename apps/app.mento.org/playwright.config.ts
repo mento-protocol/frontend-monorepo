@@ -26,7 +26,15 @@ export default defineConfig({
   retries: 0,
   workers: process.env.CI ? 2 : undefined,
   reporter,
-  use: { baseURL: `http://localhost:${PORT}`, deviceScaleFactor: 1 },
+  use: {
+    baseURL: `http://localhost:${PORT}`,
+    deviceScaleFactor: 1,
+    // Argos-recommended: disable subpixel text and font hinting so text
+    // renders the same on every run and machine.
+    launchOptions: {
+      args: ["--disable-lcd-text", "--font-render-hinting=none"],
+    },
+  },
   projects: [
     {
       // `preview/` runs only through its dedicated config (it needs
