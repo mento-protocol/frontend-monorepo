@@ -414,9 +414,11 @@ Two layers guard against unintended UI changes:
   pnpm --filter app.mento.org test:visual
   ```
 
-  An intended UI change shows as a diff in the Argos dashboard — approve it there to promote the baseline. Requires the `ARGOS_TOKEN` secret + the Argos GitHub App. `ui.mento.org` needs `NEXT_PUBLIC_STORAGE_URL` (CI uses `vars.STORAGE_URL`; locally use `apps/ui.mento.org/.env.local`). `app.mento.org` needs the client env vars from `apps/app.mento.org/.env.example`; for local screenshot renders, `NEXT_PUBLIC_SENTRY_DSN_SWAP` may be an empty string and `SENTRY_AUTH_TOKEN` may be omitted.
+  An intended UI change shows as a diff in the [Argos project](https://app.argos-ci.com/chapati23/frontend-monorepo) — approve it there to promote the baseline. Requires the `ARGOS_TOKEN` secret + the Argos GitHub App. `ui.mento.org` needs `NEXT_PUBLIC_STORAGE_URL` (CI uses `vars.STORAGE_URL`; locally use `apps/ui.mento.org/.env.local`). `app.mento.org` needs the client env vars from `apps/app.mento.org/.env.example`; for local screenshot renders, `NEXT_PUBLIC_SENTRY_DSN_SWAP` may be an empty string and `SENTRY_AUTH_TOKEN` may be omitted.
 
-  If CI shows all Playwright visual tests passing and then Argos fails with HTTP 402 or a screenshot-capacity error, classify it as an Argos account or billing failure rather than a visual regression. Report the pass counts and do not disable VRT or change baselines for that failure.
+  Since 2026-10-23 the Argos project lives on the `chapati23` personal account on the free Hobby plan, not on the paid `mento` team. Two limits follow. Only the account owner can review diffs and approve baselines, so ask that person to approve an intended change. The account gets 5,000 screenshots per month, and uploads stop at that limit until the next billing period. A full build uploads 78 screenshots (58 showcase, 20 app). Dependabot PRs run without `ARGOS_TOKEN` and upload nothing.
+
+  If CI shows all Playwright visual tests passing and then Argos fails with HTTP 402 or a screenshot-capacity error, classify it as an Argos account or billing failure rather than a visual regression. On the Hobby plan this usually means the monthly cap is used up. `Visual Regression (ui.mento.org)` is a required check, so the failure blocks affected PRs until the period resets or an admin bypasses the check. Report the pass counts and do not disable VRT or change baselines for that failure.
 
 ## Wallet-Connected Testing (local fork)
 

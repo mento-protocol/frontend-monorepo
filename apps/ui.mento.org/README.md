@@ -39,7 +39,10 @@ pnpm exec turbo run build --filter ui.mento.org...
 pnpm --filter ui.mento.org test:visual
 ```
 
-Diffs are reviewed and baselines are promoted in the Argos dashboard.
+Diffs are reviewed and baselines are promoted in the
+[Argos project](https://app.argos-ci.com/chapati23/frontend-monorepo). The
+project is on the free Hobby plan of a personal account, so only the account
+owner can approve baselines. See the repository `CLAUDE.md` for the plan limits.
 
 On pull requests, the CI workflow runs this suite only when files that can
 affect the showcase change, such as `apps/ui.mento.org/**`, `packages/ui/**`,
