@@ -34,6 +34,11 @@ export default defineConfig({
   use: {
     baseURL: `http://localhost:${PORT}`,
     deviceScaleFactor: 1,
+    // Argos-recommended: disable subpixel text and font hinting so text
+    // renders the same on every run and machine.
+    launchOptions: {
+      args: ["--disable-lcd-text", "--font-render-hinting=none"],
+    },
   },
   projects: [
     { name: "desktop", use: { viewport: { width: 1280, height: 900 } } },
