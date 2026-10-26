@@ -42,7 +42,7 @@ test("reusable preview smoke is workflow_call-only, secretless, and target-bound
   assert.deepEqual(smoke.permissions, { contents: "read" });
   assert.equal(
     smoke.container.image,
-    "mcr.microsoft.com/playwright:v1.63.0-noble",
+    "mcr.microsoft.com/playwright:v1.64.1-noble",
   );
   assert.equal(Object.hasOwn(smoke, "environment"), false);
   assert.match(
