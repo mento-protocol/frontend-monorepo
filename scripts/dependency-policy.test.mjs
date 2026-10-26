@@ -984,7 +984,7 @@ test("Wormhole Connect owns isolated UI dependencies", () => {
   const wormholeSnapshots = Object.entries(lockfile.snapshots).filter(([key]) =>
     key.startsWith("@wormhole-foundation/wormhole-connect@6.0.0("),
   );
-  const approvedResolvedLucide = /^1\.48\.0(?:\(|$)/u;
+  const approvedResolvedLucide = /^1\.59\.0(?:\(|$)/u;
   const widgetResolvedLucide = /^0\.554\.0(?:\(|$)/u;
   const widgetOnlyUiDependencies = [
     "@emotion/react",
@@ -1002,8 +1002,8 @@ test("Wormhole Connect owns isolated UI dependencies", () => {
     "^6.0.0",
   );
   assert.equal(appManifest.dependencies["lucide-react"], "catalog:");
-  assert.equal(uiManifest.dependencies["lucide-react"], "^1.48.0");
-  assert.equal(workspace.catalog["lucide-react"], "^1.48.0");
+  assert.equal(uiManifest.dependencies["lucide-react"], "^1.59.0");
+  assert.equal(workspace.catalog["lucide-react"], "^1.59.0");
   assert.equal(appLucide.specifier, "catalog:");
   assert.match(appLucide.version, approvedResolvedLucide);
   assert.equal(
