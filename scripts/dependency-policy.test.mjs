@@ -1692,6 +1692,12 @@ test("both agent guides carry the same Dependabot preparation facts", () => {
     "Required CI checks remain mandatory on the current head",
     "require independent review of the final repair diff",
     "Read all review feedback, address actual findings",
+    "A rate-limited CodeRabbit review is unavailable in the same way",
+    "Findings that CodeRabbit does post are mandatory",
+    "The agent may merge at ALL CLEAR",
+    "--match-head-commit <sha>",
+    "Never approve, dismiss reviews, use `--admin`",
+    "Human approval remains a separate, human-only gate",
   ]) {
     assert.ok(wording.includes(fact), fact);
   }
