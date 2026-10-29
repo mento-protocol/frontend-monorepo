@@ -70,9 +70,11 @@ skill defaults to one hour and 30 active repair minutes. CodeRabbit
 (`coderabbitai[bot]`, GitHub user id `136622811`) is an advisory technical
 reviewer for Dependabot PRs, not a preparation gate. Its status check and review
 are advisory: an absent, skipped, stale, or licensing-refused CodeRabbit review
-does not block readiness and does not require provisioning a bot seat. If a
-review is requested, use the exact `@coderabbitai review` comment at most once
-per exact head.
+does not block readiness and does not require provisioning a bot seat. A
+rate-limited CodeRabbit review is unavailable in the same way. Findings that
+CodeRabbit does post are mandatory: address and answer every actionable item
+before merge, as for any other reviewer. If a review is requested, use the
+exact `@coderabbitai review` comment at most once per exact head.
 
 Required CI checks remain mandatory on the current head. Agent-written repairs
 require independent review of the final repair diff; CodeRabbit's advisory
@@ -81,13 +83,28 @@ findings, and report missing or skipped advisory review explicitly in the
 preparation handoff. Human approval and any GitHub-required reviews remain
 separate merge gates.
 
-Never approve, dismiss reviews, merge, close, alter auto-merge, or resolve or
-unresolve review threads. Publish only fast-forward updates to the authenticated
-existing PR branch. Human approval, thread resolution, and merge remain separate.
+The agent may merge at ALL CLEAR. ALL CLEAR requires all of the following on
+the exact head:
+
+- current `main` is merged in;
+- every required check passes;
+- the required human approval is present;
+- every actionable finding is addressed and answered;
+- there is no hold, no draft state, and auto-merge is disabled.
+
+The agent merges with an exact-head squash (`gh pr merge <n> --squash
+--match-head-commit <sha>`) under the claim's `merge` gate. After the merge it
+verifies the production Vercel deployments of the affected apps. Before the
+merge it may resolve a review thread whose findings are proven fixed at the
+current head, under the claim's `thread-resolve` gate. Never approve, dismiss
+reviews, use `--admin`, close, alter auto-merge, or unresolve review threads.
+Publish only fast-forward updates to the authenticated existing PR branch.
+Human approval remains a separate, human-only gate.
 Dependabot CI remains secretless. Do not admit these PRs to credentialed Vercel
 Preview workers or broaden the existing author/sender rules.
 
-See [ADR 0012](docs/adr/0012-dependabot-prep-policy-moves-to-shared-skill.md).
+See [ADR 0015](docs/adr/0015-dependabot-agent-merges-at-all-clear.md) and
+[ADR 0012](docs/adr/0012-dependabot-prep-policy-moves-to-shared-skill.md).
 
 ## Quality budgets and CI failure issues
 
