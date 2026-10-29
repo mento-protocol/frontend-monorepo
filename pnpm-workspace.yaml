@@ -7,7 +7,7 @@ catalog:
   "@mento-protocol/mento-sdk": 3.4.0
   "@playwright/test": 1.64.1
   "@rainbow-me/rainbowkit": ^2.2.11
-  "@sentry/nextjs": ^10.35.0
+  "@sentry/nextjs": ^10.75.2
   "@t3-oss/env-nextjs": ^0.13.11
   "@tailwindcss/postcss": ^4.3.3
   "@tanstack/react-query": 5.102.8
