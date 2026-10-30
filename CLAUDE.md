@@ -195,7 +195,8 @@ working tree, so the clone must be an ordinary checkout: a `--bare` one fails wi
 
 The same generated file disables `trunk-check-all-pre-push`, which matters more
 than it looks. The repository enables that action, so `git push` runs
-`trunk check --all` — which cannot pass here (see below). Before this was
+`trunk check --all --filter=-markdown-link-check` — which still cannot pass here,
+because of `trufflehog` (see below). Before this was
 automatic, running Trunk armed a push-blocker and that was the fastest way to
 wedge a session: several minutes of linting, then `✖ Push blocked by git hook
 'trunk-check-all-pre-push'`.
