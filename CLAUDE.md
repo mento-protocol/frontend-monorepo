@@ -195,7 +195,8 @@ working tree, so the clone must be an ordinary checkout: a `--bare` one fails wi
 
 The same generated file disables `trunk-check-all-pre-push`, which matters more
 than it looks. The repository enables that action, so `git push` runs
-`trunk check --all` — which cannot pass here (see below). Before this was
+`trunk check --all --filter=-markdown-link-check` — which still cannot pass here,
+because of `trufflehog` (see below). Before this was
 automatic, running Trunk armed a push-blocker and that was the fastest way to
 wedge a session: several minutes of linting, then `✖ Push blocked by git hook
 'trunk-check-all-pre-push'`.
@@ -516,22 +517,28 @@ the exact head:
 
 - current `main` is merged in;
 - every required check passes;
-- the required human approval is present;
+- the required human approval is present, unless the PR is automatic tier under
+  the shared skill's `references/review-tiers.md`;
 - every actionable finding is addressed and answered;
 - there is no hold, no draft state, and auto-merge is disabled.
 
 The agent merges with an exact-head squash (`gh pr merge <n> --squash
---match-head-commit <sha>`) under the claim's `merge` gate. After the merge it
+--match-head-commit <sha>`) under the claim's `merge` gate. An automatic-tier
+PR adds `--admin` to that command, only under every condition in
+`references/review-tiers.md`, which waives the human approval and nothing else.
+After the merge it
 verifies the production Vercel deployments of the affected apps. Before the
 merge it may resolve a review thread whose findings are proven fixed at the
 current head, under the claim's `thread-resolve` gate. Never approve, dismiss
-reviews, use `--admin`, close, alter auto-merge, or unresolve review threads.
+reviews, use `--admin` for anything else, close, alter auto-merge, or unresolve
+review threads.
 Publish only fast-forward updates to the authenticated existing PR branch.
-Human approval remains a separate, human-only gate.
+Human approval remains a separate, human-only gate for every human-tier PR.
 Dependabot CI remains secretless. Do not admit these PRs to credentialed Vercel
 Preview workers or broaden the existing author/sender rules.
 
-See [ADR 0015](docs/adr/0015-dependabot-agent-merges-at-all-clear.md) and
+See [ADR 0016](docs/adr/0016-dependabot-review-tiers.md),
+[ADR 0015](docs/adr/0015-dependabot-agent-merges-at-all-clear.md) and
 [ADR 0012](docs/adr/0012-dependabot-prep-policy-moves-to-shared-skill.md).
 
 The automatic `.github/workflows/vercel-main-deployment.yml` path starts when
