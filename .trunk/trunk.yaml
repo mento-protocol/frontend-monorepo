@@ -124,8 +124,11 @@ actions:
         - git_hooks: [pre-push]
     - id: trunk-check-all-pre-push
       display_name: Trunk Check All Pre-Push
-      description: Run `trunk check --all` before pushing code to check all files
-      run: trunk check --all
+      description: Run `trunk check --all` before pushing code to check all files, minus the network link check
+      # markdown-link-check needs open egress, so behind a proxy it fails on links
+      # the push never touched. CI's Trunk Code Quality step keeps it, for the
+      # files each pull request changes.
+      run: trunk check --all --filter=-markdown-link-check
       triggers:
         - git_hooks: [pre-push]
 
