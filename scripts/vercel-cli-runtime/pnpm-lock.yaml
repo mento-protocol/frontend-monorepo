@@ -48,8 +48,8 @@ overrides:
   lodash-es@<=4.17.23: '>=4.18.0'
   markdown-it@<14.2.0: '>=14.2.0'
   mdast-util-to-hast: ^13.2.1
-  minimatch@>=10.0.0 <10.2.4: '>=10.2.4'
   minimatch@>=9.0.0 <9.0.7: 9.0.7
+  minimatch@>=10.0.0 <10.2.4: '>=10.2.4'
   nanoid@<3.3.18: 3.3.18
   next: ^16.4.2
   path-to-regexp@>=8.0.0 <8.4.0: 8.4.2
@@ -82,7 +82,7 @@ overrides:
   ws@>=7.0.0 <7.5.11: 7.5.11
   yaml@>=2.0.0 <2.8.3: '>=2.8.3'
   yaml@<1.10.3: '>=1.10.3 <2'
-  zod: ^4.6.6
+  zod: ^4.6.7
   zustand>use-sync-external-store: 1.4.0
 
 importers:
@@ -1883,8 +1883,8 @@ packages:
   yauzl@2.10.0:
     resolution: {integrity: sha512-p4a9I6X6nu6IhoGmBqAcbJy1mlC4j27vEPZX9F4L4/vZT3Lyq1VkFHw/V/PUcB9Buo+DG3iHkT0x3Qya58zc3g==}
 
-  zod@4.6.6:
-    resolution: {integrity: sha512-4UmzQUF5fxvfcYHlbjBmejU+w+hbDnWFx4aS8kBx7nPBHcO2SqPbpAG8snbdg+Xse4pRefR98hgjFgIMCI/UhA==}
+  zod@4.6.7:
+    resolution: {integrity: sha512-g8W2D2kU6a8untc053fX1uVBKzM7yqAxW/3zwk83+6RyF2+SKOuV+c0wBDhUwzV1PaGapmZH+rmcUzPf+3CGwg==}
 
 snapshots:
 
@@ -2310,7 +2310,7 @@ snapshots:
       srvx: 0.11.16
       ts-morph: 12.0.0
       tsx: 4.21.0
-      zod: 4.6.6
+      zod: 4.6.7
     transitivePeerDependencies:
       - '@emnapi/core'
       - '@emnapi/runtime'
@@ -2333,7 +2333,7 @@ snapshots:
       srvx: 0.11.16
       ts-morph: 12.0.0
       tsx: 4.21.0
-      zod: 4.6.6
+      zod: 4.6.7
     transitivePeerDependencies:
       - '@emnapi/core'
       - '@emnapi/runtime'
@@ -2388,17 +2388,17 @@ snapshots:
       '@vercel/cli-config': 0.2.4
       async-listen: 3.0.0
       open: 8.4.0
-      zod: 4.6.6
+      zod: 4.6.7
 
   '@vercel/cli-config@0.2.4':
     dependencies:
       xdg-app-paths: 5.5.1
-      zod: 4.6.6
+      zod: 4.6.7
 
   '@vercel/cli-config@0.2.7':
     dependencies:
       xdg-app-paths: 5.5.1
-      zod: 4.6.6
+      zod: 4.6.7
 
   '@vercel/cli-exec@1.0.1':
     dependencies:
@@ -2446,7 +2446,7 @@ snapshots:
       fs-extra: 11.1.0
       path-to-regexp: 8.4.2
       ts-morph: 12.0.0
-      zod: 4.6.6
+      zod: 4.6.7
     transitivePeerDependencies:
       - '@emnapi/core'
       - '@emnapi/runtime'
@@ -2464,7 +2464,7 @@ snapshots:
       fs-extra: 11.1.0
       path-to-regexp: 8.4.2
       ts-morph: 12.0.0
-      zod: 4.6.6
+      zod: 4.6.7
     transitivePeerDependencies:
       - '@emnapi/core'
       - '@emnapi/runtime'
@@ -2576,7 +2576,7 @@ snapshots:
       fs-extra: 11.1.0
       path-to-regexp: 8.4.2
       ts-morph: 12.0.0
-      zod: 4.6.6
+      zod: 4.6.7
     transitivePeerDependencies:
       - encoding
       - rollup
@@ -2591,7 +2591,7 @@ snapshots:
       fs-extra: 11.1.0
       path-to-regexp: 8.4.2
       ts-morph: 12.0.0
-      zod: 4.6.6
+      zod: 4.6.7
     transitivePeerDependencies:
       - '@emnapi/core'
       - '@emnapi/runtime'
@@ -2769,7 +2769,7 @@ snapshots:
       js-yaml: 4.3.2
       minimatch: 10.2.6
       smol-toml: 1.8.0
-      zod: 4.6.6
+      zod: 4.6.7
 
   '@vercel/python-analysis@0.14.0':
     dependencies:
@@ -2779,7 +2779,7 @@ snapshots:
       js-yaml: 4.3.2
       minimatch: 10.2.6
       smol-toml: 1.8.0
-      zod: 4.6.6
+      zod: 4.6.7
 
   '@vercel/python@11.0.0(@vercel/build-utils@14.7.0)':
     dependencies:
@@ -2876,7 +2876,7 @@ snapshots:
       tar-stream: 3.1.7
       undici: 7.30.1
       xdg-app-paths: 5.1.0
-      zod: 4.6.6
+      zod: 4.6.7
     transitivePeerDependencies:
       - bare-abort-controller
       - react-native-b4a
@@ -3505,7 +3505,7 @@ snapshots:
       async-retry: 1.3.3
       debug: 4.4.3
       ws: 8.21.3
-      zod: 4.6.6
+      zod: 4.6.7
     transitivePeerDependencies:
       - bare-abort-controller
       - bufferutil
@@ -3674,7 +3674,7 @@ snapshots:
       smol-toml: 1.8.0
       undici: 6.29.1
       uuid: 14.0.1
-      zod: 4.6.6
+      zod: 4.6.7
     optionalDependencies:
       '@vercel/vc-native-darwin-arm64': 59.10.0
       '@vercel/vc-native-darwin-x64': 59.10.0
@@ -3739,4 +3739,4 @@ snapshots:
       buffer-crc32: 0.2.13
       fd-slicer: 1.1.0
 
-  zod@4.6.6: {}
+  zod@4.6.7: {}
