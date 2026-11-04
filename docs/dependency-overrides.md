@@ -45,7 +45,7 @@ Vercel CLI version and every Vercel builder peer as a direct dependency. This
 keeps protected frozen installs inside the reviewed registry-only lockfile.
 
 The workspace and standalone runtime resolve legacy v2 consumers to upstream
-`brace-expansion@2.1.4`. The August 2026 rotation retired the former local
+`brace-expansion@2.1.7`. The August 2026 rotation retired the former local
 2.1.2 patch. The checked-in manifests, lockfiles, contract, and validators use
 only the exact reviewed nanoid 3.3.18 pair. Do not restore a retired patch or
 cross-paired manifest and lockfile state.
@@ -239,7 +239,7 @@ standalone registry-only graph.
 ### Reviewed brace-expansion state
 
 The root and standalone manifests now require upstream fixed
-`brace-expansion@2.1.4` for v2 consumers and `5.0.9` for v5 consumers. Neither
+`brace-expansion@2.1.7` for v2 consumers and `5.0.12` for v5 consumers. Neither
 manifest declares a local patch. The lockfile lint rejects patched-dependency
 metadata and every affected release, including pnpm aliases, so a broad OSV
 correction cannot hide a future direct or aliased vulnerable entry.
@@ -290,6 +290,16 @@ resolve fixed releases. Do not attribute the elliptic, bigint-buffer,
 decode-uri-component, or Metro-only image-size suppressions to Wormhole; their
 documented chains are separate.
 
+The November 2026 renewal raised the follow-redirects, hono, ip-address,
+stream-json, smol-toml, toml, pbkdf2, fast-copy, postcss-selector-parser,
+brace-expansion and `@graphql-tools/executor-legacy-ws` floors, and added six
+time-boxed root ignores (`@graphql-tools/utils` x2 for codegen-only 11.x,
+minimatch and glob build tooling, decode-uri-component, deepmerge). It also
+renewed the two Vercel `sandbox` package-name false positives. The standalone
+CLI config now also ignores the minimatch and glob build-tool advisories,
+because the root override mirror cannot move those consumers across a major.
+All new entries expire on 2026-11-30 together with the protobufjs batch.
+
 ## When an override is the wrong instrument
 
 A range-scoped floor only works when the fixed release is drop-in for the
@@ -302,7 +312,8 @@ module yields the namespace object rather than the default export.
 `stream-json` is one such major-version exception. Its first release containing
 the GHSA-528h-pc64-c93x fix is ESM-only, while `jayson@4.3.0` still imports the
 old CommonJS subpaths used by `stream-json@1`. The reviewed root-only Jayson
-patch updates those imports and stream constructors for `stream-json@3.5.0`.
+patch updates those imports and stream constructors for `stream-json@3.x`
+(resolved 3.7.0 since November 2026).
 Keep `scripts/jayson-stream-json-compat.test.mjs` passing until Jayson ships
 native stream-json 3 support, then remove the patch and its exact contract
 allowlist together. The standalone Vercel runtime does not resolve Jayson and
@@ -332,9 +343,9 @@ Most entries in `pnpm.overrides` are range-scoped CVE floors, e.g.:
 "axios@<1.18.0": ">=1.18.0"
 ```
 
-`brace-expansion` has two conditional floors: `"brace-expansion@<2.1.4":
-"2.1.4"` upgrades legacy v2 consumers to the upstream fixed release, and
-`"brace-expansion@>=5 <5.0.9": "5.0.9"` upgrades vulnerable native v5
+`brace-expansion` has two conditional floors: `"brace-expansion@<2.1.7":
+"2.1.7"` upgrades legacy v2 consumers to the upstream fixed release, and
+`"brace-expansion@>=5 <5.0.12": "5.0.12"` upgrades vulnerable native v5
 consumers. Remove each range override once `pnpm why -r brace-expansion` shows
 its affected consumers resolving a fixed version without the override.
 

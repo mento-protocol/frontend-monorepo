@@ -17,11 +17,11 @@ function installedPackage(name, version) {
   return join(pnpmDirectory, entry, "node_modules", name);
 }
 
-// The security overrides move every brace-expansion <2.1.4 consumer,
+// The security overrides move every brace-expansion <2.1.7 consumer,
 // including minimatch v3's native 1.x range, onto the upstream fixed release
-// 2.1.4. That release ships the same a1bd339 expansion bounds the local
+// 2.1.7. That line ships the same a1bd339 expansion bounds the local
 // 2.1.2 patch used to carry, so the patch is retired and these tests now
-// codify the upstream 2.1.4 contract.
+// codify the upstream 2.1.x contract.
 function minimatchV3BraceExpansionPackage() {
   const minimatchPackage = installedPackage("minimatch", "3.1.5");
   const minimatchRequire = createRequire(
@@ -31,7 +31,7 @@ function minimatchV3BraceExpansionPackage() {
     minimatchRequire.resolve("brace-expansion/package.json"),
   );
 
-  assert.match(braceExpansionPackage, /brace-expansion@2\.1\.4(?:\/|$)/);
+  assert.match(braceExpansionPackage, /brace-expansion@2\.1\.7(?:\/|$)/);
   return braceExpansionPackage;
 }
 
@@ -39,7 +39,7 @@ function totalLength(expansions) {
   return expansions.reduce((total, expansion) => total + expansion.length, 0);
 }
 
-test("upstream brace-expansion 2.1.4 preserves minimatch v3 behavior", () => {
+test("upstream brace-expansion 2.1.7 preserves minimatch v3 behavior", () => {
   const braceExpansionPackage = minimatchV3BraceExpansionPackage();
   const braceExpansion = createRequire(
     join(braceExpansionPackage, "package.json"),
@@ -68,7 +68,7 @@ test("upstream brace-expansion 2.1.4 preserves minimatch v3 behavior", () => {
   assert.equal(minimatch("src/test/a.js", "src/{app,lib}/?.js"), false);
 });
 
-test("upstream brace-expansion 2.1.4 bounds chained output length and count", () => {
+test("upstream brace-expansion 2.1.7 bounds chained output length and count", () => {
   const braceExpansionPackage = minimatchV3BraceExpansionPackage();
   const braceExpansion = createRequire(
     join(braceExpansionPackage, "package.json"),
@@ -189,7 +189,7 @@ test("upstream brace-expansion 2.1.4 bounds chained output length and count", ()
   );
 });
 
-test("upstream brace-expansion 2.1.4 applies caps while retaining sequences", () => {
+test("upstream brace-expansion 2.1.7 applies caps while retaining sequences", () => {
   const braceExpansionPackage = minimatchV3BraceExpansionPackage();
   const braceExpansion = createRequire(
     join(braceExpansionPackage, "package.json"),
@@ -255,7 +255,7 @@ test("upstream brace-expansion 2.1.4 applies caps while retaining sequences", ()
   );
 });
 
-test("upstream brace-expansion 2.1.4 retains within-cap semantics", () => {
+test("upstream brace-expansion 2.1.7 retains within-cap semantics", () => {
   const braceExpansionPackage = minimatchV3BraceExpansionPackage();
   const braceExpansion = createRequire(
     join(braceExpansionPackage, "package.json"),
@@ -284,7 +284,7 @@ test("upstream brace-expansion 2.1.4 retains within-cap semantics", () => {
   }
 });
 
-test("upstream brace-expansion 2.1.4 returns no expansions when max is zero", () => {
+test("upstream brace-expansion 2.1.7 returns no expansions when max is zero", () => {
   const braceExpansionPackage = minimatchV3BraceExpansionPackage();
   const braceExpansion = createRequire(
     join(braceExpansionPackage, "package.json"),
