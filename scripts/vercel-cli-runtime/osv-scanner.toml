@@ -16,14 +16,14 @@ reason = "False positive from npm package-name reuse: advisory targets legacy gf
 
 # --- Build-tool advisories without a compatible fix ---
 # Vercel's builders lock minimatch 3.1.5/10.2.6 and glob 13.0.6. Their only
-# fixed releases are majors (minimatch 11 is ESM-only, glob 14) that the
-# builders do not accept, and the root override mirror must stay identical.
+# fixed releases are majors (minimatch 11, glob 14) that the builders do not
+# accept, and the root override mirror must stay identical.
 # Both only match patterns and paths this repository controls during deploys.
 
 [[IgnoredVulns]]
 id = "GHSA-g3hv-75wg-m249"
 ignoreUntil = 2026-11-30T00:00:00Z
-reason = "minimatch globparts DoS; every release below 11.0.1 is affected and 11.x is ESM-only. Locked 3.1.5 and 10.2.6 come from Vercel builders and only match repository-controlled patterns at deploy time."
+reason = "minimatch globparts DoS; every release below 11.0.1 is affected. Locked 3.1.5 comes from ts-morph 12, which the latest @vercel/backends (24.0.1) still pins; 10.2.6 cannot move to 11 without glob 14, because 11 removes makeRe, the AST class and RegExp sets. Both match repository-controlled patterns at deploy time."
 
 [[IgnoredVulns]]
 id = "GHSA-3g3m-2fjr-6pw4"

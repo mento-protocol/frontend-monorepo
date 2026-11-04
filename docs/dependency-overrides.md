@@ -292,13 +292,19 @@ documented chains are separate.
 
 The November 2026 renewal raised the follow-redirects, hono, ip-address,
 stream-json, smol-toml, toml, pbkdf2, fast-copy, postcss-selector-parser,
-brace-expansion and `@graphql-tools/executor-legacy-ws` floors, and added six
-time-boxed root ignores (`@graphql-tools/utils` x2 for codegen-only 11.x,
-minimatch and glob build tooling, decode-uri-component, deepmerge). It also
-renewed the two Vercel `sandbox` package-name false positives. The standalone
-CLI config now also ignores the minimatch and glob build-tool advisories,
-because the root override mirror cannot move those consumers across a major.
-All new entries expire on 2026-11-30 together with the protobufjs batch.
+brace-expansion and `@graphql-tools/executor-legacy-ws` floors. It then forced
+two consumers across a version their dependents still pin:
+`@graphql-tools/utils` 12.1.0 for the governance codegen plugins that declare
+`^11` (offline codegen output was byte-identical before and after), and
+`@vanilla-extract/css` 1.21.3 under RainbowKit's exact 1.20.1 pin, which
+replaces `deepmerge` with `deepmerge-ts`. Three time-boxed root ignores remain,
+because no consumer release accepts the fixed major: minimatch (3.x consumers
+such as eslint-plugin-react and ts-morph 12), glob (14 needs minimatch 11, which
+removes the RegExp API that glob 13 uses) and decode-uri-component. The two
+Vercel `sandbox` package-name false positives were renewed. The standalone CLI
+config also ignores the minimatch and glob advisories, because the root
+override mirror cannot move the Vercel builders across a major. All of these
+entries expire on 2026-11-30 together with the protobufjs batch.
 
 ## When an override is the wrong instrument
 
