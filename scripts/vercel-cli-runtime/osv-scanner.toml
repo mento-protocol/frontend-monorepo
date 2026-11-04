@@ -1,4 +1,4 @@
-# Vercel's CLI dependency graph contains npm package `sandbox@3.4.0`, which is
+# Vercel's CLI dependency graph contains npm package `sandbox@4.1.0`, which is
 # unrelated to the legacy gf3/sandbox evaluator covered by these advisories.
 # Production deployment workflows never invoke Vercel's sandbox subcommand.
 # Keep these package-name false positives scoped to this standalone CLI lock so
@@ -6,10 +6,26 @@
 
 [[IgnoredVulns]]
 id = "GHSA-fm4j-4xhm-xpwx"
-ignoreUntil = 2026-10-14T00:00:00Z
-reason = "False positive from npm package-name reuse: advisory targets legacy gf3/sandbox <=0.8.2; sandbox@3.4.0 is Vercel's unrelated CLI and this repo never invokes its sandbox command."
+ignoreUntil = 2026-11-30T00:00:00Z
+reason = "False positive from npm package-name reuse: advisory targets legacy gf3/sandbox <=0.8.2; sandbox@4.1.0 is Vercel's unrelated CLI (vercel/sandbox, required by vercel@59.10.0) and this repo never invokes its sandbox command. GitHub's record bounds both advisories to sandbox <1.0.0; OSV still matches 4.1.0."
 
 [[IgnoredVulns]]
 id = "GHSA-gc25-3vc5-2jf9"
-ignoreUntil = 2026-10-14T00:00:00Z
-reason = "False positive from npm package-name reuse: advisory targets legacy gf3/sandbox <=0.8.2; sandbox@3.4.0 is Vercel's unrelated CLI and this repo never invokes its sandbox command."
+ignoreUntil = 2026-11-30T00:00:00Z
+reason = "False positive from npm package-name reuse: advisory targets legacy gf3/sandbox <=0.8.2; sandbox@4.1.0 is Vercel's unrelated CLI (vercel/sandbox, required by vercel@59.10.0) and this repo never invokes its sandbox command. GitHub's record bounds both advisories to sandbox <1.0.0; OSV still matches 4.1.0."
+
+# --- Build-tool advisories without a compatible fix ---
+# Vercel's builders lock minimatch 3.1.5/10.2.6 and glob 13.0.6. Their only
+# fixed releases are majors (minimatch 11 is ESM-only, glob 14) that the
+# builders do not accept, and the root override mirror must stay identical.
+# Both only match patterns and paths this repository controls during deploys.
+
+[[IgnoredVulns]]
+id = "GHSA-g3hv-75wg-m249"
+ignoreUntil = 2026-11-30T00:00:00Z
+reason = "minimatch globparts DoS; every release below 11.0.1 is affected and 11.x is ESM-only. Locked 3.1.5 and 10.2.6 come from Vercel builders and only match repository-controlled patterns at deploy time."
+
+[[IgnoredVulns]]
+id = "GHSA-3g3m-2fjr-6pw4"
+ignoreUntil = 2026-11-30T00:00:00Z
+reason = "glob AbortSignal cancellation bypass; fixed only in 14.0.2. Locked 13.0.6 comes from @vercel/nft, which traces our own build output and passes no caller AbortSignal."
