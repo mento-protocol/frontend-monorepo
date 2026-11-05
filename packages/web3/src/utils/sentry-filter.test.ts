@@ -98,6 +98,28 @@ describe("sentry-filter", () => {
     expect(filterNoisySentryEvents(event)).toBe(event);
   });
 
+  it("drops WalletConnect stale-session topic rejections raised as browser promise rejections", () => {
+    const event = makeEvent({
+      exceptionValue:
+        "No matching key. session topic doesn't exist: 8e89dc739f09d8a0cf1a1578bc478b18a110319caa80b9b9db246ed80c861209",
+      exceptionType: "Error",
+      mechanismType: "auto.browser.global_handlers.onunhandledrejection",
+    });
+
+    expect(filterNoisySentryEvents(event)).toBeNull();
+  });
+
+  it("keeps stale-session topic errors outside browser promise rejections", () => {
+    const event = makeEvent({
+      exceptionValue:
+        "No matching key. session topic doesn't exist: 8e89dc739f09d8a0cf1a1578bc478b18a110319caa80b9b9db246ed80c861209",
+      exceptionType: "Error",
+      frames: ["/var/task/.next/server/app/swap/page.js"],
+    });
+
+    expect(filterNoisySentryEvents(event)).toBe(event);
+  });
+
   it("drops relay subscribe interruptions raised as browser promise rejections", () => {
     const event = makeEvent({
       exceptionValue: "Connection interrupted while trying to subscribe",

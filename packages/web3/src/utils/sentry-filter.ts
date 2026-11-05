@@ -14,10 +14,14 @@ const ALWAYS_IGNORE_ERROR_PATTERNS = [
 // Vendor messages that only ever reach us as an unawaited promise rejection
 // from the wallet-connection library. `Connection interrupted while trying to
 // subscribe` is the literal string `@walletconnect/core`'s relayer throws when
-// its socket drops mid-subscribe; no first-party code produces either message.
+// its socket drops mid-subscribe. `No matching key. session/pairing topic
+// doesn't exist: <64 hex>` is `@walletconnect/sign-client`'s isValidSessionTopic
+// rejecting a relay message for a session the user already disconnected; no
+// first-party code produces any of these messages.
 const walletConnectUnhandledRejectionPatterns = [
   /^Proposal expired$/i,
   /^Connection interrupted while trying to subscribe$/i,
+  /^No matching key\. (?:session|pairing) topic doesn't exist: [0-9a-f]{64}$/i,
 ] as const;
 
 const indexedDatabaseUnavailableErrorPatterns = [
