@@ -100,6 +100,12 @@ lint:
 actions:
   disabled:
     - trunk-check-pre-push # Disabled in favor of trunk-check-all-pre-push which checks all files
+    # Built-in scheduled actions. trunk-upgrade-available runs hourly, counts as
+    # daemon activity, and so keeps the daemon from exiting on its idle timeout.
+    - trunk-upgrade-available
+    - trunk-cache-prune
+    - trunk-share-with-everyone
+    - trunk-whoami
   definitions:
     - id: adr-reminder-pre-push
       display_name: Architecture Decision Reminder Pre-Push
@@ -139,5 +145,4 @@ actions:
     - check-types-pre-push # Run type checking before pushing
     - check-knip-pre-push # Run knip before pushing
     - trunk-announce # Show announcements for new features
-    - trunk-upgrade-available # Notify when Trunk updates are available
     - commitlint # Validate commit messages follow conventional format
