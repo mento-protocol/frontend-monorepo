@@ -278,7 +278,7 @@ jobs:
           cache: ${{ needs.e2e-plan.outputs.allow_repository_credentials == 'true' }}
 
       - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1
+        uses: foundry-rs/foundry-toolchain@dba66c27052e63476d886f22216e119ba7e615bf # v1.9.2
         with:
           version: v1.7.1 # anvil --celo requires foundry >= 1.4; pinned for determinism
           cache: false # we cache ~/.foundry/cache ourselves, keyed on the fork block
@@ -564,7 +564,7 @@ jobs:
           cache: ${{ needs.e2e-plan.outputs.allow_repository_credentials == 'true' }}
 
       - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1
+        uses: foundry-rs/foundry-toolchain@dba66c27052e63476d886f22216e119ba7e615bf # v1.9.2
         with:
           version: v1.7.1 # anvil --celo requires foundry >= 1.4; pinned for determinism
           cache: false # we cache ~/.foundry/cache ourselves, keyed on the fork block
@@ -844,7 +844,7 @@ jobs:
           cache: ${{ needs.e2e-plan.outputs.allow_repository_credentials == 'true' }}
 
       - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1
+        uses: foundry-rs/foundry-toolchain@dba66c27052e63476d886f22216e119ba7e615bf # v1.9.2
         with:
           version: v1.7.1 # pinned for determinism (matches the Celo jobs)
           cache: false # we cache ~/.foundry/cache ourselves, keyed on the fork block
