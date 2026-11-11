@@ -4895,6 +4895,116 @@ test("recovered terminal preserves verified rollback evidence when final provide
   );
 });
 
+// Regression: a release that promoted App plus any ordinary target and then
+// recovered could not publish recovered-census-unproven evidence. The rider
+// map was keyed in promote order (governance, reserve, ui, app) while the
+// failure-evidence validator admits only the canonical target order, so
+// terminal artifact creation threw and the final job saw no coordinator
+// outcome.
+test("recovered-census-unproven evidence names riders for a full four-target recovery", async () => {
+  const deploymentPlan = activePlan();
+  const execution = releaseExecutionForPlan(deploymentPlan);
+  const prepared = createPreparedMainActiveJournal({
+    plan: deploymentPlan,
+    stageJobs: stageJobs(deploymentPlan),
+    appCandidateReceipt: appReceipt(deploymentPlan),
+    runId: "800",
+    runAttempt: "3",
+  });
+  const forwardHistory = [prepared];
+  let highest = prepared;
+  for (const target of ["governance", "reserve", "ui", "app"]) {
+    const started = startMainTransactionOperation(highest, {
+      type: "promote",
+      target,
+    });
+    forwardHistory.push(started);
+    const returned = recordMainTransactionCommandReturned(started, {
+      operationId: started.operations.at(-1).operationId,
+      outcome: "success",
+    });
+    forwardHistory.push(returned);
+    highest = recordMainTransactionVerified(returned, {
+      operationId: started.operations.at(-1).operationId,
+      mappingState: "candidate",
+    });
+    forwardHistory.push(highest);
+  }
+  const mappingStates = {
+    app: "candidate",
+    governance: "candidate",
+    reserve: "candidate",
+    ui: "candidate",
+  };
+  const recoveryPlan = planMainActiveRecovery({
+    journalHistory: forwardHistory,
+    deploySha: SHA,
+    runId: "800",
+    runAttempt: "3",
+    currentMappings: Object.entries(highest.prior).flatMap(([target, prior]) =>
+      prior.aliases.map((alias) => mapping(alias, highest.candidates[target])),
+    ),
+  });
+  const result = await runMainActiveRecovery({
+    recoveryPlan,
+    adapters: {
+      uploadJournal: async ({ artifactName, journal }) => ({
+        acknowledged: true,
+        artifactName,
+        artifactId: String(9000 + journal.sequence),
+      }),
+      inspectMapping: async ({ target }) => ({
+        mappingState: mappingStates[target],
+      }),
+      ordinaryRollback: async ({ target }) => {
+        mappingStates[target] = "prior";
+        return { outcome: "success" };
+      },
+      verifyMapping: async ({ target }) => ({
+        mappingState: mappingStates[target],
+      }),
+    },
+  });
+  assert.equal(result.journal.status, "recovered");
+  const priorMappings = Object.values(result.journal.prior).flatMap((prior) =>
+    prior.aliases.map((alias) => mapping(alias, prior)),
+  );
+  const artifacts = createMainActiveTerminalArtifacts({
+    execution,
+    outcome: "recovered-census-unproven",
+    journalHistory: activeHistoryDocument([
+      ...forwardHistory,
+      ...result.uploadedJournals,
+    ]),
+    finalMappings: providerMappings(execution, priorMappings),
+    publicSmokes: priorPublicSmokes(execution),
+    stateProof: null,
+    finalCensus: {
+      schema: MAIN_ACTIVE_CENSUS_FAILURE_SCHEMA,
+      phase: "recovery-final-active-proof",
+      category: "active-census-unproven",
+    },
+    freshness: null,
+    riderCensus: planningSnapshot(),
+    runId: "800",
+    runAttempt: "3",
+  });
+  assert.equal(artifacts.proofs.outcome, "recovered-census-unproven");
+  assert.equal(artifacts.evidence.errorCode, "RECOVERED_CENSUS_UNPROVEN");
+  assert.deepEqual(Object.keys(artifacts.evidence.riderAliases), [
+    "app",
+    "governance",
+    "reserve",
+    "ui",
+  ]);
+  assert.deepEqual(artifacts.proofs.rollbackTargets.toSorted(), [
+    "app",
+    "governance",
+    "reserve",
+    "ui",
+  ]);
+});
+
 test("manual terminal affected operations preserve ordinary, App, mixed, rollback, and unknown truth", () => {
   const manualize = (journal) =>
     finishMainTransactionRecovery(startMainTransactionRecovery(journal), {
