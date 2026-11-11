@@ -3328,9 +3328,19 @@ function riderAliasEvidenceFromStates(
   targets,
   ownedDeployments = null,
 ) {
+  // Emit keys in canonical deployment-target order. Callers pass promote
+  // order (governance, reserve, ui, app), but the evidence validator only
+  // admits a canonical ordered subset, so a release that promoted App plus any
+  // other target could not publish its terminal evidence.
+  const ordered = MAIN_DEPLOYMENT_TARGETS.filter((target) =>
+    targets.includes(target),
+  );
+  if (ordered.length !== new Set(targets).size) {
+    throw new Error("Rider evidence targets are malformed");
+  }
   return boundRiderAliases(
     Object.fromEntries(
-      targets.map((target) => {
+      ordered.map((target) => {
         const reviewed = [...MAIN_TARGET_CONTRACTS[target].aliases];
         const leaf = states.find((state) => reviewed.includes(state.alias));
         if (leaf === undefined) {
