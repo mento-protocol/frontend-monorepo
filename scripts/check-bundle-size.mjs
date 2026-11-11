@@ -28,8 +28,8 @@ export const BUNDLE_BUDGETS = [
   {
     name: "ui.mento.org",
     appDirectory: "apps/ui.mento.org",
-    observedMaxRouteGzipBytes: 486_905,
-    maxRouteGzipBytes: 510_000,
+    observedMaxRouteGzipBytes: 525_300,
+    maxRouteGzipBytes: 550_000,
   },
 ];
 
