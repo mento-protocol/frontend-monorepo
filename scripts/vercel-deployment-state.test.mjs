@@ -2366,6 +2366,86 @@ test("active deployment proof keeps an unexpected ready inactive deployment as a
   assert.equal(proof.projects.ui.counts.unknown, 0);
 });
 
+test("active deployment proof keeps a Vercel-skipped canceled deployment inert beside a staged candidate", () => {
+  // Vercel creates a CANCELED production deployment ("Skipped - Not
+  // affected") for every main commit its own affected-project graph skips.
+  // When the release plan still stages that project, the skip sits beside the
+  // exact candidate in the same-SHA census and must not make it unproven.
+  const spec = activeStateSpec();
+  const deployments = activeDeploymentInspections(spec);
+  const skipped = inactiveUiInspection(spec);
+  deployments.ui = [...deployments.ui, skipped];
+
+  const proof = createActiveDeploymentStateProof({ spec, deployments });
+
+  assert.equal(proof.outcome, "proven");
+  assert.equal(proof.projects.ui.expectedDisposition, "githubPrebuilt");
+  assert.deepEqual(proof.projects.ui.counts, {
+    scanned: 2,
+    githubPrebuilt: 1,
+    githubShadowStage: 0,
+    nativeGitOwner: 0,
+    nativeGitDuplicates: 0,
+    manualDuplicates: 0,
+    inertCanceled: 1,
+    unknown: 0,
+  });
+  assert.deepEqual(proof.projects.ui.ids.githubPrebuilt, [
+    spec.projects.ui.deploymentId,
+  ]);
+  assert.deepEqual(proof.projects.ui.ids.inertCanceled, [skipped.deploymentId]);
+  assert.equal(assertActiveDeploymentStateProof(proof), proof);
+
+  // The relaxation is only for canceled deployments: a second READY one is
+  // still a duplicate, and a pending or errored one is still unknown.
+  for (const [readyState, classification] of [
+    ["READY", "manualDuplicates"],
+    ["ERROR", "unknown"],
+    ["BUILDING", "unknown"],
+  ]) {
+    const variant = activeDeploymentInspections(spec);
+    const entry = inactiveUiInspection(spec, { readyState });
+    variant.ui = [...variant.ui, entry];
+    const unproven = createActiveDeploymentStateProof({
+      spec,
+      deployments: variant,
+    });
+    assert.equal(unproven.outcome, "unproven", readyState);
+    assert.deepEqual(
+      unproven.projects.ui.ids[classification],
+      [entry.deploymentId],
+      readyState,
+    );
+    assert.equal(unproven.projects.ui.counts.inertCanceled, 0, readyState);
+  }
+
+  // A tampered proof cannot relabel the expected candidate itself as inert.
+  const tampered = structuredClone(proof);
+  const candidateRecord = {
+    ...tampered.projects.ui.records.githubPrebuilt[0],
+    readyState: "CANCELED",
+  };
+  tampered.projects.ui.records.inertCanceled = [
+    candidateRecord,
+    ...tampered.projects.ui.records.inertCanceled,
+  ].toSorted((left, right) =>
+    left.deploymentId.localeCompare(right.deploymentId),
+  );
+  tampered.projects.ui.ids.inertCanceled =
+    tampered.projects.ui.records.inertCanceled.map(
+      ({ deploymentId }) => deploymentId,
+    );
+  tampered.projects.ui.records.githubPrebuilt = [];
+  tampered.projects.ui.ids.githubPrebuilt = [];
+  tampered.projects.ui.counts.githubPrebuilt = 0;
+  tampered.projects.ui.counts.inertCanceled = 2;
+  tampered.outcome = "unproven";
+  assert.throws(
+    () => assertActiveDeploymentStateProof(tampered),
+    /inertCanceled deployment record is malformed/,
+  );
+});
+
 test("first-cutover proof accepts source-free candidates and the exact same-SHA rollback prior", () => {
   for (const candidateSource of [undefined, "git", "cli", "redeploy"]) {
     for (const priorSource of [undefined, "git", "cli", "redeploy"]) {

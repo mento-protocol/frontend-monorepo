@@ -201,10 +201,12 @@ every other non-prefix state still require manual intervention.
   or mutated again.
 - The final duplicate census may observe at most the exact manifest-bound
   same-SHA original prior alongside the canonical candidate. Separate mapping
-  proof must show the candidate owns every protected alias. For a project
-  without an expected candidate, an exact-project, exact-SHA deployment in
-  terminal `CANCELED` state remains visible as `inertCanceled` evidence and
-  cannot satisfy either proof. Any other serving, pending, malformed, or
+  proof must show the candidate owns every protected alias. An exact-project,
+  exact-SHA deployment in terminal `CANCELED` state remains visible as
+  `inertCanceled` evidence and cannot satisfy either proof, whether the
+  project has no expected candidate or the canceled deployment is not that
+  candidate (Vercel's `Skipped - Not affected` deployments; see the
+  2026-11-11 amendment). Any other serving, pending, malformed, or
   ambiguous same-SHA deployment fails closed.
 - Final-only reruns use the terminal receipt/evidence handoff only.
 - Missing, conflicting, or ambiguous provider evidence stops the release rather
@@ -303,3 +305,17 @@ receipt, or fresh provider reconciliation cannot meet the deployment service
 objective. Any replacement must preserve stable candidate identity,
 attempt-scoped journals, fresh protected-state reconciliation, the compact
 terminal handoff, and fail-closed treatment of ambiguous state.
+
+## Amendment — 2026-11-11: Vercel-skipped deployments beside a staged candidate
+
+Vercel creates a terminal `CANCELED` production deployment, reported to GitHub
+as `Skipped - Not affected`, for each project its own affected-project graph
+skips on a main commit. When the release plan stages that project anyway, the
+same-SHA census found the skip beside the exact candidate and classified it
+`unknown`, so every attempt on that SHA ended `active-census-unproven` and
+rolled back (frontend-monorepo bfac15b8, run 43025121963). The census now
+records an exact-project, exact-SHA `CANCELED` deployment as `inertCanceled`
+also for a staged project, provided its deployment ID and URL differ from the
+expected candidate. The proof still requires that exact `READY` candidate, so a
+canceled expected candidate, a second `READY` deployment, or a pending or
+errored deployment still fails the release.
