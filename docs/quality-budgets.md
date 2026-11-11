@@ -63,12 +63,19 @@ The observed values were remeasured with Next 16.2.10 at `87ce21c` on
 `.github/workflows/quality-budgets.yml`. Displayed baselines are rounded; the
 measurements and enforced limits are exact bytes in the checker.
 
+The `ui.mento.org` row was remeasured on 2026-11-11 after the production-misc
+dependency group (#1077: `@tiptap/*` 3.32, `recharts` 3.10, `animejs` 4.5 and
+others) grew the `/specialized-components` showcase route from 486.9 kB to
+525.3 kB gzip in the `coverage and production bundles` CI job. The recorded
+baseline is that CI value rounded to 0.1 kB; the other rows keep their
+2026-07-14 measurements.
+
 | App                    | Largest observed route    | Observed gzip baseline | Exact enforced limit | Headroom |
 | ---------------------- | ------------------------- | ---------------------: | -------------------: | -------: |
 | `app.mento.org`        | `/bridge`                 |                1.60 MB |      1,760,000 bytes |     9.8% |
 | `governance.mento.org` | `/proposals/[id]`         |                1.20 MB |      1,300,000 bytes |     8.5% |
 | `reserve.mento.org`    | `/`                       |                 688 kB |        740,000 bytes |     7.6% |
-| `ui.mento.org`         | `/specialized-components` |                 487 kB |        510,000 bytes |     4.7% |
+| `ui.mento.org`         | `/specialized-components` |                 525 kB |        550,000 bytes |     4.7% |
 
 When a deliberate feature exceeds a limit:
 

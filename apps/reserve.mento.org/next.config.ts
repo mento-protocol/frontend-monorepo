@@ -11,7 +11,6 @@ import { sharpOutputFileTracingConfig } from "../../scripts/next-sharp-output-tr
 const uploadSentrySourceMaps = process.env.VERCEL_ENV === "production";
 const sentryAuthToken = env.SENTRY_AUTH_TOKEN;
 // Declared in this app's turbo.json so deployment attempts do not invalidate shared-package caches.
-// eslint-disable-next-line turbo/no-undeclared-env-vars
 const deploymentId = process.env.MENTO_NEXT_DEPLOYMENT_ID;
 // Vercel provides this in hosted builds; the main deployment workflow binds it to the exact main SHA.
 // eslint-disable-next-line turbo/no-undeclared-env-vars
