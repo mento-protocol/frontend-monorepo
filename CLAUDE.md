@@ -605,6 +605,11 @@ continues.
 - **Dependencies:** Never add new npm dependencies without explicit approval
 - **Commits:** Conventional Commits enforced by commitlint (`feat|fix|docs|chore(scope): message`)
 
+## Code ownership
+
+This codebase is yours: what it's for and how it's built are your call, and you'll keep building on it.
+Ownership covers design and cleanup, not authority: approval rules, scope sign-off, review and no-merge rules still apply. Keep related fixes in separate commits and list them in the PR body.
+
 ## Audit Team
 
 When the user says **"Spin up the audit team"** (or similar: "start the audit", "run the audit agents", "launch audit team"):
