@@ -1215,10 +1215,15 @@ retained only as telemetry and cannot admit or reject an attempt.
 For a GitHub-owned target, the census may contain the canonical candidate and
 at most the exact manifest-bound same-SHA original prior. The separate protected
 mapping proof must still show that the candidate owns every reviewed public
-alias; the historical prior never authorizes that mapping. When the release
-plan has no expected candidate for a project, the census records an
-exact-project, exact-SHA deployment in terminal `CANCELED` state as
-`inertCanceled`. This evidence may coexist with a proven release, but it cannot
+alias; the historical prior never authorizes that mapping. The census records
+an exact-project, exact-SHA deployment in terminal `CANCELED` state as
+`inertCanceled` when the release plan has no expected candidate for that
+project, or when it has one and the canceled deployment is not that candidate
+(different deployment ID and URL). Vercel creates exactly such a deployment,
+with GitHub status `Skipped - Not affected`, for every main commit its own
+affected-project graph skips, even when this release plan still stages the
+project (for example a lockfile change that only touches App and UI
+manifests). This evidence may coexist with a proven release, but it cannot
 satisfy an expected candidate or protected mapping. Any different `READY`
 deployment, any canceled expected candidate, any pending deployment, or any
 malformed record is an unexpected duplicate or unknown state and fails the
@@ -1326,7 +1331,7 @@ native Vercel:
   manifest, regenerates the runtime lockfile, and refreshes all three digests.
   `pnpm vercel:cli-runtime:rotate` does all three and then runs the contract
   check; review the regenerated runtime lockfile with `pnpm lockfile:edge-diff
-  --lockfile scripts/vercel-cli-runtime/pnpm-lock.yaml`. A missed step makes
+--lockfile scripts/vercel-cli-runtime/pnpm-lock.yaml`. A missed step makes
   `pnpm test:ci:vercel` and the preview's `check-candidate-versions` fail with `Trusted Vercel CLI runtime manifest is not exact`,
   `… lockfile is not exact`, or `… lockfile and overrides are not an approved
 pair`, depending on the step missed (#981, #1042).
