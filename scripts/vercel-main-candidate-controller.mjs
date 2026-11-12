@@ -69,10 +69,18 @@ function resolvedAliasTopologyMode(
     intent,
     candidate,
   );
-  // Recovery can move Vercel's generated aliases away from an exact candidate.
   // Only the trusted census captured before this job could build a candidate
-  // may authorize the detached topology.
-  return preflight.outcome === "reuse-existing"
+  // may authorize a candidate without the generated project alias:
+  // - reuse-existing: recovery can move Vercel's generated aliases away from an
+  //   exact candidate, so a reused candidate may be detached.
+  // - create-if-zero: the census saw no candidate for this SHA, so the one at
+  //   finalize was built by this job. Vercel attaches the generated alias to a
+  //   `--prod --skip-domain` candidate only when it is promoted, so a fresh
+  //   candidate carries no aliases yet.
+  // Both still refuse any alias outside the reviewed candidate set. Without a
+  // trusted census the strict candidate topology applies.
+  return preflight.outcome === "reuse-existing" ||
+    preflight.outcome === "create-if-zero"
     ? PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.REUSED_CANDIDATE
     : aliasTopologyMode;
 }

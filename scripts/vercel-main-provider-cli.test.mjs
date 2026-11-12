@@ -1337,34 +1337,38 @@ test("candidate finalization reuses one fresh candidate and rejects smoke mismat
     }),
   });
   assert.equal(creationPreflight.outcome, "create-if-zero");
-  await assert.rejects(
-    () =>
-      runMainProviderCli({
-        argv: [
-          "candidate-finalize",
-          "--intent",
-          intentPath,
-          "--smoke",
-          smokePath,
-          "--preflight",
-          creationPreflightPath,
-          "--output",
-          join(context.directory, "missing-base-handoff.json"),
-        ],
-        env: context.env,
-        stdout: context.stdout,
-        stateClientFactory: () => ({
-          requestWithRetry: async () => ({
-            deployments: [{ uid: response.id }],
-            pagination: { next: null },
-          }),
-          inspectDeployment: async () => response,
-          listDeploymentAliases: async () => ({ aliases: [] }),
-        }),
-      }),
-    /candidate generated-alias topology mismatch/,
-  );
-  let missingBaseFailure;
+  // Vercel attaches the generated alias to a --skip-domain candidate only on
+  // promotion, so the candidate this job just built carries no aliases yet.
+  const freshStateClientFactory = (aliases) => () => ({
+    requestWithRetry: async () => ({
+      deployments: [{ uid: response.id }],
+      pagination: { next: null },
+    }),
+    inspectDeployment: async () => response,
+    listDeploymentAliases: async () => ({
+      aliases: aliases.map((alias) => ({ alias })),
+    }),
+  });
+  const freshResult = await runMainProviderCli({
+    argv: [
+      "candidate-finalize",
+      "--intent",
+      intentPath,
+      "--smoke",
+      smokePath,
+      "--preflight",
+      creationPreflightPath,
+      "--output",
+      join(context.directory, "fresh-handoff.json"),
+    ],
+    env: context.env,
+    stdout: context.stdout,
+    stateClientFactory: freshStateClientFactory([]),
+  });
+  assert.equal(freshResult.action, "reuse");
+  assert.deepEqual(freshResult.canonicalState.aliases, []);
+  // A fresh candidate still refuses any alias outside the candidate set.
+  let foreignAliasFailure;
   try {
     await runMainProviderCli({
       argv: [
@@ -1376,27 +1380,26 @@ test("candidate finalization reuses one fresh candidate and rejects smoke mismat
         "--preflight",
         creationPreflightPath,
         "--output",
-        join(context.directory, "missing-base-handoff.json"),
+        join(context.directory, "foreign-alias-handoff.json"),
       ],
       env: context.env,
       stdout: context.stdout,
-      stateClientFactory: () => ({
-        requestWithRetry: async () => ({
-          deployments: [{ uid: response.id }],
-          pagination: { next: null },
-        }),
-        inspectDeployment: async () => response,
-        listDeploymentAliases: async () => ({ aliases: [] }),
-      }),
+      stateClientFactory: freshStateClientFactory([
+        PRODUCTION_GENERATED_ALIAS_CONTRACTS.ui.generatedGitMainAlias,
+      ]),
     });
   } catch (error) {
-    missingBaseFailure = error;
+    foreignAliasFailure = error;
   }
+  assert.match(
+    String(foreignAliasFailure?.message),
+    /reused-candidate generated-alias topology mismatch/,
+  );
   assert.equal(
-    renderMainProviderCliFailure(missingBaseFailure),
+    renderMainProviderCliFailure(foreignAliasFailure),
     "Vercel main provider command failed (candidate-finalize-alias-topology-mismatch)\n",
   );
-  assert.equal(mainProviderCliFailureExitCode(missingBaseFailure), 1);
+  assert.equal(mainProviderCliFailureExitCode(foreignAliasFailure), 1);
 
   const admissionPreflightPath = join(
     context.directory,
