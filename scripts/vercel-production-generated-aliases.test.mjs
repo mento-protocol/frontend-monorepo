@@ -268,11 +268,25 @@ test("candidate mode still rejects every alias a served prior now tolerates", ()
   }
 });
 
-test("candidate mode rejects missing-base and non-candidate generated aliases", () => {
+test("candidate mode accepts a fresh skip-domain candidate without the base alias", () => {
+  // `vercel deploy --prod --skip-domain` leaves the generated project alias on
+  // the still-serving prior until `vercel promote` moves it.
+  for (const aliases of [[], [creatorAlias("governance")]]) {
+    assert.deepEqual(
+      assertOnlyExpectedProductionGeneratedAliases({
+        aliases,
+        creatorUsername: CREATOR_USERNAME,
+        logicalTarget: "governance",
+        mode: PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.CANDIDATE,
+      }),
+      aliases,
+    );
+  }
+});
+
+test("candidate mode rejects non-candidate generated aliases", () => {
   const contract = PRODUCTION_GENERATED_ALIAS_CONTRACTS.governance;
   for (const [name, aliases] of [
-    ["empty", []],
-    ["creator only", [creatorAlias("governance")]],
     ["git-main only", [contract.generatedGitMainAlias]],
     ["project-default only", [contract.generatedProjectDefaultAlias]],
     [

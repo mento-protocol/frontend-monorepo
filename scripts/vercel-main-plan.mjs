@@ -138,9 +138,9 @@ export function foreignReviewedAliases(target) {
 // `vercel rollback` are whole-deployment commands, so a project's other
 // production domains move with every release whether or not they are named.
 //
-// Riders are mutable provider state, not release identity. A `--prod
-// --skip-domain` candidate upload moves generated aliases off the still-serving
-// prior, so two attempts of the same release legitimately observe different
+// Riders are mutable provider state, not release identity. Generated aliases
+// move between the still-serving prior and a candidate on promote and recovery,
+// so two attempts of the same release legitimately observe different
 // rider sets. They must therefore never enter the stable release manifest, the
 // candidate seal, or anything else bound into a digest or identity — a sealed
 // rider list would make an interrupted release unresumable. They are captured

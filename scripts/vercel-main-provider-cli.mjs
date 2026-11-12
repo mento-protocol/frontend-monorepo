@@ -1302,7 +1302,6 @@ export async function runMainProviderCli({
         provider,
         smokeCandidate: async () => smoke,
         admissionPreflight,
-        sleepImpl,
       }),
       admissionPreflight,
     );

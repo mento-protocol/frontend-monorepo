@@ -1281,7 +1281,6 @@ test("candidate finalization reuses one fresh candidate and rejects smoke mismat
     }),
   });
   const result = await runMainProviderCli({
-    sleepImpl: async () => {},
     argv: [
       "candidate-finalize",
       "--intent",
@@ -1338,10 +1337,36 @@ test("candidate finalization reuses one fresh candidate and rejects smoke mismat
     }),
   });
   assert.equal(creationPreflight.outcome, "create-if-zero");
+  // Vercel leaves the generated alias on the serving prior until promote, so a
+  // fresh skip-domain candidate with no aliases finalizes on the first run.
+  const freshResult = await runMainProviderCli({
+    argv: [
+      "candidate-finalize",
+      "--intent",
+      intentPath,
+      "--smoke",
+      smokePath,
+      "--preflight",
+      creationPreflightPath,
+      "--output",
+      join(context.directory, "fresh-unaliased-handoff.json"),
+    ],
+    env: context.env,
+    stdout: context.stdout,
+    stateClientFactory: () => ({
+      requestWithRetry: async () => ({
+        deployments: [{ uid: response.id }],
+        pagination: { next: null },
+      }),
+      inspectDeployment: async () => response,
+      listDeploymentAliases: async () => ({ aliases: [] }),
+    }),
+  });
+  assert.equal(freshResult.action, "reuse");
+  assert.deepEqual(freshResult.canonicalState.aliases, []);
   await assert.rejects(
     () =>
       runMainProviderCli({
-        sleepImpl: async () => {},
         argv: [
           "candidate-finalize",
           "--intent",
@@ -1351,7 +1376,7 @@ test("candidate finalization reuses one fresh candidate and rejects smoke mismat
           "--preflight",
           creationPreflightPath,
           "--output",
-          join(context.directory, "missing-base-handoff.json"),
+          join(context.directory, "foreign-alias-handoff.json"),
         ],
         env: context.env,
         stdout: context.stdout,
@@ -1361,15 +1386,16 @@ test("candidate finalization reuses one fresh candidate and rejects smoke mismat
             pagination: { next: null },
           }),
           inspectDeployment: async () => response,
-          listDeploymentAliases: async () => ({ aliases: [] }),
+          listDeploymentAliases: async () => ({
+            aliases: [{ alias: "unexpected-mentolabs.vercel.app" }],
+          }),
         }),
       }),
     /candidate generated-alias topology mismatch/,
   );
-  let missingBaseFailure;
+  let foreignAliasFailure;
   try {
     await runMainProviderCli({
-      sleepImpl: async () => {},
       argv: [
         "candidate-finalize",
         "--intent",
@@ -1379,7 +1405,7 @@ test("candidate finalization reuses one fresh candidate and rejects smoke mismat
         "--preflight",
         creationPreflightPath,
         "--output",
-        join(context.directory, "missing-base-handoff.json"),
+        join(context.directory, "foreign-alias-handoff.json"),
       ],
       env: context.env,
       stdout: context.stdout,
@@ -1389,17 +1415,19 @@ test("candidate finalization reuses one fresh candidate and rejects smoke mismat
           pagination: { next: null },
         }),
         inspectDeployment: async () => response,
-        listDeploymentAliases: async () => ({ aliases: [] }),
+        listDeploymentAliases: async () => ({
+          aliases: [{ alias: "unexpected-mentolabs.vercel.app" }],
+        }),
       }),
     });
   } catch (error) {
-    missingBaseFailure = error;
+    foreignAliasFailure = error;
   }
   assert.equal(
-    renderMainProviderCliFailure(missingBaseFailure),
+    renderMainProviderCliFailure(foreignAliasFailure),
     "Vercel main provider command failed (candidate-finalize-alias-topology-mismatch)\n",
   );
-  assert.equal(mainProviderCliFailureExitCode(missingBaseFailure), 1);
+  assert.equal(mainProviderCliFailureExitCode(foreignAliasFailure), 1);
 
   const admissionPreflightPath = join(
     context.directory,
@@ -1419,7 +1447,6 @@ test("candidate finalization reuses one fresh candidate and rejects smoke mismat
   });
   assert.equal(admissionPreflight.outcome, "reuse-existing");
   const rerunResult = await runMainProviderCli({
-    sleepImpl: async () => {},
     argv: [
       "candidate-finalize",
       "--intent",
@@ -1446,7 +1473,6 @@ test("candidate finalization reuses one fresh candidate and rejects smoke mismat
   await assert.rejects(
     () =>
       runMainProviderCli({
-        sleepImpl: async () => {},
         argv: [
           "candidate-finalize",
           "--intent",
@@ -1508,7 +1534,6 @@ test("inherited candidate finalization uses the fixed served-prior alias contrac
       writeFileSync(context.githubOutput, "", { mode: 0o600 });
       chmodSync(context.githubOutput, 0o600);
       const result = await runMainProviderCli({
-        sleepImpl: async () => {},
         argv: [
           "candidate-finalize-inherited",
           "--intent",
@@ -1558,7 +1583,6 @@ test("inherited candidate finalization uses the fixed served-prior alias contrac
       await assert.rejects(
         () =>
           runMainProviderCli({
-            sleepImpl: async () => {},
             argv: [
               "candidate-finalize-inherited",
               "--intent",
