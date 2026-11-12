@@ -115,6 +115,45 @@ const CANDIDATE_SMOKE_FAILURE_CODES = new Set([
   "candidate-smoke-edge-transport-exhausted",
   "candidate-smoke-edge-transient-exhausted",
 ]);
+// Candidate finalization refuses for reasons that differ in remedy, but the CLI
+// redacts unclassified errors. Map each reviewed refusal to a static code so a
+// failed run names the check that refused without printing provider state.
+const CANDIDATE_FINALIZE_FAILURE_PATTERNS = Object.freeze([
+  [
+    /generated-alias topology mismatch/,
+    "candidate-finalize-alias-topology-mismatch",
+  ],
+  [
+    /generated-alias topology is malformed/,
+    "candidate-finalize-alias-topology-malformed",
+  ],
+  [
+    /carries another target's reviewed protected domain/,
+    "candidate-finalize-foreign-protected-alias",
+  ],
+  [/immutable-host separation/, "candidate-finalize-immutable-host-separation"],
+  [
+    /canonical state conflicts with receipt/,
+    "candidate-finalize-canonical-state-conflict",
+  ],
+  [
+    /changed after its admission preflight/,
+    "candidate-finalize-changed-after-preflight",
+  ],
+  [
+    /admission preflight conflicts with intent/,
+    "candidate-finalize-preflight-intent-conflict",
+  ],
+  [
+    /^Main candidate resolution blocked/,
+    "candidate-finalize-resolution-blocked",
+  ],
+  [/requires one reusable candidate/, "candidate-finalize-not-reusable"],
+]);
+const CANDIDATE_FINALIZE_FAILURE_CODES = new Set([
+  ...CANDIDATE_FINALIZE_FAILURE_PATTERNS.map(([, code]) => code),
+  "candidate-finalize-failed",
+]);
 const SAFE_MAIN_PROVIDER_FAILURE_CODES = new Set([
   ...["planning-census"].flatMap((stage) => [
     `${stage}-read-timeout`,
@@ -129,6 +168,7 @@ const SAFE_MAIN_PROVIDER_FAILURE_CODES = new Set([
   "preplan-reconciliation-failed",
   ...PREPLAN_POST_CENSUS_FAILURE_CODES,
   ...CANDIDATE_SMOKE_FAILURE_CODES,
+  ...CANDIDATE_FINALIZE_FAILURE_CODES,
 ]);
 const RETRYABLE_MAIN_PROVIDER_FAILURE_CODES = new Set([
   "planning-census-unstable",
@@ -727,6 +767,25 @@ async function runClassifiedProviderCensus(stage, capture) {
   }
 }
 
+function classifyCandidateFinalizeFailure(error) {
+  if (SAFE_MAIN_PROVIDER_FAILURE_CODES.has(error?.mainProviderFailureCode)) {
+    return error;
+  }
+  const message = typeof error?.message === "string" ? error.message : "";
+  const match = CANDIDATE_FINALIZE_FAILURE_PATTERNS.find(([pattern]) =>
+    pattern.test(message),
+  );
+  // Keep the original error for in-process callers; the CLI renderer prints
+  // only the static code, never the message.
+  const classified =
+    error instanceof Error
+      ? error
+      : new Error("Vercel candidate finalization failed");
+  classified.mainProviderFailureCode =
+    match?.[1] ?? "candidate-finalize-failed";
+  return classified;
+}
+
 function runClassifiedProviderReconciliation(reconcile) {
   try {
     return reconcile();
@@ -1235,17 +1294,22 @@ export async function runMainProviderCli({
   const assertHandoff = inherited
     ? assertMainServedPriorCandidateHandoff
     : assertMainCandidateHandoff;
-  const result = assertHandoff(
-    await resolveHandoff({
-      intent,
-      provider,
-      smokeCandidate: async () => smoke,
+  let result;
+  try {
+    result = assertHandoff(
+      await resolveHandoff({
+        intent,
+        provider,
+        smokeCandidate: async () => smoke,
+        admissionPreflight,
+      }),
       admissionPreflight,
-    }),
-    admissionPreflight,
-  );
-  if (result.action !== "reuse") {
-    throw new Error("Candidate finalization requires one reusable candidate");
+    );
+    if (result.action !== "reuse") {
+      throw new Error("Candidate finalization requires one reusable candidate");
+    }
+  } catch (error) {
+    throw classifyCandidateFinalizeFailure(error);
   }
   writePrivateJson(options.output, result, runnerTemp);
   appendGithubOutputs(env, {
