@@ -1281,6 +1281,7 @@ test("candidate finalization reuses one fresh candidate and rejects smoke mismat
     }),
   });
   const result = await runMainProviderCli({
+    sleepImpl: async () => {},
     argv: [
       "candidate-finalize",
       "--intent",
@@ -1340,6 +1341,7 @@ test("candidate finalization reuses one fresh candidate and rejects smoke mismat
   await assert.rejects(
     () =>
       runMainProviderCli({
+        sleepImpl: async () => {},
         argv: [
           "candidate-finalize",
           "--intent",
@@ -1367,6 +1369,7 @@ test("candidate finalization reuses one fresh candidate and rejects smoke mismat
   let missingBaseFailure;
   try {
     await runMainProviderCli({
+      sleepImpl: async () => {},
       argv: [
         "candidate-finalize",
         "--intent",
@@ -1416,6 +1419,7 @@ test("candidate finalization reuses one fresh candidate and rejects smoke mismat
   });
   assert.equal(admissionPreflight.outcome, "reuse-existing");
   const rerunResult = await runMainProviderCli({
+    sleepImpl: async () => {},
     argv: [
       "candidate-finalize",
       "--intent",
@@ -1442,6 +1446,7 @@ test("candidate finalization reuses one fresh candidate and rejects smoke mismat
   await assert.rejects(
     () =>
       runMainProviderCli({
+        sleepImpl: async () => {},
         argv: [
           "candidate-finalize",
           "--intent",
@@ -1503,6 +1508,7 @@ test("inherited candidate finalization uses the fixed served-prior alias contrac
       writeFileSync(context.githubOutput, "", { mode: 0o600 });
       chmodSync(context.githubOutput, 0o600);
       const result = await runMainProviderCli({
+        sleepImpl: async () => {},
         argv: [
           "candidate-finalize-inherited",
           "--intent",
@@ -1552,6 +1558,7 @@ test("inherited candidate finalization uses the fixed served-prior alias contrac
       await assert.rejects(
         () =>
           runMainProviderCli({
+            sleepImpl: async () => {},
             argv: [
               "candidate-finalize-inherited",
               "--intent",

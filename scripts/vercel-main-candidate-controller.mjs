@@ -331,8 +331,78 @@ export function assertMainCandidatePreflight(value) {
   };
 }
 
+// Vercel attaches the generated project alias to a fresh CLI production
+// deployment a few seconds after `vercel deploy` returns. Finalization of a
+// fresh candidate requires that alias, so re-read the canonical state for a
+// bounded time while the only refusal is the alias topology. Every other
+// refusal, and a mismatch that outlasts the window, still fails closed.
+export const MAIN_CANDIDATE_ALIAS_SETTLE_ATTEMPTS = 12;
+export const MAIN_CANDIDATE_ALIAS_SETTLE_DELAY_MS = 5_000;
+
+function isAliasTopologyMismatch(error) {
+  return (
+    typeof error?.message === "string" &&
+    error.message.includes("generated-alias topology mismatch")
+  );
+}
+
+// True only when every alias present is reviewed and the generated project
+// alias is merely absent: the reused-candidate topology accepts the same alias
+// set without requiring the base. A foreign alias fails both modes.
+function onlyAwaitsGeneratedAlias(state, intent, candidate) {
+  try {
+    assertMainCandidateCanonicalState(
+      state,
+      intent,
+      candidate,
+      PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.REUSED_CANDIDATE,
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function inspectSettledCandidateState({
+  provider,
+  intent,
+  candidate,
+  aliasTopologyMode,
+  sleepImpl,
+}) {
+  for (let attempt = 1; ; attempt += 1) {
+    const state = await provider.inspectCandidateState(candidate.deploymentId);
+    try {
+      return assertMainCandidateCanonicalState(
+        state,
+        intent,
+        candidate,
+        aliasTopologyMode,
+      );
+    } catch (error) {
+      if (
+        aliasTopologyMode !==
+          PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.CANDIDATE ||
+        !isAliasTopologyMismatch(error) ||
+        !onlyAwaitsGeneratedAlias(state, intent, candidate) ||
+        attempt >= MAIN_CANDIDATE_ALIAS_SETTLE_ATTEMPTS
+      ) {
+        throw error;
+      }
+      await sleepImpl(MAIN_CANDIDATE_ALIAS_SETTLE_DELAY_MS);
+    }
+  }
+}
+
 async function resolveMainCandidateHandoffForAliasTopology(
-  { intent, provider, smokeCandidate, admissionPreflight = null },
+  {
+    intent,
+    provider,
+    smokeCandidate,
+    admissionPreflight = null,
+    sleepImpl = (milliseconds) =>
+      new Promise((resolve) => setTimeout(resolve, milliseconds)),
+  },
   aliasTopologyMode,
 ) {
   const canonicalIntent = assertMainCandidateIntent(intent);
@@ -371,12 +441,15 @@ async function resolveMainCandidateHandoffForAliasTopology(
   );
   if (typeof provider.inspectCandidateState !== "function")
     throw new Error("Main candidate canonical-state provider is required");
-  const canonicalState = assertMainCandidateCanonicalState(
-    await provider.inspectCandidateState(receipt.candidate.deploymentId),
-    canonicalIntent,
-    receipt.candidate,
-    resolvedTopologyMode,
-  );
+  if (typeof sleepImpl !== "function")
+    throw new Error("Main candidate alias settle sleep is required");
+  const canonicalState = await inspectSettledCandidateState({
+    provider,
+    intent: canonicalIntent,
+    candidate: receipt.candidate,
+    aliasTopologyMode: resolvedTopologyMode,
+    sleepImpl,
+  });
   return {
     schema: MAIN_CANDIDATE_HANDOFF_SCHEMA,
     action: "reuse",

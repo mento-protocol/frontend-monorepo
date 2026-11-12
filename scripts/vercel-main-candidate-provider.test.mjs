@@ -13,6 +13,8 @@ import {
   isBridgeEraCandidateMetadata,
 } from "./vercel-main-candidate.mjs";
 import {
+  MAIN_CANDIDATE_ALIAS_SETTLE_ATTEMPTS,
+  MAIN_CANDIDATE_ALIAS_SETTLE_DELAY_MS,
   assertMainCandidateHandoff,
   assertMainServedPriorCandidateHandoff,
   preflightMainCandidateProvider,
@@ -216,6 +218,7 @@ async function resolveHandoff(
     intent: currentIntent,
     provider,
     admissionPreflight,
+    sleepImpl: async () => {},
     smokeCandidate: async (candidate) => ({
       immutableUrl: candidate.deploymentUrl,
       servedSha: currentIntent.deploySha,
@@ -331,6 +334,86 @@ test("unbound provider callbacks resolve a raw-metadata candidate without artifa
     deploymentDurationMs: null,
     cacheHit: null,
   });
+});
+
+function settlingProvider(currentIntent, aliasesFor) {
+  const response = deploymentResponse(currentIntent);
+  return createMainCandidateVercelProvider({
+    intent: currentIntent,
+    client: {
+      requestWithRetry: async () => ({
+        deployments: [{ uid: response.id }],
+        pagination: { next: null },
+      }),
+      inspectDeployment: async () => response,
+      listDeploymentAliases: async () => deploymentAliases(aliasesFor()),
+    },
+  });
+}
+
+function passedSmoke(currentIntent) {
+  return async (candidate) => ({
+    immutableUrl: candidate.deploymentUrl,
+    servedSha: currentIntent.deploySha,
+    status: "passed",
+  });
+}
+
+test("fresh candidate finalization waits a bounded time for Vercel to attach the generated alias", async () => {
+  const currentIntent = intent();
+  const generatedProjectAlias =
+    PRODUCTION_GENERATED_ALIAS_CONTRACTS.ui.generatedProjectAlias;
+  const sleeps = [];
+  const provider = settlingProvider(currentIntent, () =>
+    sleeps.length >= 2 ? [generatedProjectAlias] : [],
+  );
+  const handoff = await resolveMainCandidateHandoff({
+    intent: currentIntent,
+    provider,
+    sleepImpl: async (milliseconds) => sleeps.push(milliseconds),
+    smokeCandidate: passedSmoke(currentIntent),
+  });
+  assert.equal(handoff.action, "reuse");
+  assert.deepEqual(handoff.canonicalState.aliases, [generatedProjectAlias]);
+  assert.deepEqual(sleeps, [
+    MAIN_CANDIDATE_ALIAS_SETTLE_DELAY_MS,
+    MAIN_CANDIDATE_ALIAS_SETTLE_DELAY_MS,
+  ]);
+});
+
+test("fresh candidate finalization still fails closed when the generated alias never appears", async () => {
+  const currentIntent = intent();
+  const sleeps = [];
+  await assert.rejects(
+    resolveMainCandidateHandoff({
+      intent: currentIntent,
+      provider: settlingProvider(currentIntent, () => []),
+      sleepImpl: async (milliseconds) => sleeps.push(milliseconds),
+      smokeCandidate: passedSmoke(currentIntent),
+    }),
+    /candidate generated-alias topology mismatch/,
+  );
+  assert.equal(sleeps.length, MAIN_CANDIDATE_ALIAS_SETTLE_ATTEMPTS - 1);
+});
+
+test("fresh candidate finalization does not wait out a foreign alias", async () => {
+  const currentIntent = intent();
+  const sleeps = [];
+  await assert.rejects(
+    resolveMainCandidateHandoff({
+      intent: currentIntent,
+      provider: settlingProvider(currentIntent, () =>
+        [
+          PRODUCTION_GENERATED_ALIAS_CONTRACTS.ui.generatedProjectAlias,
+          "unexpected-mentolabs.vercel.app",
+        ].toSorted(),
+      ),
+      sleepImpl: async (milliseconds) => sleeps.push(milliseconds),
+      smokeCandidate: passedSmoke(currentIntent),
+    }),
+    /generated-alias topology mismatch/,
+  );
+  assert.deepEqual(sleeps, []);
 });
 
 test("automatic ordinary candidate finalization requires the base and permits the exact creator alias", async () => {
