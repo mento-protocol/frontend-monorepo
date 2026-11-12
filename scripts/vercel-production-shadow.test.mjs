@@ -584,7 +584,7 @@ test("deployment expectation fixes production provenance and exact SHA", () => {
   );
 });
 
-test("observed runs allow only the base alias plus one exact optional creator alias", () => {
+test("observed runs allow only the optional base alias plus one exact optional creator alias", () => {
   assert.doesNotMatch(
     readFileSync(productionShadowScript, "utf8"),
     /GITHUB_ACTOR|githubCommitAuthor|creator\.name/,
@@ -646,10 +646,19 @@ test("observed runs allow only the base alias plus one exact optional creator al
 
   const expected = states[1];
   const immutableHostname = new URL(expected.deploymentUrl).hostname;
+  // Vercel no longer attaches the base to a fresh `--skip-domain` candidate
+  // (it moves on promote), so the base and the creator alias are both optional.
+  for (const aliases of [[], [generatedAuthorAlias]]) {
+    assert.deepEqual(
+      assertOnlyExpectedVercelGeneratedAliases(
+        { ...expected, aliases },
+        "governance",
+      ).aliases,
+      aliases,
+    );
+  }
   const unexpectedAliasSets = [
     template.aliases,
-    [generatedAuthorAlias],
-    [],
     [
       generatedProjectAlias,
       "governancementoorg-chapati23-mentolabs.vercel.app",

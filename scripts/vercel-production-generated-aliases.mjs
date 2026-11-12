@@ -180,11 +180,14 @@ export function assertOnlyExpectedProductionGeneratedAliases({
     generatedProjectAlias,
     ...allowedCreatorAliases,
   ]);
-  const topologyMatches =
-    mode === PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.CANDIDATE
-      ? canonicalAliases.includes(generatedProjectAlias) &&
-        canonicalAliases.every((alias) => allowedAliases.has(alias))
-      : canonicalAliases.every((alias) => allowedAliases.has(alias));
+  // A fresh `vercel deploy --prod --skip-domain` candidate does not receive
+  // the generated project alias: Vercel moves it on `vercel promote`, and it
+  // stays on the still-serving prior until then. Candidate mode therefore
+  // accepts the base as optional, exactly like a reused candidate; every alias
+  // that is present must still be the base or the exact creator alias.
+  const topologyMatches = canonicalAliases.every((alias) =>
+    allowedAliases.has(alias),
+  );
   if (!topologyMatches) {
     throw new Error(
       `Production ${logicalTarget} ${mode} generated-alias topology mismatch: allowed ${JSON.stringify([...allowedAliases].toSorted())}; actual ${JSON.stringify(canonicalAliases)}`,
