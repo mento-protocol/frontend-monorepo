@@ -1681,6 +1681,31 @@ function matchesActiveProjectTopology(identity, project, deploySha) {
   );
 }
 
+// A terminal CANCELED deployment can never serve. Vercel creates one per
+// project for every main commit it decides is "Skipped - Not affected", so the
+// census sees it beside a staged candidate whenever Vercel's affected-project
+// graph is narrower than the release plan. It stays inert evidence as long as
+// it is not the expected candidate itself: a canceled expected candidate still
+// fails the proof, because the disposition requires that exact READY
+// deployment.
+function isInertCanceledCandidateSlot({
+  expectedDisposition,
+  expectedDeploymentId,
+  expectedDeploymentUrl,
+  deploymentId,
+  deploymentUrl,
+}) {
+  if (expectedDisposition === null) {
+    return expectedDeploymentId === null && expectedDeploymentUrl === null;
+  }
+  return (
+    typeof expectedDeploymentId === "string" &&
+    typeof expectedDeploymentUrl === "string" &&
+    deploymentId !== expectedDeploymentId &&
+    deploymentUrl !== expectedDeploymentUrl
+  );
+}
+
 function matchesInertCanceledDeployment(
   identity,
   requestedId,
@@ -1695,9 +1720,13 @@ function matchesInertCanceledDeployment(
     : project.expectedDeploymentUrl;
   return (
     identity !== null &&
-    project.expectedDisposition === null &&
-    expectedDeploymentId === null &&
-    expectedDeploymentUrl === null &&
+    isInertCanceledCandidateSlot({
+      expectedDisposition: project.expectedDisposition,
+      expectedDeploymentId,
+      expectedDeploymentUrl,
+      deploymentId: identity.deploymentId,
+      deploymentUrl: identity.deploymentUrl,
+    }) &&
     identity.deploymentId === requestedId &&
     identity.projectId === project.projectId &&
     identity.projectName === project.projectName &&
@@ -2046,9 +2075,13 @@ function recordMatchesInertCanceledDeployment(
   deploySha,
 ) {
   return (
-    project.expectedDisposition === null &&
-    project.expectedDeploymentId === null &&
-    project.expectedDeploymentUrl === null &&
+    isInertCanceledCandidateSlot({
+      expectedDisposition: project.expectedDisposition,
+      expectedDeploymentId: project.expectedDeploymentId,
+      expectedDeploymentUrl: project.expectedDeploymentUrl,
+      deploymentId: record.deploymentId,
+      deploymentUrl: record.deploymentUrl,
+    }) &&
     record.deploymentId === requestedId &&
     record.deploymentUrl !== null &&
     record.projectId === project.projectId &&

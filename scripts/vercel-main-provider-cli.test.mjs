@@ -1364,6 +1364,39 @@ test("candidate finalization reuses one fresh candidate and rejects smoke mismat
       }),
     /candidate generated-alias topology mismatch/,
   );
+  let missingBaseFailure;
+  try {
+    await runMainProviderCli({
+      argv: [
+        "candidate-finalize",
+        "--intent",
+        intentPath,
+        "--smoke",
+        smokePath,
+        "--preflight",
+        creationPreflightPath,
+        "--output",
+        join(context.directory, "missing-base-handoff.json"),
+      ],
+      env: context.env,
+      stdout: context.stdout,
+      stateClientFactory: () => ({
+        requestWithRetry: async () => ({
+          deployments: [{ uid: response.id }],
+          pagination: { next: null },
+        }),
+        inspectDeployment: async () => response,
+        listDeploymentAliases: async () => ({ aliases: [] }),
+      }),
+    });
+  } catch (error) {
+    missingBaseFailure = error;
+  }
+  assert.equal(
+    renderMainProviderCliFailure(missingBaseFailure),
+    "Vercel main provider command failed (candidate-finalize-alias-topology-mismatch)\n",
+  );
+  assert.equal(mainProviderCliFailureExitCode(missingBaseFailure), 1);
 
   const admissionPreflightPath = join(
     context.directory,
