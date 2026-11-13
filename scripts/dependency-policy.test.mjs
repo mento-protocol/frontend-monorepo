@@ -1683,8 +1683,6 @@ test("both agent guides carry the same Dependabot preparation facts", () => {
     "six hours including waits",
     "45 active repair minutes",
     "three attempts per pull request",
-    "CodeRabbit is retired",
-    "Do not request or wait for CodeRabbit reviews",
     "Required CI checks remain mandatory on the current head",
     "require independent review of the final repair diff",
     "Read all existing review feedback and address valid findings",

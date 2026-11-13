@@ -1,7 +1,0 @@
-# CodeRabbit is retired. Organization app removal is still required.
-reviews:
-  review_status: false
-  auto_review:
-    enabled: false
-chat:
-  auto_reply: false

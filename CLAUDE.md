@@ -497,7 +497,6 @@ waits, 45 active repair minutes and three attempts per pull request, cumulative
 across resume; an interactive run has to be given the same numbers, because the
 skill defaults to one hour and 30 active repair minutes.
 
-CodeRabbit is retired. Do not request or wait for CodeRabbit reviews.
 Required CI checks remain mandatory on the current head. Agent-written repairs
 require independent review of the final repair diff. Keep the existing Claude
 and Codex review requirements.
