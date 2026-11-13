@@ -236,28 +236,14 @@ test("fails a body one word over the 400-word ceiling", () => {
   );
 });
 
-test("excludes the ship checklist and bot summaries from the word count", () => {
+test("excludes the ship checklist from the word count", () => {
   const body = `${bodyWithFiller(fillerForCeiling)}
 ## Ship Checklist
 
 - [ ] ${filler(200)}
-
-## Summary by CodeRabbit
-
-- ${filler(200)}
 `;
   assert.equal(authoredWordCount(body), 400);
   assertPass(body);
-});
-
-test("counts a casing variant of the bot-summary heading", () => {
-  const body = `${bodyWithFiller(fillerForCeiling)}
-## summary by coderabbit
-
-${filler(200)}
-`;
-  assert.equal(authoredWordCount(body), 603);
-  assertFail(body, /is 603 authored words; the ceiling is 400/);
 });
 
 test("counts a section that only looks like a bot summary", () => {

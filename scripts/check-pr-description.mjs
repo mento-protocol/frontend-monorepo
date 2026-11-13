@@ -10,11 +10,6 @@ const PROBLEM_HEADING_RE = /^##\s+The Problem\s*$/;
 const SOLUTION_HEADING_RE = /^##\s+The Solution\s*$/;
 const H2_HEADING_RE = /^##\s/;
 const CHECKLIST_HEADING_RE = /^##\s+Ship Checklist\s*$/;
-// Only exact headings that a review bot appends itself, matched case
-// sensitively. A loose match would let an author name a section after the
-// ceiling and hide unlimited text behind it, so each known bot heading is
-// listed exactly as the bot writes it.
-const BOT_SUMMARY_HEADING_RES = [/^##\s+Summary by CodeRabbit\s*$/];
 // Code stays code when it is quoted, e.g. "> ```" around a pasted log.
 const BLOCKQUOTE_PREFIX = String.raw`(?:[ \t]{0,3}>[ \t]?)*`;
 const BLOCKQUOTE_PREFIX_RE = new RegExp(`^${BLOCKQUOTE_PREFIX}`);
@@ -246,19 +241,14 @@ function tldrSection(structure) {
   return (end === -1 ? rest : rest.slice(0, end)).join("\n");
 }
 
-function isBotSummaryHeading(line) {
-  return BOT_SUMMARY_HEADING_RES.some((heading) => heading.test(line));
-}
-
-// The ceiling measures what the author wrote: the ship checklist, HTML
-// comments, code, and the known bot-appended summary sections do not count.
+// The ceiling excludes the ship checklist, HTML comments and code.
 function authoredBody(structure) {
   const kept = [];
   let skipping = false;
 
   for (const line of linesOf(structure)) {
     if (H2_HEADING_RE.test(line)) {
-      skipping = CHECKLIST_HEADING_RE.test(line) || isBotSummaryHeading(line);
+      skipping = CHECKLIST_HEADING_RE.test(line);
     }
     if (!skipping) kept.push(line);
   }
