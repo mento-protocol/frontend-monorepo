@@ -66,22 +66,13 @@ and the Slack destination; none of the three lives in this repository.
 Two facts the skill cannot know belong here. The budget is six hours including
 waits, 45 active repair minutes and three attempts per pull request, cumulative
 across resume; an interactive run has to be given the same numbers, because the
-skill defaults to one hour and 30 active repair minutes. CodeRabbit
-(`coderabbitai[bot]`, GitHub user id `136622811`) is an advisory technical
-reviewer for Dependabot PRs, not a preparation gate. Its status check and review
-are advisory: an absent, skipped, stale, or licensing-refused CodeRabbit review
-does not block readiness and does not require provisioning a bot seat. A
-rate-limited CodeRabbit review is unavailable in the same way. Findings that
-CodeRabbit does post are mandatory: address and answer every actionable item
-before merge, as for any other reviewer. If a review is requested, use the
-exact `@coderabbitai review` comment at most once per exact head.
+skill defaults to one hour and 30 active repair minutes.
 
+CodeRabbit is retired. Do not request or wait for CodeRabbit reviews.
 Required CI checks remain mandatory on the current head. Agent-written repairs
-require independent review of the final repair diff; CodeRabbit's advisory
-status does not waive that review. Read all review feedback, address actual
-findings, and report missing or skipped advisory review explicitly in the
-preparation handoff. Human approval and any GitHub-required reviews remain
-separate merge gates.
+require independent review of the final repair diff through Claude and Codex.
+Read all existing review feedback and address valid findings. Human approval
+and GitHub-required reviews remain separate merge gates.
 
 The agent may merge at ALL CLEAR. ALL CLEAR requires all of the following on
 the exact head:
