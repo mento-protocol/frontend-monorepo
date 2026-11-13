@@ -66,22 +66,13 @@ and the Slack destination; none of the three lives in this repository.
 Two facts the skill cannot know belong here. The budget is six hours including
 waits, 45 active repair minutes and three attempts per pull request, cumulative
 across resume; an interactive run has to be given the same numbers, because the
-skill defaults to one hour and 30 active repair minutes. CodeRabbit
-(`coderabbitai[bot]`, GitHub user id `136622811`) is an advisory technical
-reviewer for Dependabot PRs, not a preparation gate. Its status check and review
-are advisory: an absent, skipped, stale, or licensing-refused CodeRabbit review
-does not block readiness and does not require provisioning a bot seat. A
-rate-limited CodeRabbit review is unavailable in the same way. Findings that
-CodeRabbit does post are mandatory: address and answer every actionable item
-before merge, as for any other reviewer. If a review is requested, use the
-exact `@coderabbitai review` comment at most once per exact head.
+skill defaults to one hour and 30 active repair minutes.
 
 Required CI checks remain mandatory on the current head. Agent-written repairs
-require independent review of the final repair diff; CodeRabbit's advisory
-status does not waive that review. Read all review feedback, address actual
-findings, and report missing or skipped advisory review explicitly in the
-preparation handoff. Human approval and any GitHub-required reviews remain
-separate merge gates.
+require independent review of the final repair diff. Keep the existing Claude
+and Codex review requirements.
+Read all existing review feedback and address valid findings. Human approval
+and GitHub-required reviews remain separate merge gates.
 
 The agent may merge at ALL CLEAR. ALL CLEAR requires all of the following on
 the exact head:
@@ -297,12 +288,8 @@ the next two H2 sections. Only HTML comments may appear before `## tl;dr`.
 Write the tl;dr as two to four plain-language sentences, about 60 words and 80
 at most, with no file names, flags, or SHAs. Keep the whole authored body near
 250 words and never above 400; the ship checklist, HTML comments, code blocks
-(blockquoted fenced and blockquoted indented ones included), and the
-bot-appended `## Summary by CodeRabbit` section do not count toward that
-ceiling, and an inline-code span counts as one word. That heading is matched
-exactly, capitalization included, so a hand-written variant still counts.
-Excluding another bot's section means adding its exact heading to the
-validator's allowlist.
+(blockquoted fenced and blockquoted indented ones included) do not count
+toward that ceiling. An inline-code span counts as one word.
 Write `## Validation` as one line per check: group the passes on one line with
 their counts, and give every skipped, failed, or not-proven item its own line.
 Validate the current PR with

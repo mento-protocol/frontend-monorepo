@@ -3,10 +3,12 @@
   "ui": "tui",
   "globalPassThroughEnv": [
     "CI",
+    "MENTO_NEXT_DEPLOYMENT_ID",
     "NEXT_RUNTIME",
     "PREVIEW_URL",
     "SENTRY_DSN",
     "VERCEL_ENV",
+    "VERCEL_GIT_COMMIT_SHA",
     "VERCEL_TARGET_ENV"
   ],
   "tasks": {
