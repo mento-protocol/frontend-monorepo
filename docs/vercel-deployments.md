@@ -1536,6 +1536,11 @@ downstream run-and-attempt key continues to identify each active-main journal
 and public mutation. Do not substitute a candidate identity for mutation
 authorization.
 
+The root `globalPassThroughEnv` declares `MENTO_NEXT_DEPLOYMENT_ID` and
+`VERCEL_GIT_COMMIT_SHA` for root-level linting. Each app also lists both variables
+in its build task's `env`. The app build hashes include them; shared-package
+build hashes do not.
+
 All four `next.config.ts` files map `MENTO_NEXT_DEPLOYMENT_ID` to Next.js's
 `deploymentId` option and disable Next.js's runtime deployment-ID override only
 when that custom ID is set. This is the scoped workaround for
