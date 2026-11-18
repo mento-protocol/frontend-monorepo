@@ -19,6 +19,7 @@ import {
   createPreviewJournal,
   createPreviewObservationReceipt,
   dependabotIntakeRunName,
+  getWorkerRun,
   normalizePlannerResult,
   parseWorkerRunName,
   previewObservationArtifactName,
@@ -11261,6 +11262,118 @@ test("malformed Dependabot intake identity fails before any status write", async
   }
 });
 
+function workerRunReadSetup() {
+  const selection = reconcile({
+    events: [
+      event({ run: 120, action: "opened", head: SHA.A, updated: timestamp(1) }),
+    ],
+    pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+  }).nextDispatch;
+  return { selection, run: workerRun(selection) };
+}
+
+function workerRunReadGitHub(responses) {
+  const queue = [...responses];
+  const requests = [];
+  return {
+    requests,
+    github: {
+      rest: {
+        actions: {
+          getWorkflowRun: async (request) => {
+            requests.push(request);
+            const next = queue.shift();
+            assert.ok(next, "fixture worker run read must be scripted");
+            if (typeof next === "number") {
+              const error = new Error(`fixture worker run read ${next}`);
+              error.status = next;
+              throw error;
+            }
+            return { data: next };
+          },
+        },
+      },
+    },
+  };
+}
+
+test("a just-dispatched worker run that GitHub still reports as 404 is re-read until visible", async () => {
+  const { selection, run } = workerRunReadSetup();
+  const fixture = workerRunReadGitHub([404, 404, run]);
+  const delays = [];
+  const data = await getWorkerRun(
+    fixture.github,
+    fakeContext(),
+    8_000,
+    selection,
+    {
+      waitForRetry: async (milliseconds) => delays.push(milliseconds),
+    },
+  );
+  assert.equal(data, run);
+  assert.deepEqual(delays, [1_000, 2_000]);
+  assert.deepEqual(
+    fixture.requests.map(({ run_id: runId }) => runId),
+    [8_000, 8_000, 8_000],
+  );
+});
+
+test("a transient 5xx on a worker run read is re-read until it succeeds", async () => {
+  const { selection, run } = workerRunReadSetup();
+  const fixture = workerRunReadGitHub([500, 503, run]);
+  const delays = [];
+  const data = await getWorkerRun(
+    fixture.github,
+    fakeContext(),
+    8_000,
+    selection,
+    {
+      waitForRetry: async (milliseconds) => delays.push(milliseconds),
+    },
+  );
+  assert.equal(data, run);
+  assert.deepEqual(delays, [1_000, 2_000]);
+});
+
+test("a worker run that stays 404 still fails closed after the bounded re-read", async () => {
+  const { selection } = workerRunReadSetup();
+  const fixture = workerRunReadGitHub(Array(7).fill(404));
+  const delays = [];
+  await assert.rejects(
+    getWorkerRun(fixture.github, fakeContext(), 8_000, selection, {
+      waitForRetry: async (milliseconds) => delays.push(milliseconds),
+    }),
+    (error) => error.status === 404,
+  );
+  assert.deepEqual(delays, [1_000, 2_000, 4_000, 8_000, 16_000]);
+  assert.equal(fixture.requests.length, 6);
+});
+
+test("a worker run read never retries client errors or a retired selection's 404", async () => {
+  const { selection } = workerRunReadSetup();
+  for (const status of [400, 401, 403, 422]) {
+    const fixture = workerRunReadGitHub([status]);
+    const delays = [];
+    await assert.rejects(
+      getWorkerRun(fixture.github, fakeContext(), 8_000, selection, {
+        waitForRetry: async (milliseconds) => delays.push(milliseconds),
+      }),
+      (error) => error.status === status,
+    );
+    assert.deepEqual(delays, []);
+  }
+  const retired = workerRunReadGitHub([404]);
+  const delays = [];
+  await assert.rejects(
+    getWorkerRun(retired.github, fakeContext(), 8_000, selection, {
+      waitForRetry: async (milliseconds) => delays.push(milliseconds),
+      retryNotFound: false,
+    }),
+    (error) => error.status === 404,
+  );
+  assert.deepEqual(delays, []);
+});
+
 test("strict worker identity uses display_title plus workflow path, ref, SHA, and attempt", () => {
   const opened = event({
     run: 120,
@@ -15030,17 +15143,20 @@ test("transient retired recovery failures remain retryable and never poison the 
       }),
     ],
     runs: [oldCompleted],
-    workflowRunAttemptFailures: [503],
+    // Six consecutive 503s outlast the bounded worker run re-read.
+    workflowRunAttemptFailures: Array(6).fill(503),
   });
 
   const firstCore = fakeCore();
+  const firstDelays = [];
   const first = await reconcilePreview({
     github: fixture.github,
     context: fakeContext({ runId: 7_001 }),
     core: firstCore,
     prNumber: 519,
-    waitForRecovery: async () => {},
+    waitForRecovery: async (milliseconds) => firstDelays.push(milliseconds),
   });
+  assert.deepEqual(firstDelays, [1_000, 2_000, 4_000, 8_000, 16_000]);
   assert.equal(first.targets.ui.active, null);
   assert.equal(
     first.targets.ui.retired_active.at(-1).recovery_quarantine,
@@ -15068,7 +15184,7 @@ test("transient retired recovery failures remain retryable and never poison the 
     fixture.commitStatuses.some(({ state }) => state === "error"),
     false,
   );
-  assert.equal(fixture.workflowRunAttemptRequests.length, 3);
+  assert.equal(fixture.workflowRunAttemptRequests.length, 8);
   assert.ok(
     journalFromComment(fixture.comments[0]).receipts.results.some(
       ({ worker_run_id: workerRunId }) => workerRunId === 8_000,

@@ -131,6 +131,12 @@ const WORKER_RUN_TITLE_RETRY_MS = 1_000;
 const WORKER_RUN_TITLE_OBSERVATIONS =
   1 + WORKER_RUN_TITLE_RETRY_DELAY_BUDGET_MS / WORKER_RUN_TITLE_RETRY_MS;
 const WORKER_RUN_NAME_PARSE_ERROR = "Worker run name is not strictly parseable";
+// GitHub can return 404 (or a transient 5xx) for a workflow run the controller
+// dispatched or recorded moments earlier. Re-read it with a bounded backoff
+// (31 s of delay in total) before failing closed with the original error.
+const WORKER_RUN_READ_RETRY_DELAYS_MS = Object.freeze([
+  1_000, 2_000, 4_000, 8_000, 16_000,
+]);
 const CONTROLLER_EVENT_RUN_PREFIX = "Vercel preview controller event";
 const CONTROLLER_EVENT_RUN_PAGE_SIZE = 100;
 const MAX_CONTROLLER_EVENT_RUN_PAGES = 5;
@@ -7432,7 +7438,11 @@ async function waitForPendingWorkerTitles({
       mergeWorkerRecoveryObservation(
         recovery,
         classifyWorkerRuns(
-          [await getWorkerRun(github, context, runId, selected)],
+          [
+            await getWorkerRun(github, context, runId, selected, {
+              waitForRetry: pause,
+            }),
+          ],
           selected,
           { ignoreWorkflowShaMismatch },
         ),
@@ -7570,7 +7580,9 @@ async function getValidatedWorkerRun(
     observation < WORKER_RUN_TITLE_OBSERVATIONS;
     observation += 1
   ) {
-    const data = await getWorkerRun(github, context, runId, selected);
+    const data = await getWorkerRun(github, context, runId, selected, {
+      waitForRetry: pause,
+    });
     const { displayTitle } = validateWorkerRunEnvelope(data, selected);
     if (displayTitle !== WORKER_WORKFLOW_NAME) {
       return validateWorkerRunIdentity(data, selected);
@@ -7583,7 +7595,42 @@ async function getValidatedWorkerRun(
   throw pendingTitleError;
 }
 
-async function getWorkerRun(github, context, runId, selected) {
+function workerRunReadStatus(error) {
+  const status = error?.status ?? error?.response?.status;
+  return Number.isInteger(status) ? status : null;
+}
+
+function isRetryableWorkerRunRead(error, { retryNotFound }) {
+  const status = workerRunReadStatus(error);
+  if (status === null) return false;
+  if (status === 404) return retryNotFound;
+  return status >= 500 && status <= 599;
+}
+
+export async function getWorkerRun(
+  github,
+  context,
+  runId,
+  selected,
+  { waitForRetry = wait, retryNotFound = true } = {},
+) {
+  const pause = waitForRetry ?? wait;
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await readWorkerRun(github, context, runId, selected);
+    } catch (error) {
+      if (
+        attempt >= WORKER_RUN_READ_RETRY_DELAYS_MS.length ||
+        !isRetryableWorkerRunRead(error, { retryNotFound })
+      ) {
+        throw error;
+      }
+      await pause(WORKER_RUN_READ_RETRY_DELAYS_MS[attempt]);
+    }
+  }
+}
+
+async function readWorkerRun(github, context, runId, selected) {
   const request = {
     ...ownerRepo(context),
     run_id: exactRunId(runId),
@@ -7874,6 +7921,7 @@ async function reconcileNoDispatchIntents({
       context,
       recoveredRun.workflow_run_id,
       recoveredSelection,
+      { waitForRetry: waitForRecovery },
     );
     await recoverWorkerResult({
       github,
@@ -8007,6 +8055,7 @@ async function recoverCompletedOwnedRuns({
   core,
   pr,
   parsed,
+  waitForRecovery = wait,
 }) {
   if (!parsed.state) return false;
   const state = structuredClone(normalizeExistingState(parsed.state, pr));
@@ -8054,11 +8103,14 @@ async function recoverCompletedOwnedRuns({
     if (alreadyRecorded) continue;
     let workflowRun;
     try {
+      // A retired selection's 404 means its run is gone and is quarantined
+      // below, so only the current active selection re-reads a 404.
       workflowRun = await getWorkerRun(
         github,
         context,
         selection.workflow_run_id,
         selection,
+        { waitForRetry: waitForRecovery, retryNotFound: isCurrentActive },
       );
     } catch (error) {
       if (isCurrentActive) throw error;
@@ -8379,6 +8431,7 @@ export async function reconcilePreview({
           core,
           pr,
           parsed,
+          waitForRecovery,
         })
       ) {
         recordDeterministicProgress();
