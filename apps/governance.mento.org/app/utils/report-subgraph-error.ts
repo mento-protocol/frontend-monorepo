@@ -32,6 +32,15 @@ export function reportSubgraphError(error: unknown, queryName: string): void {
   lastReportedAtByKey.set(reportKey, now);
 
   Sentry.captureException(normalizedError, {
+    // Group by what failed, not by stack frames: the frames come from Apollo
+    // and the Sentry fetch instrumentation, so an SDK bump or a different
+    // fetch call shape would otherwise open a new issue for a known error.
+    fingerprint: [
+      "governance-subgraph",
+      queryName,
+      normalizedError.name,
+      normalizedError.message,
+    ],
     tags: {
       context: "governance-subgraph",
       queryName,
