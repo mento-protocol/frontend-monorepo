@@ -18,7 +18,10 @@
  *      runs first because the swap-based seeding below needs fresh oracles.
  *   2. Funds the anvil junk accounts (mnemonic `test test ... junk`) with the
  *      three collateral tokens (USDC, AUSD, USDT0) by impersonating the Reserve
- *      — a vault, not a pool, so transferring from it breaks nothing.
+ *      — a vault, not a pool, so transferring from it breaks nothing. When the
+ *      live Reserve holds less than the seed needs, the fork copy of its
+ *      balance is raised first (anvil storage write), so a treasury drawdown
+ *      on mainnet cannot turn this E2E lane red.
  *   3. Tops each junk account up to >= 1,000 units of every Mento stablecoin
  *      (USDm, EURm, GBPm, JPYm, CHFm) by executing REAL Router swaps
  *      (USDC -> USDm, then USDm -> X) through the live FPMM pools.
@@ -176,6 +179,17 @@ export const padAddress = (address) =>
 
 /** @param {bigint | number | string} value */
 export const padUint = (value) => BigInt(value).toString(16).padStart(64, "0");
+
+/**
+ * Storage key of `mapping(address => ...)` entry `owner` declared at `slot`
+ * (Solidity layout): the preimage `keccak256(pad(owner) . pad(slot))` hashes.
+ * Hashed through anvil's `web3_sha3` to stay zero-dependency.
+ *
+ * @param {string} owner
+ * @param {number} slot
+ */
+export const mappingKeyPreimage = (owner, slot) =>
+  "0x" + padAddress(owner) + padUint(slot);
 
 /** @param {bigint} value */
 export const toHexQuantity = (value) => "0x" + value.toString(16);
@@ -717,6 +731,55 @@ async function inputForTarget(tokenIn, tokenOut, targetOut) {
   );
 }
 
+// Highest mapping slot probed for an ERC-20 balance map. Covers OpenZeppelin
+// ERC20 (0), Circle FiatToken (9) and the usual proxy layouts.
+const MAX_BALANCE_SLOT = 20;
+
+/** @type {Map<string, number>} token address -> balance mapping slot */
+const balanceSlots = new Map();
+
+/**
+ * Sets `owner`'s balance of `token` on the fork to `amount` by writing the
+ * token's balance-mapping storage. Fork-only: the live chain is never touched.
+ * The slot is found by probing: write, read balanceOf back, restore on a miss.
+ *
+ * @param {{symbol: string, address: string}} token
+ * @param {string} owner
+ * @param {bigint} amount
+ */
+async function raiseForkBalance(token, owner, amount) {
+  const known = balanceSlots.get(token.address);
+  const slots =
+    known === undefined
+      ? Array.from({ length: MAX_BALANCE_SLOT + 1 }, (_, slot) => slot)
+      : [known];
+  for (const slot of slots) {
+    const key = await rpc("web3_sha3", [mappingKeyPreimage(owner, slot)]);
+    const previous = await rpc("eth_getStorageAt", [
+      token.address,
+      key,
+      "latest",
+    ]);
+    await rpc("anvil_setStorageAt", [
+      token.address,
+      key,
+      "0x" + padUint(amount),
+    ]);
+    if ((await balanceOf(token.address, owner)) === amount) {
+      balanceSlots.set(token.address, slot);
+      return;
+    }
+    await rpc("anvil_setStorageAt", [
+      token.address,
+      key,
+      "0x" + strip0x(previous).padStart(64, "0"),
+    ]);
+  }
+  throw new Error(
+    `No ${token.symbol} balance slot in 0..${MAX_BALANCE_SLOT}; cannot raise the fork balance of ${owner}`,
+  );
+}
+
 /**
  * Transfers `amount` of a collateral token from the Reserve to `recipient`.
  *
@@ -727,8 +790,9 @@ async function inputForTarget(tokenIn, tokenOut, targetOut) {
 async function transferFromReserve(token, recipient, amount) {
   const reserveBalance = await balanceOf(token.address, RESERVE);
   if (reserveBalance < amount) {
-    throw new Error(
-      `Reserve holds ${reserveBalance} ${token.symbol}, below the ${amount} needed`,
+    await raiseForkBalance(token, RESERVE, amount);
+    warn(
+      `Reserve holds ${reserveBalance} ${token.symbol} on mainnet, below the ${amount} needed — raised its fork balance to ${amount}`,
     );
   }
   await withImpersonation(RESERVE, () =>

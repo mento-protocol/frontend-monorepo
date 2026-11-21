@@ -17,6 +17,7 @@ import {
   strip0x,
   padAddress,
   padUint,
+  mappingKeyPreimage,
   toHexQuantity,
   encodeTransfer,
   encodeApprove,
@@ -286,6 +287,12 @@ test("decodeAddressArray returns [] for malformed/short data", () => {
     0,
     "offset only",
   );
+});
+
+test("mappingKeyPreimage is pad(owner) . pad(slot)", () => {
+  const preimage = mappingKeyPreimage(ACCT0, 9);
+  assertEqual(preimage.length, 2 + 128, "two 32-byte words");
+  assertEqual(preimage, "0x" + padAddress(ACCT0) + padUint(9), "layout");
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);
