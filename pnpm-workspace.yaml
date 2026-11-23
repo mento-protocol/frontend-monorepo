@@ -5,7 +5,7 @@ packages:
 catalog:
   "@eslint/js": ^10.0.1
   "@mento-protocol/mento-sdk": 3.4.0
-  "@playwright/test": 1.64.1
+  "@playwright/test": 1.65.1
   "@rainbow-me/rainbowkit": ^2.2.11
   "@sentry/nextjs": ^10.75.2
   "@t3-oss/env-nextjs": ^0.13.11
@@ -15,7 +15,7 @@ catalog:
   "@types/react": ^19.3.0
   "@types/react-dom": ^19.3.0
   "@vercel/analytics": ^2.0.1
-  concurrently: ^10.0.6
+  concurrently: ^10.0.7
   esbuild-plugin-preserve-directives: ^0.0.11
   eslint: ^10.15.0
   eslint-config-prettier: ^10.1.8
@@ -32,7 +32,7 @@ catalog:
   tailwindcss: ^4.3.5
   tsup: ^8.5.1
   typescript: ^6.0.3
-  typescript-eslint: ^8.72.1
+  typescript-eslint: ^8.72.2
   viem: ^2.57.14
   wagmi: ^2.16.9
   zod: ^4.6.7
