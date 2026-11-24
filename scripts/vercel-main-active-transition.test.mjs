@@ -19,7 +19,7 @@ const action = parse(actionSource);
 const preparedFixture = JSON.parse(
   read("scripts/fixtures/vercel-main-transaction/prepared-shadow.json"),
 );
-const TARGETS = ["app", "governance", "reserve", "ui"];
+const TARGETS = ["app", "reserve", "ui"];
 
 function preparedFor(activeTargets) {
   const journal = structuredClone(preparedFixture);
@@ -127,7 +127,7 @@ function driveToCommandReturn(
 }
 
 test("ordinary mappings remain a one-turn verification", () => {
-  const activeTargets = ["governance"];
+  const activeTargets = ["reserve"];
   const initial = preparedFor(activeTargets);
   const { history } = driveToCommandReturn(initial, activeTargets);
   const verified = reduce(
@@ -136,7 +136,7 @@ test("ordinary mappings remain a one-turn verification", () => {
     event("verify", {
       uploadReceipt: receipt(history.at(-1)),
       freshSha: initial.deploySha,
-      currentMappings: mappings(history.at(-1), ["governance"]),
+      currentMappings: mappings(history.at(-1), ["reserve"]),
     }),
     activeTargets,
   );

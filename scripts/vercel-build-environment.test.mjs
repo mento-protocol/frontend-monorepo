@@ -31,7 +31,6 @@ const scriptPath = fileURLToPath(
 
 const TARGET_ENVIRONMENTS = {
   app: ["preview", "production"],
-  governance: ["preview", "production"],
   reserve: ["preview", "production"],
   ui: ["preview", "production"],
 };
@@ -96,7 +95,7 @@ test("app production semantics are ordinary and the retired v3 environment is go
     ),
     true,
   );
-  for (const target of ["app", "governance", "reserve", "ui"]) {
+  for (const target of ["app", "reserve", "ui"]) {
     assert.throws(
       () => getVercelBuildRequirements(target, "v3"),
       new RegExp(`Unsupported ${target} environment: v3`),
@@ -110,43 +109,47 @@ test("app production semantics are ordinary and the retired v3 environment is go
 });
 
 test("Sensitive variables have explicit #517 GitHub mappings", () => {
-  const governancePreview = getVercelBuildRequirements("governance", "preview");
-  const governanceProduction = getVercelBuildRequirements(
-    "governance",
-    "production",
-  );
-  const reserveProduction = getVercelBuildRequirements("reserve", "production");
-
+  const requirements = ["app", "reserve", "ui"].flatMap((target) => [
+    ...getVercelBuildRequirements(target, "preview"),
+    ...getVercelBuildRequirements(target, "production"),
+  ]);
+  for (const target of ["app", "reserve", "ui"]) {
+    assert.deepEqual(
+      getVercelBuildRequirements(target, "preview")
+        .filter((item) => item.ciClassification === "sensitive-non-exportable")
+        .map((item) => item.name),
+      [],
+      target,
+    );
+  }
   assert.deepEqual(
-    governancePreview
-      .filter((item) => item.ciClassification === "sensitive-non-exportable")
-      .map((item) => item.name),
-    ["ETHERSCAN_API_KEY"],
-  );
-  assert.deepEqual(
-    governanceProduction
-      .filter((item) => item.ciClassification === "sensitive-non-exportable")
-      .map((item) => item.name),
-    ["ETHERSCAN_API_KEY", "SENTRY_AUTH_TOKEN"],
-  );
-  assert.deepEqual(
-    reserveProduction
+    getVercelBuildRequirements("reserve", "production")
       .filter((item) => item.ciClassification === "sensitive-non-exportable")
       .map((item) => item.name),
     ["SENTRY_AUTH_TOKEN"],
   );
-  for (const requirement of [
-    ...governancePreview,
-    ...governanceProduction,
-    ...reserveProduction,
-  ].filter((item) => item.ciClassification === "sensitive-non-exportable")) {
+  for (const requirement of requirements.filter(
+    (item) => item.ciClassification === "sensitive-non-exportable",
+  )) {
     assert.equal(requirement.githubSecret, requirement.name);
     assert.ok(requirement.githubScope);
   }
 });
 
+// Governance is no longer a Vercel deployment target (ADR 0017), so its build
+// contract, including its explorer credential, cannot be requested.
+test("the retired governance target has no build contract", () => {
+  for (const environment of ["preview", "production"]) {
+    assert.throws(
+      () => getVercelBuildRequirements("governance", environment),
+      /governance/,
+    );
+  }
+  assert.doesNotMatch(readFileSync(scriptPath, "utf8"), /ETHERSCAN_API_KEY/);
+});
+
 test("production Sentry auth is required only for production semantics", () => {
-  for (const target of ["app", "governance", "reserve"]) {
+  for (const target of ["app", "reserve"]) {
     assert.equal(
       getVercelBuildRequirements(target, "production").some(
         (item) => item.name === "SENTRY_AUTH_TOKEN",
@@ -163,16 +166,16 @@ test("production Sentry auth is required only for production semantics", () => {
 });
 
 test("runtime-critical application variables reject empty values", () => {
-  const governance = validValues("governance", "preview");
-  governance.NEXT_PUBLIC_GRAPH_API_KEY = "";
+  const app = validValues("app", "preview");
+  app.NEXT_PUBLIC_WALLET_CONNECT_ID = "";
   assert.throws(
     () =>
       validateVercelBuildEnvironment({
-        target: "governance",
+        target: "app",
         environment: "preview",
-        values: governance,
+        values: app,
       }),
-    /NEXT_PUBLIC_GRAPH_API_KEY/,
+    /NEXT_PUBLIC_WALLET_CONNECT_ID/,
   );
 
   const reserveRequirements = getVercelBuildRequirements("reserve", "preview");
@@ -323,10 +326,10 @@ test("selection rejects missing, empty, oversized, and controlled required value
   }
 });
 
-test("governance materialization omits pulled sensitive variables", () => {
+test("production materialization omits pulled sensitive variables", () => {
   const requirements = getVercelBuildRequirements(
-    "governance",
-    "preview",
+    "reserve",
+    "production",
   ).filter((item) => item.ciClassification === "vercel-pull");
   const pulledValues = Object.fromEntries(
     requirements.map((item) => [
@@ -334,14 +337,12 @@ test("governance materialization omits pulled sensitive variables", () => {
       item.allowEmpty ? "" : `${item.name}-value`,
     ]),
   );
-  pulledValues.ETHERSCAN_API_KEY = "pulled-explorer-secret";
   pulledValues.SENTRY_AUTH_TOKEN = "pulled-sentry-secret";
   const selected = selectVercelPulledEnvironment({
-    target: "governance",
-    environment: "preview",
+    target: "reserve",
+    environment: "production",
     pulledValues,
   });
-  assert.equal(Object.hasOwn(selected, "ETHERSCAN_API_KEY"), false);
   assert.equal(Object.hasOwn(selected, "SENTRY_AUTH_TOKEN"), false);
   assert.equal(Object.keys(selected).length, requirements.length);
 });
@@ -407,14 +408,14 @@ test("root CLI validates the exact linked project directory", () => {
 
 test("missing-variable failures reveal names but never values", () => {
   const secretValue = "do-not-print-this-secret-value";
-  const values = validValues("governance", "production");
-  values.ETHERSCAN_API_KEY = secretValue;
+  const values = validValues("reserve", "production");
+  values.NEXT_PUBLIC_STORAGE_URL = secretValue;
   delete values.SENTRY_AUTH_TOKEN;
 
   assert.throws(
     () =>
       validateVercelBuildEnvironment({
-        target: "governance",
+        target: "reserve",
         environment: "production",
         values,
       }),
@@ -429,21 +430,12 @@ test("missing-variable failures reveal names but never values", () => {
 test("sensitive build variables come only from the exact explicit target scope", () => {
   assert.deepEqual(
     validateVercelBuildCredentialBoundary({
-      target: "governance",
-      environment: "preview",
-      pulledValues: {},
-      explicitValues: { ETHERSCAN_API_KEY: "governance-secret" },
-    }),
-    { target: "governance", environment: "preview", checked: 2 },
-  );
-  assert.deepEqual(
-    validateVercelBuildCredentialBoundary({
       target: "reserve",
       environment: "preview",
       pulledValues: {},
       explicitValues: {},
     }),
-    { target: "reserve", environment: "preview", checked: 2 },
+    { target: "reserve", environment: "preview", checked: 1 },
   );
   assert.deepEqual(
     validateVercelBuildCredentialBoundary({
@@ -452,19 +444,13 @@ test("sensitive build variables come only from the exact explicit target scope",
       pulledValues: {},
       explicitValues: { SENTRY_AUTH_TOKEN: "app-production-secret" },
     }),
-    { target: "app", environment: "production", checked: 2 },
+    { target: "app", environment: "production", checked: 1 },
   );
 });
 
 test("preview credential boundaries reject pulled sensitive values and cross-target secrets by name", () => {
   const secretValue = "do-not-print-this-sensitive-value";
   for (const fixture of [
-    {
-      target: "governance",
-      pulledValues: { ETHERSCAN_API_KEY: secretValue },
-      explicitValues: { ETHERSCAN_API_KEY: secretValue },
-      expectedName: "ETHERSCAN_API_KEY",
-    },
     {
       target: "app",
       pulledValues: { SENTRY_AUTH_TOKEN: secretValue },
@@ -474,8 +460,8 @@ test("preview credential boundaries reject pulled sensitive values and cross-tar
     {
       target: "reserve",
       pulledValues: {},
-      explicitValues: { ETHERSCAN_API_KEY: secretValue },
-      expectedName: "ETHERSCAN_API_KEY",
+      explicitValues: { SENTRY_AUTH_TOKEN: secretValue },
+      expectedName: "SENTRY_AUTH_TOKEN",
     },
     {
       target: "ui",
@@ -501,16 +487,16 @@ test("preview credential boundaries reject pulled sensitive values and cross-tar
   }
 });
 
-test("governance preview requires its explicit explorer key without exposing values", () => {
+test("production requires its explicit Sentry token without exposing values", () => {
   assert.throws(
     () =>
       validateVercelBuildCredentialBoundary({
-        target: "governance",
-        environment: "preview",
+        target: "reserve",
+        environment: "production",
         pulledValues: {},
         explicitValues: {},
       }),
-    /Missing explicit sensitive Vercel build variables: ETHERSCAN_API_KEY/,
+    /Missing explicit sensitive Vercel build variables: SENTRY_AUTH_TOKEN/,
   );
 });
 
@@ -536,48 +522,3 @@ test("unsupported target/environment combinations fail before validation", () =>
   assert.throws(() => getVercelBuildRequirements("unknown", "preview"));
   assert.throws(() => getVercelBuildRequirements("app", "v3"));
 });
-
-for (const environment of ["preview", "production"]) {
-  test(`governance ${environment} preserves optional fallback through materialization`, () => {
-    for (const fallback of [
-      undefined,
-      "",
-      "https://api.studio.thegraph.com/query/test",
-    ]) {
-      const values = validValues("governance", environment);
-      delete values.NEXT_PUBLIC_SUBGRAPH_FALLBACK_URL;
-      if (fallback !== undefined)
-        values.NEXT_PUBLIC_SUBGRAPH_FALLBACK_URL = fallback;
-      const selected = selectVercelPulledEnvironment({
-        target: "governance",
-        environment,
-        pulledValues: values,
-      });
-      const restored = parseVercelPulledEnvironment(
-        serializeVercelPulledEnvironment(selected),
-      );
-      assert.equal(restored.NEXT_PUBLIC_SUBGRAPH_FALLBACK_URL, fallback);
-      assert.equal(
-        Object.hasOwn(restored, "NEXT_PUBLIC_SUBGRAPH_FALLBACK_URL"),
-        fallback !== undefined,
-      );
-      assert.doesNotThrow(() =>
-        validateVercelBuildEnvironment({
-          target: "governance",
-          environment,
-          values: { ...values, ...restored },
-        }),
-      );
-      delete values.NEXT_PUBLIC_SUBGRAPH_URL;
-      assert.throws(
-        () =>
-          selectVercelPulledEnvironment({
-            target: "governance",
-            environment,
-            pulledValues: values,
-          }),
-        /NEXT_PUBLIC_SUBGRAPH_URL/,
-      );
-    }
-  });
-}

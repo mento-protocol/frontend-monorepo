@@ -63,12 +63,7 @@ function mapping(alias, deployment, projectId = "prj_app123") {
 }
 
 test("reviewed target and alias order is literal and immutable", () => {
-  assert.deepEqual(MAIN_ACTIVE_PROMOTABLE_TARGETS, [
-    "governance",
-    "reserve",
-    "ui",
-    "app",
-  ]);
+  assert.deepEqual(MAIN_ACTIVE_PROMOTABLE_TARGETS, ["reserve", "ui", "app"]);
   // Every main target maps exactly one reviewed alias, App included, and
   // `vercel promote` carries it. No builder assigns an alias any more.
   assert.deepEqual(MAIN_TARGET_CONTRACTS.app.aliases, ["app.mento.org"]);
@@ -76,17 +71,12 @@ test("reviewed target and alias order is literal and immutable", () => {
   assert.equal(Object.isFrozen(MAIN_ACTIVE_PROMOTABLE_TARGETS), true);
 });
 
-test("ordinary promotion sequence is always governance, reserve, ui", () => {
+test("ordinary promotion sequence is always reserve, ui", () => {
   const sequence = buildMainActivePromotionSequence([
     {
       target: "ui",
       deploymentId: "dpl_UiCandidate123",
       deploymentUrl: "https://ui-candidate.vercel.app",
-    },
-    {
-      target: "governance",
-      deploymentId: "dpl_GovernanceCandidate123",
-      deploymentUrl: "https://governance-candidate.vercel.app",
     },
     {
       target: "reserve",
@@ -96,12 +86,11 @@ test("ordinary promotion sequence is always governance, reserve, ui", () => {
   ]);
   assert.deepEqual(
     sequence.map(({ target }) => target),
-    ["governance", "reserve", "ui"],
+    ["reserve", "ui"],
   );
   assert.deepEqual(
     sequence.map(({ arguments: argumentsList }) => argumentsList),
     [
-      ["promote", "dpl_GovernanceCandidate123", "--yes"],
       ["promote", "dpl_ReserveCandidate123", "--yes"],
       ["promote", "dpl_UiCandidate123", "--yes"],
     ],

@@ -6,6 +6,8 @@ canonical: true
 last_verified: 2026-09-02
 scope: ci/deployment/main-reruns
 date: 2026-07
+superseded_in_part_by:
+  - "0017"
 ---
 
 # ADR 0005 — Stable active-main release identity and provider-side rerun reconciliation
@@ -13,6 +15,10 @@ date: 2026-07
 **Status:** Accepted (Jul 2026). Amended 2026-09-01 to retire the legacy App
 v2 continuity proof per MGP-18. Amended 2026-09-02 to stage App through the
 Production environment.
+Amended 2026-11-24 by
+[ADR 0017](0017-retire-governance-from-vercel-deployment.md): releases are
+three-target, and four-target manifests sealed before the retirement are
+read only as rollback-only priors.
 **Scope:** ci/deployment/main-reruns
 
 ## Context

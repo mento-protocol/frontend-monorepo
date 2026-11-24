@@ -68,9 +68,6 @@ on:
         required: true
         type: string
     secrets:
-      etherscan_api_key:
-        description: Governance-only preview explorer verification secret
-        required: false
       vercel_token:
         description: Preview-scoped Vercel CLI token
         required: true
@@ -954,8 +951,7 @@ jobs:
           VERCEL_PROJECT_ID: ${{ inputs.vercel_project_id }}
         run: node "$GITHUB_WORKSPACE/controller/scripts/vercel-prebuilt-workflow.mjs" validate-materialized-build-environment
 
-      - name: Validate runner-owned non-Governance preview build variables
-        if: inputs.logical_target != 'governance'
+      - name: Validate runner-owned preview build variables
         env:
           BUILD_ENVIRONMENT_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-build-environment
           CI: 1
@@ -1048,13 +1044,11 @@ jobs:
       - name: Build the literal target prebuilt output
         id: build
         env:
-          BUILD_ENVIRONMENT_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-build-environment
           BUILD_GID: ${{ steps.isolation.outputs.build_gid }}
           BUILD_UID: ${{ steps.isolation.outputs.build_uid }}
           CANDIDATE_HOME_PATH: ${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-candidate-home
           CI: 1
           DEPLOY_SHA: ${{ steps.source.outputs.checked_out_sha }}
-          ETHERSCAN_API_KEY: ${{ inputs.logical_target == 'governance' && secrets.etherscan_api_key || '' }}
           EXPECTED_ROOT_DIRECTORY: ${{ inputs.expected_root_directory }}
           GIT_BRANCH: ${{ inputs.git_branch }}
           LOGICAL_TARGET: ${{ inputs.logical_target }}
@@ -1079,11 +1073,6 @@ jobs:
           # No VERCEL_TOKEN: build is local-only from the validated pulled state.
         run: |
           set -euo pipefail
-          if [ "$LOGICAL_TARGET" = "governance" ]; then
-            node "$GITHUB_WORKSPACE/controller/scripts/vercel-build-environment.mjs" \
-              check --target "$LOGICAL_TARGET" --environment preview \
-              --project-directory "$BUILD_ENVIRONMENT_PATH"
-          fi
           terminate_candidate() {
             sudo --non-interactive /usr/bin/pkill -KILL -u "$BUILD_UID" >/dev/null 2>&1 || true
             for _ in $(seq 1 50); do
@@ -1111,21 +1100,7 @@ jobs:
             *) echo "Pinned Vercel CLI escaped its protected directory" >&2; exit 1 ;;
           esac
           safe_path="$(dirname "$node_bin"):$(dirname "$pnpm_bin"):/usr/local/bin:/usr/bin:/bin"
-          controller_secret_environment=()
-          candidate_secret_environment=()
-          if [ "$LOGICAL_TARGET" = "governance" ]; then
-            if [ -z "$ETHERSCAN_API_KEY" ]; then
-              echo "Missing required Vercel build variable: ETHERSCAN_API_KEY" >&2
-              exit 1
-            fi
-            controller_secret_environment+=("ETHERSCAN_API_KEY=$ETHERSCAN_API_KEY")
-            candidate_secret_environment+=("ETHERSCAN_API_KEY=$ETHERSCAN_API_KEY")
-          elif [ -n "$ETHERSCAN_API_KEY" ]; then
-            echo "Only the governance preview build can receive ETHERSCAN_API_KEY" >&2
-            exit 1
-          fi
           sudo --non-interactive /usr/bin/env -i \
-            "${controller_secret_environment[@]}" \
             BUILD_GID="$BUILD_GID" \
             BUILD_UID="$BUILD_UID" \
             DEPLOY_SHA="$DEPLOY_SHA" \
@@ -1152,7 +1127,6 @@ jobs:
           echo "::stop-commands::$command_token"
           set +e
           sudo --non-interactive /usr/bin/env -i \
-            "${candidate_secret_environment[@]}" \
             CI=1 \
             HOME="$CANDIDATE_HOME_PATH" \
             HTTP_PROXY="${HTTP_PROXY:-}" \

@@ -19,7 +19,7 @@ import {
   planInheritedMainTransactionRecovery,
 } from "./vercel-main-transaction.mjs";
 
-const APP_FIRST_TARGETS = Object.freeze(["app", "governance", "reserve", "ui"]);
+const APP_FIRST_TARGETS = Object.freeze(["app", "reserve", "ui"]);
 const MAPPING_TARGETS = Object.freeze([...MAIN_RELEASE_ACTIVATION_ORDER]);
 const PROTECTED_TARGETS = Object.freeze([...APP_FIRST_TARGETS]);
 const SHA_PATTERN = /^[a-f0-9]{40}$/;

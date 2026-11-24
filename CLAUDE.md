@@ -447,14 +447,14 @@ In CI, `.github/workflows/e2e.yml` triggers on every PR (plus the nightly schedu
 
 All preview verification lives in the secretless reusable
 `.github/workflows/_vercel-preview-smoke.yml`: common immutable-URL, metadata,
-header, asset, console, and browser checks plus target-specific App/Governance
+header, asset, console, and browser checks plus target-specific App
 wallet flow, Reserve tab/data interaction, or UI deployment-identity flow. The
 `.github/workflows/preview-smoke.yml` adapter calls that reusable
-workflow only for exact native Vercel App/Governance successes created during
+workflow only for exact native Vercel App successes created during
 a bounded target-local rollback; it performs no status lookup or reuse and
-receives no deployment credential. Ordinary previews for all four targets are
+receives no deployment credential. Ordinary previews for all three targets are
 GitHub-owned and do not use this adapter. This adapter exists only for
-documented App and Governance target-local preview rollback proof. A
+documented App target-local preview rollback proof. A
 target-local `main` rollback does not change preview
 ownership, and a target-local preview rollback uses native-preview/GitHub-main
 branch rules so it does not change main ownership. GitHub-built workers call the reusable
@@ -546,12 +546,12 @@ concluded `success`, so a run that failed after the gate is taken over rather
 than deduplicated away; a failed CI attempt's `completed` delivery is never
 admitted. Its global mode is
 `active`, and the current per-target `mainOwnershipMode` map assigns App,
-Governance, Reserve, and UI to `github`. Planning emits
+Reserve, and UI to `github`. Planning emits
 `vercel-main-plan:v2`: all selected targets stage or build, `activeTargets`
 mutate public mappings, and `shadowTargets` prove the same candidates without
-public mutation. Governance, Reserve, UI, and App all stage and promote exact
+public mutation. Reserve, UI, and App all stage and promote exact
 staged deployments; App's `stage-app` build and upload work exactly like the
-other three. App promotes last and is verified at `candidate`, exactly like
+other two. App promotes last and is verified at `candidate`, exactly like
 every other target: `promote` and `ordinary_rollback` are the only operation
 types, and there is no bridge alias and no custom `v3` environment. Planning
 uses the SHA each public target actually serves, and every credential-bearing job
@@ -561,7 +561,12 @@ canonical redacted evidence, public runtime smoke, App real-wallet check,
 target-local main rollback, and separate full-native restoration procedures
 are in `docs/vercel-deployments.md`. Ordinary previews remain GitHub-owned
 during either rollback procedure. The removed Governance QA environment is not
-part of the deployment topology.
+part of the deployment topology. Governance itself is no longer a preview or
+main deployment target ([ADR 0017](docs/adr/0017-retire-governance-from-vercel-deployment.md)):
+its Vercel project is paused, but `apps/governance.mento.org` still builds,
+unit-tests, and runs its connected E2E in CI. Four-target seals and preview
+journals written before the retirement stay readable through two bounded
+compatibility rules described there.
 
 Active-main release identity is stable across downstream reruns: it binds
 repository, exact SHA, and validated upstream CI run ID; target-specific

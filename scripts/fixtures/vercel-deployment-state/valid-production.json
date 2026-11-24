@@ -1,14 +1,14 @@
 {
   "aliasResponse": {
-    "alias": "governance.mento.org",
-    "deploymentId": "dpl_governance123",
-    "projectId": "prj_governance123"
+    "alias": "reserve.mento.org",
+    "deploymentId": "dpl_reserve123",
+    "projectId": "prj_reserve123"
   },
   "deploymentResponse": {
-    "id": "dpl_governance123",
-    "url": "governance-immutable.vercel.app",
-    "projectId": "prj_governance123",
-    "name": "governance.mento.org",
+    "id": "dpl_reserve123",
+    "url": "reserve-immutable.vercel.app",
+    "projectId": "prj_reserve123",
+    "name": "reserve.mento.org",
     "readyState": "READY",
     "target": "production",
     "creator": {
@@ -24,13 +24,13 @@
   },
   "aliasesResponse": {
     "aliases": [
-      { "alias": "governance.mento.org" },
-      { "alias": "governancementoorg-mentolabs.vercel.app" }
+      { "alias": "reserve.mento.org" },
+      { "alias": "reservementoorg-mentolabs.vercel.app" }
     ]
   },
   "expected": {
-    "projectId": "prj_governance123",
-    "projectName": "governance.mento.org",
+    "projectId": "prj_reserve123",
+    "projectName": "reserve.mento.org",
     "target": "production",
     "customEnvironmentSlug": null,
     "git": {

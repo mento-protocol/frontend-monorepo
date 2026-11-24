@@ -76,7 +76,7 @@ const productionShadowScript = fileURLToPath(
 );
 
 function ordinaryCandidateMetadata(overrides = {}) {
-  const targets = ["app", "governance", "reserve", "ui"];
+  const targets = ["app", "reserve", "ui"];
   const priorSha = "1111111111111111111111111111111111111111";
   const plan = {
     schema: "vercel-main-plan:v2",
@@ -85,10 +85,10 @@ function ordinaryCandidateMetadata(overrides = {}) {
     mainOwnershipMode: Object.fromEntries(
       targets.map((target) => [target, "github"]),
     ),
-    stagedTargets: ["governance"],
-    activeTargets: ["governance"],
+    stagedTargets: ["reserve"],
+    activeTargets: ["reserve"],
     shadowTargets: [],
-    plan: ["governance"],
+    plan: ["reserve"],
     priors: targets.map((target) => ({
       target,
       deploymentId: `dpl_${target}Prior123`,
@@ -103,18 +103,18 @@ function ordinaryCandidateMetadata(overrides = {}) {
         kind: "served",
         reason: "global-build-input",
         targets,
-        deployments: ["governance"],
+        deployments: ["reserve"],
       },
     ],
     reasons: [
-      { target: "governance", base: priorSha, reason: "global-build-input" },
+      { target: "reserve", base: priorSha, reason: "global-build-input" },
     ],
   };
   const releaseManifest = createMainReleaseManifest({
     upstreamRunId: "700",
     plan,
     originalPriors: Object.fromEntries(
-      ["governance", "reserve", "ui", "app"].map((target) => {
+      ["reserve", "ui", "app"].map((target) => {
         const contract = MAIN_TARGET_CONTRACTS[target];
         const aliases = [...contract.aliases].sort();
         const prior = {
@@ -149,13 +149,13 @@ function ordinaryCandidateMetadata(overrides = {}) {
     ),
   });
   const intent = createMainCandidateIntent({
-    target: "governance",
+    target: "reserve",
     deploySha: SHA,
     upstreamRunId: "700",
     originRunId: overrides.originRunId ?? "7654321",
     originAttempt: overrides.originAttempt ?? "2",
     originTransactionId: overrides.originTransactionId ?? TRANSACTION_ID,
-    projectId: "prj_governance123",
+    projectId: "prj_reserve123",
     releaseManifest,
   });
   return createMainCandidateVercelMetadata({ intent });
@@ -189,7 +189,7 @@ function writeStandaloneFunctionConfig(functionDirectory, additional = {}) {
   );
 }
 
-function productionOutputFixture(logicalTarget = "governance") {
+function productionOutputFixture(logicalTarget = "reserve") {
   const directory = mkdtempSync(
     join(tmpdir(), `shadow-output-${logicalTarget}-`),
   );
@@ -520,7 +520,7 @@ test("deploy output parser emits only an immutable ID and URL", () => {
     },
   );
   assert.throws(() =>
-    parseDeployOutput({ id: "dpl_abc123", url: "governance.mento.org" }),
+    parseDeployOutput({ id: "dpl_abc123", url: "reserve.mento.org" }),
   );
   assert.throws(() =>
     parseDeployOutput({
@@ -535,20 +535,20 @@ test("deployment expectation fixes production provenance and exact SHA", () => {
     createDeploymentExpectation({
       deployment: "dpl_abc123",
       deploymentUrl: "https://ordinary-immutable.vercel.app",
-      projectId: "prj_governance123",
-      projectName: "governance.mento.org",
+      projectId: "prj_reserve123",
+      projectName: "reserve.mento.org",
       sha: SHA.toUpperCase(),
-      transaction: "123-1-governance",
+      transaction: "123-1-reserve",
     }),
     {
       deployment: "dpl_abc123",
       deploymentUrl: "https://ordinary-immutable.vercel.app",
-      projectId: "prj_governance123",
-      projectName: "governance.mento.org",
+      projectId: "prj_reserve123",
+      projectName: "reserve.mento.org",
       readyState: "READY",
       target: "production",
       customEnvironmentSlug: null,
-      transaction: "123-1-governance",
+      transaction: "123-1-reserve",
       git: {
         org: "mento-protocol",
         repo: "frontend-monorepo",
@@ -584,7 +584,7 @@ test("deployment expectation fixes production provenance and exact SHA", () => {
   );
 });
 
-test("observed runs allow only the optional base alias plus one exact optional creator alias", () => {
+test("staged candidates allow only the optional base alias plus one exact optional creator alias", () => {
   assert.doesNotMatch(
     readFileSync(productionShadowScript, "utf8"),
     /GITHUB_ACTOR|githubCommitAuthor|creator\.name/,
@@ -598,48 +598,24 @@ test("observed runs allow only the optional base alias plus one exact optional c
       "utf8",
     ),
   );
-  const topologies = [
-    "run-30034411210-governance-topology.json",
-    "run-30037927329-governance-topology.json",
-  ].map((name) =>
-    JSON.parse(
-      readFileSync(
-        new URL(`./fixtures/vercel-production-shadow/${name}`, import.meta.url),
-        "utf8",
-      ),
-    ),
-  );
   const generatedProjectAlias =
-    PRODUCTION_SHADOW_TARGETS.governance.generatedProjectAlias;
-  const generatedAuthorAlias =
-    "governancementoorg-chapati-mentolabs.vercel.app";
-  assert.deepEqual(
-    topologies.map((topology) => topology.runId),
-    [30034411210, 30037927329],
-  );
-  assert.deepEqual(
-    topologies.map((topology) => topology.creatorUsername),
-    ["chapati", "chapati"],
-  );
-  assert.deepEqual(topologies[0].generatedAliases, [generatedProjectAlias]);
-  assert.deepEqual(topologies[1].generatedAliases, [
-    generatedAuthorAlias,
-    generatedProjectAlias,
-  ]);
-  const states = topologies.map((topology) => ({
+    PRODUCTION_SHADOW_TARGETS.reserve.generatedProjectAlias;
+  const generatedAuthorAlias = "reservementoorg-chapati-mentolabs.vercel.app";
+  // A fresh `--skip-domain` candidate has been observed in both forms: with
+  // only the base alias, and with the base plus the creator alias.
+  const states = [
+    [generatedProjectAlias],
+    [generatedAuthorAlias, generatedProjectAlias],
+  ].map((aliases) => ({
     ...template,
-    alias: new URL(topology.deploymentUrl).hostname,
-    deploymentUrl: topology.deploymentUrl,
-    creatorUsername: topology.creatorUsername,
-    git: {
-      ...template.git,
-      sha: topology.sourceSha,
-    },
-    aliases: topology.generatedAliases,
+    alias: "reservemento-9npv94ib0-mentolabs.vercel.app",
+    deploymentUrl: "https://reservemento-9npv94ib0-mentolabs.vercel.app",
+    creatorUsername: "chapati",
+    aliases,
   }));
   for (const state of states) {
     assert.equal(
-      assertOnlyExpectedVercelGeneratedAliases(state, "governance"),
+      assertOnlyExpectedVercelGeneratedAliases(state, "reserve"),
       state,
     );
   }
@@ -652,7 +628,7 @@ test("observed runs allow only the optional base alias plus one exact optional c
     assert.deepEqual(
       assertOnlyExpectedVercelGeneratedAliases(
         { ...expected, aliases },
-        "governance",
+        "reserve",
       ).aliases,
       aliases,
     );
@@ -661,22 +637,22 @@ test("observed runs allow only the optional base alias plus one exact optional c
     template.aliases,
     [
       generatedProjectAlias,
-      "governancementoorg-chapati23-mentolabs.vercel.app",
+      "reservementoorg-chapati23-mentolabs.vercel.app",
     ].sort(),
     [
       generatedProjectAlias,
-      "governancementoorg-git-main-mentolabs.vercel.app",
+      "reservementoorg-git-main-mentolabs.vercel.app",
     ].sort(),
-    [generatedProjectAlias, "governancementoorg.vercel.app"].sort(),
-    [generatedProjectAlias, "governance.mento.org"].sort(),
+    [generatedProjectAlias, "reservementoorg.vercel.app"].sort(),
+    [generatedProjectAlias, "reserve.mento.org"].sort(),
     [
       generatedProjectAlias,
-      PRODUCTION_SHADOW_TARGETS.reserve.generatedProjectAlias,
+      PRODUCTION_SHADOW_TARGETS.ui.generatedProjectAlias,
     ].sort(),
     [
       generatedAuthorAlias,
       generatedProjectAlias,
-      "governancementoorg-other-mentolabs.vercel.app",
+      "reservementoorg-other-mentolabs.vercel.app",
     ].sort(),
   ];
   for (const aliases of unexpectedAliasSets) {
@@ -687,7 +663,7 @@ test("observed runs allow only the optional base alias plus one exact optional c
             ...expected,
             aliases,
           },
-          "governance",
+          "reserve",
         ),
       /generated-alias topology mismatch/,
     );
@@ -707,7 +683,7 @@ test("observed runs allow only the optional base alias plus one exact optional c
             ...expected,
             aliases,
           },
-          "governance",
+          "reserve",
         ),
       /aliases are malformed|Alias hostname is malformed/,
     );
@@ -720,7 +696,7 @@ test("observed runs allow only the optional base alias plus one exact optional c
           ...expected,
           aliases: [immutableHostname, generatedProjectAlias].sort(),
         },
-        "governance",
+        "reserve",
       ),
     /immutable hostname must remain separate/,
   );
@@ -733,7 +709,7 @@ test("observed runs allow only the optional base alias plus one exact optional c
           deploymentUrl: `https://${generatedProjectAlias}`,
           aliases: [generatedProjectAlias],
         },
-        "governance",
+        "reserve",
       ),
     /immutable hostname must remain separate/,
   );
@@ -745,7 +721,7 @@ test("observed runs allow only the optional base alias plus one exact optional c
           ...expected,
           creatorUsername: null,
         },
-        "governance",
+        "reserve",
       ),
     /generated-alias topology mismatch/,
   );
@@ -763,7 +739,7 @@ test("observed runs allow only the optional base alias plus one exact optional c
             creatorUsername,
             aliases: [generatedProjectAlias],
           },
-          "governance",
+          "reserve",
         ),
       /creator username is malformed/,
     );
@@ -776,10 +752,10 @@ test("observed runs allow only the optional base alias plus one exact optional c
           creatorUsername: "git-main",
           aliases: [
             generatedProjectAlias,
-            "governancementoorg-git-main-mentolabs.vercel.app",
+            "reservementoorg-git-main-mentolabs.vercel.app",
           ].sort(),
         },
-        "governance",
+        "reserve",
       ),
     /generated-alias topology mismatch/,
   );
@@ -791,7 +767,7 @@ test("observed runs allow only the optional base alias plus one exact optional c
   assert.equal(
     assertOnlyExpectedVercelGeneratedAliases(
       branchLikeCreatorBaseOnly,
-      "governance",
+      "reserve",
     ),
     branchLikeCreatorBaseOnly,
   );
@@ -803,10 +779,10 @@ test("observed runs allow only the optional base alias plus one exact optional c
           creatorUsername: "env-staging",
           aliases: [
             generatedProjectAlias,
-            "governancementoorg-env-staging-mentolabs.vercel.app",
+            "reservementoorg-env-staging-mentolabs.vercel.app",
           ].sort(),
         },
-        "governance",
+        "reserve",
       ),
     /generated-alias topology mismatch/,
   );
@@ -818,7 +794,7 @@ test("observed runs allow only the optional base alias plus one exact optional c
   assert.equal(
     assertOnlyExpectedVercelGeneratedAliases(
       environmentLikeCreatorBaseOnly,
-      "governance",
+      "reserve",
     ),
     environmentLikeCreatorBaseOnly,
   );
@@ -831,11 +807,11 @@ test("observed runs allow only the optional base alias plus one exact optional c
   assert.equal(
     assertOnlyExpectedVercelGeneratedAliases(
       truncationRequiredBaseOnly,
-      "governance",
+      "reserve",
     ),
     truncationRequiredBaseOnly,
   );
-  const truncatedAuthorAlias = `${`governancementoorg-${truncationRequiredCreator}-mentolabs`.slice(0, 63)}.vercel.app`;
+  const truncatedAuthorAlias = `${`reservementoorg-${truncationRequiredCreator}-mentolabs`.slice(0, 63)}.vercel.app`;
   assert.throws(
     () =>
       assertOnlyExpectedVercelGeneratedAliases(
@@ -843,7 +819,7 @@ test("observed runs allow only the optional base alias plus one exact optional c
           ...truncationRequiredBaseOnly,
           aliases: [generatedProjectAlias, truncatedAuthorAlias].sort(),
         },
-        "governance",
+        "reserve",
       ),
     /generated-alias topology mismatch/,
   );
@@ -853,12 +829,12 @@ test("observed runs allow only the optional base alias plus one exact optional c
       assertOnlyExpectedVercelGeneratedAliases(
         {
           ...expected,
-          alias: "governance.mento.org",
+          alias: "reserve.mento.org",
         },
-        "governance",
+        "reserve",
       ),
     {
-      message: `Staged governance production immutable hostname mismatch: expected ${immutableHostname} from deploymentUrl; actual governance.mento.org`,
+      message: `Staged reserve production immutable hostname mismatch: expected ${immutableHostname} from deploymentUrl; actual reserve.mento.org`,
     },
   );
   assert.throws(
@@ -866,9 +842,9 @@ test("observed runs allow only the optional base alias plus one exact optional c
       assertOnlyExpectedVercelGeneratedAliases(
         {
           ...expected,
-          projectName: "reserve.mento.org",
+          projectName: "ui.mento.org",
         },
-        "governance",
+        "reserve",
       ),
     /project does not match literal target/,
   );
@@ -880,7 +856,7 @@ test("observed runs allow only the optional base alias plus one exact optional c
           target: null,
           customEnvironmentSlug: "v3",
         },
-        "governance",
+        "reserve",
       ),
     /Canonical deployment environment is malformed/,
   );
@@ -938,7 +914,7 @@ test("observed runs allow only the optional base alias plus one exact optional c
             ...expected,
           },
         ],
-        "governance",
+        "reserve",
       ),
     /exactly one deployment/,
   );
@@ -947,21 +923,20 @@ test("observed runs allow only the optional base alias plus one exact optional c
 test("ordinary production targets pin reviewed generated project aliases", () => {
   assert.deepEqual(
     Object.fromEntries(
-      ["app", "governance", "reserve", "ui"].map((target) => [
+      ["app", "reserve", "ui"].map((target) => [
         target,
         PRODUCTION_SHADOW_TARGETS[target].generatedProjectAlias,
       ]),
     ),
     {
       app: "appmentoorg-mentolabs.vercel.app",
-      governance: "governancementoorg-mentolabs.vercel.app",
       reserve: "reservementoorg-mentolabs.vercel.app",
       ui: "uimentoorg-mentolabs.vercel.app",
     },
   );
   assert.deepEqual(
     Object.fromEntries(
-      ["app", "governance", "reserve", "ui"].map((target) => [
+      ["app", "reserve", "ui"].map((target) => [
         target,
         {
           projectSlug: PRODUCTION_SHADOW_TARGETS[target].generatedProjectSlug,
@@ -971,10 +946,6 @@ test("ordinary production targets pin reviewed generated project aliases", () =>
     ),
     {
       app: { projectSlug: "appmentoorg", scopeSlug: "mentolabs" },
-      governance: {
-        projectSlug: "governancementoorg",
-        scopeSlug: "mentolabs",
-      },
       reserve: { projectSlug: "reservementoorg", scopeSlug: "mentolabs" },
       ui: { projectSlug: "uimentoorg", scopeSlug: "mentolabs" },
     },
@@ -994,7 +965,7 @@ test("ordinary production targets pin reviewed generated project aliases", () =>
 });
 
 test("production pull selects production without a preview-only branch override", () => {
-  for (const target of ["app", "governance", "reserve", "ui"]) {
+  for (const target of ["app", "reserve", "ui"]) {
     assert.deepEqual(
       buildProductionShadowPullArguments({
         logicalTarget: target,
@@ -1013,7 +984,7 @@ test("production pull selects production without a preview-only branch override"
 });
 
 test("pinned CLI build and deploy arguments bind each literal project and target", () => {
-  for (const target of ["app", "governance", "reserve", "ui"]) {
+  for (const target of ["app", "reserve", "ui"]) {
     assert.deepEqual(
       buildProductionShadowBuildArguments({
         logicalTarget: target,
@@ -1059,8 +1030,8 @@ test("pinned CLI build and deploy arguments bind each literal project and target
   }
   const mainTransaction = `main-${SHA}-456-2`;
   const mainDeploy = buildProductionShadowDeployArguments({
-    logicalTarget: "governance",
-    projectId: "prj_governance123",
+    logicalTarget: "reserve",
+    projectId: "prj_reserve123",
     deploySha: SHA,
     transaction: mainTransaction,
   });
@@ -1071,8 +1042,8 @@ test("pinned CLI build and deploy arguments bind each literal project and target
 test("ordinary stage deploy emits its complete canonical candidate metadata", () => {
   const metadata = ordinaryCandidateMetadata();
   const deploy = buildProductionShadowDeployArguments({
-    logicalTarget: "governance",
-    projectId: "prj_governance123",
+    logicalTarget: "reserve",
+    projectId: "prj_reserve123",
     deploySha: SHA,
     candidateMetadata: metadata,
   });
@@ -1085,7 +1056,7 @@ test("ordinary stage deploy emits its complete canonical candidate metadata", ()
     "--format=json",
     "--yes",
     "--project",
-    "prj_governance123",
+    "prj_reserve123",
     "--meta",
     "githubCommitOrg=mento-protocol",
     "--meta",
@@ -1109,8 +1080,8 @@ test("ordinary stage deploy emits its complete canonical candidate metadata", ()
   assert.throws(
     () =>
       buildProductionShadowDeployArguments({
-        logicalTarget: "governance",
-        projectId: "prj_governance123",
+        logicalTarget: "reserve",
+        projectId: "prj_reserve123",
         deploySha: SHA,
         candidateMetadata: { ...metadata, mentoUnexpected: "forged" },
       }),
@@ -1123,8 +1094,8 @@ test("ordinary deploy entrypoint plumbing passes stable metadata and drops attem
   let invocation;
   const result = deployProductionShadowCandidate({
     repoRoot: "/trusted/upload",
-    logicalTarget: "governance",
-    projectId: "prj_governance123",
+    logicalTarget: "reserve",
+    projectId: "prj_reserve123",
     deploySha: SHA,
     runId: "123",
     runAttempt: "4",
@@ -1134,8 +1105,8 @@ test("ordinary deploy entrypoint plumbing passes stable metadata and drops attem
       return JSON.stringify({
         status: "ok",
         deployment: {
-          id: "dpl_governanceCandidate123",
-          url: "governance-candidate.vercel.app",
+          id: "dpl_reserveCandidate123",
+          url: "reserve-candidate.vercel.app",
         },
       });
     },
@@ -1152,10 +1123,10 @@ test("ordinary deploy entrypoint plumbing passes stable metadata and drops attem
     false,
   );
   assert.equal(Object.hasOwn(result.expectation, "transaction"), false);
-  assert.equal(result.deployment.deploymentId, "dpl_governanceCandidate123");
+  assert.equal(result.deployment.deploymentId, "dpl_reserveCandidate123");
 });
 
-test("repo-linked settings use exact repo identity for all four targets", () => {
+test("repo-linked settings use exact repo identity for all three targets", () => {
   for (const [target, contract] of Object.entries(PRODUCTION_SHADOW_TARGETS)) {
     const directory = mkdtempSync(join(tmpdir(), `shadow-${target}-`));
     const projectId = `prj_${target}123`;

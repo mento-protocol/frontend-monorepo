@@ -62,8 +62,8 @@ import { createActiveDeploymentStateProof } from "./vercel-deployment-state.mjs"
 
 const SHA = "a".repeat(40);
 const PRIOR_SHA = "b".repeat(40);
-const TARGETS = ["app", "governance", "reserve", "ui"];
-const RELEASE_ORDER = ["governance", "reserve", "ui", "app"];
+const TARGETS = ["app", "reserve", "ui"];
+const RELEASE_ORDER = ["reserve", "ui", "app"];
 const RELEASE_CLI_PATH = fileURLToPath(
   new URL("./vercel-main-release-cli.mjs", import.meta.url),
 );
@@ -75,7 +75,7 @@ const PRODUCTION_PRIORS = JSON.parse(
 );
 
 function planning(
-  stagedTargets = ["app", "governance"],
+  stagedTargets = ["app", "reserve"],
   rollbackOnlyTargets = [],
 ) {
   return {
@@ -106,7 +106,7 @@ function planning(
 }
 
 function manifest(
-  stagedTargets = ["app", "governance"],
+  stagedTargets = ["app", "reserve"],
   upstreamRunId = "123",
   rollbackOnlyTargets = [],
 ) {
@@ -268,7 +268,6 @@ function discovery(
       .digest("hex"),
     projectIds: {
       app: "prj_app",
-      governance: "prj_governance",
       reserve: "prj_reserve",
       ui: "prj_ui",
     },
@@ -294,9 +293,8 @@ function environment(directory) {
       "https://github.com/mento-protocol/frontend-monorepo/actions/runs/123/job/456",
     VERCEL_MAIN_MODE: "active",
     MAIN_OWNERSHIP_MODE_JSON:
-      '{"app":"github","governance":"github","reserve":"github","ui":"github"}',
+      '{"app":"github","reserve":"github","ui":"github"}',
     VERCEL_PROJECT_ID_APP: "prj_app",
-    VERCEL_PROJECT_ID_GOVERNANCE: "prj_governance",
     VERCEL_PROJECT_ID_RESERVE: "prj_reserve",
     VERCEL_PROJECT_ID_UI: "prj_ui",
     SOURCE_PATH: directory,
@@ -414,13 +412,11 @@ function verifiedReleaseExecution(releaseManifest) {
 function currentReleaseRuntimeSmoke(target) {
   const finalUrls = {
     app: "https://app.mento.org/swap/celo",
-    governance: "https://governance.mento.org/voting-power",
     reserve: "https://reserve.mento.org/?tab=stablecoins",
     ui: "https://ui.mento.org/form-components",
   };
   const interactions = {
     app: "real-production-wallet-list",
-    governance: "governance-voting-power-navigation",
     reserve: "reserve-overview-data-and-supply-tab",
     ui: "ui-search-navigation-and-checkbox",
   };
@@ -438,15 +434,14 @@ function currentReleaseRuntimeSmoke(target) {
 }
 
 function currentReleaseFixture() {
-  const release = manifest(["governance"]);
+  const release = manifest(["reserve"]);
   const execution = verifiedReleaseExecution(release);
-  const governanceReceipt = currentAttemptReceipt(release, "governance");
+  const reserveReceipt = currentAttemptReceipt(release, "reserve");
   const barrier = createMainStageBarrier({
     execution,
     candidateReceipts: {
       app: null,
-      governance: governanceReceipt,
-      reserve: null,
+      reserve: reserveReceipt,
       ui: null,
     },
     appPreparation: null,
@@ -528,7 +523,7 @@ function currentReleaseFixture() {
       TARGETS.map((target) => {
         const prior = execution.manifest.originalPriors[target];
         const candidate =
-          target === "governance" ? governanceReceipt.candidate : prior;
+          target === "reserve" ? reserveReceipt.candidate : prior;
         return [
           target,
           prior.aliases
@@ -547,8 +542,7 @@ function currentReleaseFixture() {
     barrier,
     targetResults: {
       app: null,
-      governance: currentReleaseRuntimeSmoke("governance"),
-      reserve: null,
+      reserve: currentReleaseRuntimeSmoke("reserve"),
       ui: null,
     },
     runId: "800",
@@ -603,8 +597,6 @@ test("execution diagnostics use an exhaustive fixed allowlist", () => {
     ownership: "main-release-execution-ownership",
     "baseline-source-git": "main-release-execution-baseline-source-git",
     "baseline-prior-app": "main-release-execution-baseline-prior-app",
-    "baseline-prior-governance":
-      "main-release-execution-baseline-prior-governance",
     "baseline-prior-reserve": "main-release-execution-baseline-prior-reserve",
     "baseline-prior-ui": "main-release-execution-baseline-prior-ui",
     "baseline-planner-range": "main-release-execution-baseline-planner-range",
@@ -725,7 +717,7 @@ test("real execution failures report the phase reached by the entrypoint", async
       phase: "manifest-assertion",
       mutateEnvironment(env) {
         env.MAIN_OWNERSHIP_MODE_JSON =
-          '{"app":"shadow","governance":"github","reserve":"github","ui":"github"}';
+          '{"app":"shadow","reserve":"github","ui":"github"}';
       },
     },
     {
@@ -970,8 +962,8 @@ test("execution rejects same-release reuse that omits a fresh rollback-only targ
   t.after(() => rmSync(directory, { recursive: true, force: true }));
 
   for (const [name, stagedTargets, decision] of [
-    ["verify", ["governance"], "verify-existing-release"],
-    ["resume", ["governance", "reserve"], "resume-existing-release"],
+    ["verify", ["reserve"], "verify-existing-release"],
+    ["resume", ["app", "reserve"], "resume-existing-release"],
   ]) {
     const release = manifest(stagedTargets);
     const census = planningSnapshot(release, decision);
@@ -1037,7 +1029,7 @@ test("only capture-new execution invokes the baseline planner", async (t) => {
     schema: "vercel-main-preplan-reconciliation:v2",
     decision: "capture-new-baseline",
     reason: "no-mapped-release-metadata",
-    rollbackOnlyTargets: ["app", "governance", "reserve", "ui"],
+    rollbackOnlyTargets: ["app", "reserve", "ui"],
     reconciliation: null,
     rollbackAuthorization: null,
   };
@@ -1049,19 +1041,14 @@ test("only capture-new execution invokes the baseline planner", async (t) => {
       preplanValue: capturePreplan,
       discoveryValue: discovery(release, census, {
         empty: true,
-        rollbackOnlyTargets: ["app", "governance", "reserve", "ui"],
+        rollbackOnlyTargets: ["app", "reserve", "ui"],
       }),
     }),
     env: environment(directory),
     baselineFactory: (options) => {
       captured += 1;
       assert.deepEqual(options.planningSnapshot, census);
-      assert.deepEqual(options.rollbackOnlyTargets, [
-        "app",
-        "governance",
-        "reserve",
-        "ui",
-      ]);
+      assert.deepEqual(options.rollbackOnlyTargets, ["app", "reserve", "ui"]);
       return { manifest: release };
     },
   });
@@ -1076,7 +1063,7 @@ test("capture-new execution accepts production generated-alias supersets", async
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const release = manifest(TARGETS, "123", TARGETS);
   const census = planningSnapshot(release);
-  for (const target of ["governance", "reserve", "ui"]) {
+  for (const target of ["reserve", "ui"]) {
     const aliases = PRODUCTION_PRIORS.priorStates[target].states[0].aliases;
     for (const state of census.states.filter(
       ({ projectName }) => projectName === `${target}.mento.org`,
@@ -1151,8 +1138,8 @@ test("execution rejects provider evidence that does not select the supplied rele
         ...baseDiscovery,
         projectIds: {
           ...baseDiscovery.projectIds,
-          governance: baseDiscovery.projectIds.reserve,
-          reserve: baseDiscovery.projectIds.governance,
+          reserve: baseDiscovery.projectIds.ui,
+          ui: baseDiscovery.projectIds.reserve,
         },
       },
       pattern: /provider discovery conflicts/,
@@ -1221,7 +1208,7 @@ test("execution rejects ownership and census drift", async (t) => {
 
   const wrongOwnership = environment(directory);
   wrongOwnership.MAIN_OWNERSHIP_MODE_JSON =
-    '{"app":"shadow","governance":"github","reserve":"github","ui":"github"}';
+    '{"app":"shadow","reserve":"github","ui":"github"}';
   await assert.rejects(
     runMainReleaseCli({
       argv: executionArguments(directory, {
@@ -1412,16 +1399,15 @@ test("candidate receipt materializer binds every selected job output to the exac
     mkdtempSync(join(tmpdir(), "main-release-receipts-")),
   );
   t.after(() => rmSync(directory, { recursive: true, force: true }));
-  const release = manifest(["app", "governance"]);
+  const release = manifest(["app", "reserve"]);
   const execution = executionFor(release);
   const executionPath = write(directory, "execution.json", execution);
-  const governanceReceipt = currentAttemptReceipt(release, "governance");
-  const governanceEncoded = encodeMainCandidateReceipt(governanceReceipt);
+  const reserveReceipt = currentAttemptReceipt(release, "reserve");
+  const reserveEncoded = encodeMainCandidateReceipt(reserveReceipt);
   const output = join(directory, "receipts.json");
   const argv = ({
     app = "none",
-    governance = governanceEncoded,
-    reserve = "none",
+    reserve = reserveEncoded,
     ui = "none",
     destination = output,
   } = {}) => [
@@ -1430,8 +1416,6 @@ test("candidate receipt materializer binds every selected job output to the exac
     app,
     "--execution",
     executionPath,
-    "--governance",
-    governance,
     "--output",
     destination,
     "--reserve",
@@ -1458,8 +1442,7 @@ test("candidate receipt materializer binds every selected job output to the exac
   });
   assert.deepEqual(complete, {
     app: appReceipt,
-    governance: governanceReceipt,
-    reserve: null,
+    reserve: reserveReceipt,
     ui: null,
   });
   assert.deepEqual(JSON.parse(readFileSync(output, "utf8")), complete);
@@ -1477,8 +1460,6 @@ test("candidate receipt materializer binds every selected job output to the exac
           "execution-no-target.json",
           executionFor(noTargetRelease),
         ),
-        "--governance",
-        "none",
         "--output",
         join(directory, "receipts-no-target.json"),
         "--reserve",
@@ -1488,37 +1469,37 @@ test("candidate receipt materializer binds every selected job output to the exac
       ],
       env: environment(directory),
     }),
-    { app: null, governance: null, reserve: null, ui: null },
+    { app: null, reserve: null, ui: null },
   );
 
-  const divergentRelease = manifest(["app", "governance"], "124");
+  const divergentRelease = manifest(["app", "reserve"], "124");
   const cases = [
     {
       name: "missing-selected-ordinary",
-      governance: "none",
-      pattern: /governance requires a receipt/,
+      reserve: "none",
+      pattern: /reserve requires a receipt/,
     },
     {
       name: "unselected-target-receipt",
-      reserve: governanceEncoded,
-      pattern: /reserve must have no receipt/,
+      ui: reserveEncoded,
+      pattern: /ui must have no receipt/,
     },
     {
       name: "malformed-encoding",
-      governance: "not_base64=",
+      reserve: "not_base64=",
       pattern: /encoding is malformed/,
     },
     {
       name: "wrong-release",
-      governance: encodeMainCandidateReceipt(
-        currentAttemptReceipt(divergentRelease, "governance"),
+      reserve: encodeMainCandidateReceipt(
+        currentAttemptReceipt(divergentRelease, "reserve"),
       ),
       pattern: /different intent/,
     },
     {
       name: "wrong-attempt",
-      governance: encodeMainCandidateReceipt(
-        currentAttemptReceipt(release, "governance", { runAttempt: "4" }),
+      reserve: encodeMainCandidateReceipt(
+        currentAttemptReceipt(release, "reserve", { runAttempt: "4" }),
       ),
       pattern: /not from the current attempt/,
     },
@@ -1534,8 +1515,8 @@ test("candidate receipt materializer binds every selected job output to the exac
       runMainReleaseCli({
         argv: argv({
           app: scenario.app ?? appEncoded,
-          governance: scenario.governance ?? governanceEncoded,
-          reserve: scenario.reserve ?? "none",
+          reserve: scenario.reserve ?? reserveEncoded,
+          ui: scenario.ui ?? "none",
           destination: join(directory, `receipts-invalid-${index}.json`),
         }),
         env: environment(directory),
@@ -1552,12 +1533,10 @@ test("candidate receipt materializer binds every selected job output to the exac
         appEncoded,
         "--execution",
         executionPath,
-        "--governance",
-        "",
         "--output",
         join(directory, "receipts-empty.json"),
         "--reserve",
-        "none",
+        "",
         "--ui",
         "none",
       ],
@@ -1572,7 +1551,7 @@ test("inherited recovery requires current-attempt receipts only for moved candid
     mkdtempSync(join(tmpdir(), "main-release-inherited-candidates-")),
   );
   t.after(() => rmSync(directory, { recursive: true, force: true }));
-  const release = manifest(["app", "governance"], "122");
+  const release = manifest(["app", "reserve"], "122");
   const sameReleasePreplan = preplan(release);
   const currentMappings = Object.fromEntries(
     sameReleasePreplan.reconciliation.observedTargets.map(
@@ -1593,16 +1572,14 @@ test("inherited recovery requires current-attempt receipts only for moved candid
     rollbackOnlyTargets: [],
   });
   assert.equal(inheritedPreplan.decision, "restore-before-planning");
-  assert.deepEqual(inheritedPreplan.rollbackAuthorization.targets, [
-    "governance",
-  ]);
+  assert.deepEqual(inheritedPreplan.rollbackAuthorization.targets, ["reserve"]);
   const preplanPath = write(
     directory,
     "inherited-candidate-preplan.json",
     inheritedPreplan,
   );
-  const expectedIntent = currentAttemptReceipt(release, "governance").intent;
-  const intentOutput = join(directory, "inherited-governance-intent.json");
+  const expectedIntent = currentAttemptReceipt(release, "reserve").intent;
+  const intentOutput = join(directory, "inherited-reserve-intent.json");
   assert.deepEqual(
     await runMainReleaseCli({
       argv: [
@@ -1612,7 +1589,7 @@ test("inherited recovery requires current-attempt receipts only for moved candid
         "--preplan",
         preplanPath,
         "--target",
-        "governance",
+        "reserve",
       ],
       env: environment(directory),
     }),
@@ -1623,12 +1600,11 @@ test("inherited recovery requires current-attempt receipts only for moved candid
     expectedIntent,
   );
 
-  const governanceReceipt = currentAttemptReceipt(release, "governance");
+  const reserveReceipt = currentAttemptReceipt(release, "reserve");
   const receiptOutput = join(directory, "inherited-candidate-receipts.json");
   const argv = ({
     app = "none",
-    governance = encodeMainCandidateReceipt(governanceReceipt),
-    reserve = "none",
+    reserve = encodeMainCandidateReceipt(reserveReceipt),
     ui = "none",
     output = receiptOutput,
     preplanValue = preplanPath,
@@ -1636,8 +1612,6 @@ test("inherited recovery requires current-attempt receipts only for moved candid
     "inherited-candidate-receipts",
     "--app",
     app,
-    "--governance",
-    governance,
     "--output",
     output,
     "--preplan",
@@ -1653,26 +1627,25 @@ test("inherited recovery requires current-attempt receipts only for moved candid
   });
   assert.deepEqual(receipts, {
     app: null,
-    governance: governanceReceipt,
-    reserve: null,
+    reserve: reserveReceipt,
     ui: null,
   });
   assert.deepEqual(JSON.parse(readFileSync(receiptOutput, "utf8")), receipts);
 
   const cases = [
     {
-      name: "missing-moved-governance",
+      name: "missing-moved-reserve",
       arguments: argv({
-        governance: "none",
-        output: join(directory, "missing-governance.json"),
+        reserve: "none",
+        output: join(directory, "missing-reserve.json"),
       }),
       pattern:
-        /moved inherited main release target governance requires a receipt/i,
+        /moved inherited main release target reserve requires a receipt/i,
     },
     {
       name: "unmoved-pending-app-receipt",
       arguments: argv({
-        app: encodeMainCandidateReceipt(governanceReceipt),
+        app: encodeMainCandidateReceipt(reserveReceipt),
         output: join(directory, "unmoved-app.json"),
       }),
       pattern: /unmoved inherited main release target app/i,
@@ -1680,8 +1653,8 @@ test("inherited recovery requires current-attempt receipts only for moved candid
     {
       name: "wrong-attempt",
       arguments: argv({
-        governance: encodeMainCandidateReceipt(
-          currentAttemptReceipt(release, "governance", { runAttempt: "4" }),
+        reserve: encodeMainCandidateReceipt(
+          currentAttemptReceipt(release, "reserve", { runAttempt: "4" }),
         ),
         output: join(directory, "wrong-attempt.json"),
       }),
@@ -1921,8 +1894,8 @@ test("terminal artifact CLI fully re-verifies an already-current release without
   assert.equal(artifacts.proofs.publicSmoke.status, "passed");
   assert.equal(Object.hasOwn(artifacts.proofs, "freshLegacyV2"), false);
   assert.equal(
-    artifacts.proofs.publicSmoke.artifact.governance.runtime.interaction,
-    "governance-voting-power-navigation",
+    artifacts.proofs.publicSmoke.artifact.reserve.runtime.interaction,
+    "reserve-overview-data-and-supply-tab",
   );
   assert.deepEqual(
     JSON.parse(readFileSync(evidenceOutput, "utf8")),
@@ -1995,7 +1968,7 @@ test("terminal stage-result materializer preserves literal coordinator-only fail
     mkdtempSync(join(tmpdir(), "main-release-stage-results-")),
   );
   t.after(() => rmSync(directory, { recursive: true, force: true }));
-  const execution = executionFor(manifest(["governance"]));
+  const execution = executionFor(manifest(["reserve"]));
   const result = await runMainReleaseCli({
     argv: [
       "terminal-stage-results",
@@ -2003,10 +1976,8 @@ test("terminal stage-result materializer preserves literal coordinator-only fail
       write(directory, "execution.json", execution),
       "--app-result",
       "skipped",
-      "--governance-result",
-      "success",
       "--reserve-result",
-      "skipped",
+      "success",
       "--ui-result",
       "skipped",
       "--coordinator-result",
@@ -2023,8 +1994,7 @@ test("terminal stage-result materializer preserves literal coordinator-only fail
     runAttempt: "3",
     results: {
       app: "skipped",
-      governance: "success",
-      reserve: "skipped",
+      reserve: "success",
       ui: "skipped",
     },
     coordinatorResult: "failure",
@@ -2040,7 +2010,7 @@ test("terminal artifact CLI materializes a pre-journal preparation failure from 
     mkdtempSync(join(tmpdir(), "main-release-stage-failure-")),
   );
   t.after(() => rmSync(directory, { recursive: true, force: true }));
-  const execution = executionFor(manifest(["governance"]));
+  const execution = executionFor(manifest(["reserve"]));
   const nullPath = write(directory, "null.json", null);
   const evidenceOutput = join(directory, "evidence.json");
   const proofsOutput = join(directory, "proofs.json");
@@ -2073,8 +2043,7 @@ test("terminal artifact CLI materializes a pre-journal preparation failure from 
         runAttempt: "3",
         results: {
           app: "skipped",
-          governance: "failure",
-          reserve: "skipped",
+          reserve: "failure",
           ui: "skipped",
         },
         coordinatorResult: "skipped",
@@ -2134,7 +2103,6 @@ test("forward journal uses only asserted execution, fresh mappings, and current-
     planningSnapshot: snapshot,
     projectIds: {
       app: execution.projection.projectIds.app,
-      governance: execution.projection.projectIds.governance,
       reserve: execution.projection.projectIds.reserve,
       ui: execution.projection.projectIds.ui,
     },
@@ -2150,7 +2118,6 @@ test("forward journal uses only asserted execution, fresh mappings, and current-
       "--candidate-receipts",
       write(directory, "receipts.json", {
         app: null,
-        governance: null,
         reserve: null,
         ui: null,
       }),
@@ -2163,7 +2130,6 @@ test("forward journal uses only asserted execution, fresh mappings, and current-
   assert.equal(value.runAttempt, "3");
   assert.deepEqual(value.candidates, {
     app: null,
-    governance: null,
     reserve: null,
     ui: null,
   });
@@ -2181,7 +2147,6 @@ test("forward journal uses only asserted execution, fresh mappings, and current-
         "--candidate-receipts",
         write(directory, "receipts-forged.json", {
           app: { forged: true },
-          governance: null,
           reserve: null,
           ui: null,
         }),
@@ -2204,7 +2169,6 @@ test("a mixed App-only residual creates only an inherited recovery journal", asy
     planningSnapshot: planningSnapshot(release),
     projectIds: {
       app: "prj_app",
-      governance: "prj_governance",
       reserve: "prj_reserve",
       ui: "prj_ui",
     },
@@ -2296,7 +2260,7 @@ test("inherited recovery journal binds a partial prefix to current-attempt recei
     mkdtempSync(join(tmpdir(), "main-release-inherited-journal-")),
   );
   t.after(() => rmSync(directory, { recursive: true, force: true }));
-  const release = manifest(["governance", "reserve"], "122");
+  const release = manifest(["reserve", "ui"], "122");
   const sameReleasePreplan = preplan(release);
   const currentMappings = Object.fromEntries(
     sameReleasePreplan.reconciliation.observedTargets.map(
@@ -2317,24 +2281,20 @@ test("inherited recovery journal binds a partial prefix to current-attempt recei
     rollbackOnlyTargets: [],
   });
   assert.equal(inheritedPreplan.decision, "restore-before-planning");
-  assert.deepEqual(inheritedPreplan.rollbackAuthorization.targets, [
-    "governance",
-  ]);
+  assert.deepEqual(inheritedPreplan.rollbackAuthorization.targets, ["reserve"]);
 
   const mappings = createMainCanonicalMappings({
     planningSnapshot: planningSnapshot(release),
     projectIds: {
       app: "prj_app",
-      governance: "prj_governance",
       reserve: "prj_reserve",
       ui: "prj_ui",
     },
   });
   const candidateReceipts = {
     app: null,
-    governance: currentAttemptReceipt(release, "governance"),
     reserve: currentAttemptReceipt(release, "reserve"),
-    ui: null,
+    ui: currentAttemptReceipt(release, "ui"),
   };
   const journalOutput = join(directory, "inherited-journal.json");
   const planOutput = join(directory, "inherited-plan.json");
@@ -2360,26 +2320,23 @@ test("inherited recovery journal binds a partial prefix to current-attempt recei
   assert.equal(result.journal.runAttempt, "3");
   assert.equal(result.journal.release.releaseId, release.releaseId);
   assert.equal(
-    result.journal.candidates.governance.deploymentId,
-    "dpl_governanceCandidate123",
-  );
-  assert.equal(
     result.journal.candidates.reserve.deploymentId,
     "dpl_reserveCandidate123",
   );
+  assert.equal(result.journal.candidates.ui.deploymentId, "dpl_uiCandidate123");
   assert.deepEqual(result.recoveryPlan.rollbackAuthority, {
-    targets: ["governance"],
-    aliases: ["governance.mento.org"],
+    targets: ["reserve"],
+    aliases: ["reserve.mento.org"],
   });
   assert.deepEqual(result.recoveryPlan.actions, [
     {
       kind: "ordinary_rollback",
-      target: "governance",
-      aliases: ["governance.mento.org"],
-      priorDeploymentId: "dpl_governancePrior123",
-      priorDeploymentUrl: "https://governance-prior.vercel.app",
-      candidateDeploymentId: "dpl_governanceCandidate123",
-      candidateDeploymentUrl: "https://governance-candidate.vercel.app",
+      target: "reserve",
+      aliases: ["reserve.mento.org"],
+      priorDeploymentId: "dpl_reservePrior123",
+      priorDeploymentUrl: "https://reserve-prior.vercel.app",
+      candidateDeploymentId: "dpl_reserveCandidate123",
+      candidateDeploymentUrl: "https://reserve-candidate.vercel.app",
     },
   ]);
   assert.deepEqual(
@@ -2527,7 +2484,7 @@ test("release execution still fails closed when a served prior carries another t
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const release = manifest(TARGETS, "123", TARGETS);
   const census = servedPriorCensus(release, {
-    app: ["governance.mento.org"],
+    app: ["reserve.mento.org"],
   });
   const { status, stderr } = await runExecution(
     directory,

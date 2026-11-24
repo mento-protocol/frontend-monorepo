@@ -31,7 +31,6 @@ const ENVIRONMENT_SEMANTICS = {
 
 const TARGET_ENVIRONMENTS = {
   app: ["preview", "production"],
-  governance: ["preview", "production"],
   reserve: ["preview", "production"],
   ui: ["preview", "production"],
 };
@@ -44,30 +43,6 @@ const TARGET_VARIABLES = {
     sensitive("SENTRY_AUTH_TOKEN", {
       environments: ["production"],
       githubScope: "vercel-cli-production environment; app build step only",
-    }),
-  ],
-  governance: [
-    pullable("NEXT_PUBLIC_BLOCKSCOUT_API_URL"),
-    pullable("NEXT_PUBLIC_BLOCKSCOUT_GRAPHQL_URL"),
-    pullable("NEXT_PUBLIC_ETHERSCAN_API_URL"),
-    pullable("NEXT_PUBLIC_GRAPH_API_KEY"),
-    pullable("NEXT_PUBLIC_SENTRY_DSN_GOVERNANCE", { allowEmpty: true }),
-    pullable("NEXT_PUBLIC_STORAGE_URL"),
-    pullable("NEXT_PUBLIC_SUBGRAPH_FALLBACK_URL", {
-      allowEmpty: true,
-      optional: true,
-    }),
-    pullable("NEXT_PUBLIC_SUBGRAPH_URL"),
-    pullable("NEXT_PUBLIC_SUBGRAPH_URL_CELO_SEPOLIA"),
-    pullable("NEXT_PUBLIC_WALLET_CONNECT_ID"),
-    sensitive("ETHERSCAN_API_KEY", {
-      githubScope:
-        "repository for trusted previews and vercel-cli-production environment for main; governance build step only",
-    }),
-    sensitive("SENTRY_AUTH_TOKEN", {
-      environments: ["production"],
-      githubScope:
-        "vercel-cli-production environment; governance build step only",
     }),
   ],
   reserve: [

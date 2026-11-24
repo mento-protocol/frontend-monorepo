@@ -111,22 +111,6 @@ export const PRODUCTION_SHADOW_TARGETS = {
       "--yes",
     ],
   },
-  governance: {
-    projectName: "governance.mento.org",
-    rootDirectory: "apps/governance.mento.org",
-    pullEnvironment: "production",
-    buildArguments: ["build", "--yes", "--standalone", "--prod"],
-    ...PRODUCTION_GENERATED_ALIAS_CONTRACTS.governance,
-    deployArguments: [
-      "deploy",
-      "--prebuilt",
-      "--prod",
-      "--skip-domain",
-      "--archive=tgz",
-      "--format=json",
-      "--yes",
-    ],
-  },
   reserve: {
     projectName: "reserve.mento.org",
     rootDirectory: "apps/reserve.mento.org",

@@ -50,12 +50,11 @@ import {
 const SHA = "0123456789abcdef0123456789abcdef01234567";
 const RUN_ID = "123456789";
 const RUN_ATTEMPT = "2";
-const TARGETS = ["app", "governance", "reserve", "ui"];
+const TARGETS = ["app", "reserve", "ui"];
 // Every main target, App included, maps exactly one reviewed alias.
 const APP_ALIAS = "app.mento.org";
 const PROJECT_IDS = {
   app: "prj_app123",
-  governance: "prj_governance123",
   reserve: "prj_reserve123",
   ui: "prj_ui123",
 };
@@ -107,7 +106,6 @@ function candidate(name, aliases, release) {
 function prior() {
   return {
     app: record("app", ["app.mento.org"]),
-    governance: record("governance", ["governance.mento.org"]),
     reserve: record("reserve", ["reserve.mento.org"]),
     ui: record("ui", ["ui.mento.org"]),
   };
@@ -216,9 +214,6 @@ function prepared(activeTargets, { startCandidateTargets = [] } = {}) {
           aliases: [...captured.app.aliases],
           discovery: candidate("app", captured.app.aliases, manifest).discovery,
         }
-      : null,
-    governance: activeTargets.includes("governance")
-      ? candidate("governance", captured.governance.aliases, manifest)
       : null,
     reserve: activeTargets.includes("reserve")
       ? candidate("reserve", captured.reserve.aliases, manifest)
@@ -476,13 +471,11 @@ function activeStateProof(
 function runtimeSmoke(target, deploySha = SHA) {
   const finalUrls = {
     app: "https://app.mento.org/swap/celo",
-    governance: "https://governance.mento.org/voting-power",
     reserve: "https://reserve.mento.org/?tab=stablecoins",
     ui: "https://ui.mento.org/form-components",
   };
   const interactions = {
     app: "real-production-wallet-list",
-    governance: "governance-voting-power-navigation",
     reserve: "reserve-overview-data-and-supply-tab",
     ui: "ui-search-navigation-and-checkbox",
   };
@@ -521,10 +514,10 @@ function publicSmokes(activeTargets) {
 }
 
 function runOrdinaryForward() {
-  const initial = prepared(["governance"]);
+  const initial = prepared(["reserve"]);
   const history = [];
   const initialized = reduceForward(initial, history, event("initialize"), [
-    "governance",
+    "reserve",
   ]);
   history.push(initialized.journal);
   const dispatched = reduceForward(
@@ -535,7 +528,7 @@ function runOrdinaryForward() {
       freshSha: SHA,
       currentMappings: currentMappings(history.at(-1)),
     }),
-    ["governance"],
+    ["reserve"],
   );
   history.push(dispatched.journal);
   const authorized = reduceForward(
@@ -546,7 +539,7 @@ function runOrdinaryForward() {
       freshSha: SHA,
       currentMappings: currentMappings(history.at(-1)),
     }),
-    ["governance"],
+    ["reserve"],
   );
   const returned = reduceForward(
     initial,
@@ -557,7 +550,7 @@ function runOrdinaryForward() {
       command: authorized.command,
       result: { outcome: "success", reason: null, candidate: null },
     }),
-    ["governance"],
+    ["reserve"],
   );
   history.push(returned.journal);
   const verified = reduceForward(
@@ -567,20 +560,18 @@ function runOrdinaryForward() {
       uploadReceipt: receipt(history.at(-1)),
       freshSha: SHA,
       currentMappings: currentMappings(history.at(-1), {
-        governance: "candidate",
+        reserve: "candidate",
       }),
     }),
-    ["governance"],
+    ["reserve"],
   );
   history.push(verified.journal);
   return { initial, history, authorized };
 }
 
 test("initialize emits only prepared sequence zero for active targets", () => {
-  const initial = prepared(["governance"]);
-  const result = reduceForward(initial, [], event("initialize"), [
-    "governance",
-  ]);
+  const initial = prepared(["reserve"]);
+  const result = reduceForward(initial, [], event("initialize"), ["reserve"]);
   assert.equal(result.transitionKind, "journal");
   assert.equal(result.nextAction, "upload-journal");
   assert.equal(result.afterUploadAction, "dispatch");
@@ -598,36 +589,10 @@ test("initialize with no active targets performs no transaction mutation", () =>
 });
 
 test("dispatch skips an already-candidate ordinary release without a promote", () => {
-  const initial = prepared(["governance"], {
-    startCandidateTargets: ["governance"],
+  const initial = prepared(["reserve"], {
+    startCandidateTargets: ["reserve"],
   });
   const initialized = reduceForward(initial, [], event("initialize"), [
-    "governance",
-  ]);
-  const dispatched = reduceForward(
-    initial,
-    [initialized.journal],
-    event("dispatch", {
-      uploadReceipt: receipt(initialized.journal),
-      freshSha: SHA,
-      currentMappings: currentMappings(initialized.journal, {
-        governance: "candidate",
-      }),
-    }),
-    ["governance"],
-  );
-  assert.equal(dispatched.transitionKind, "await-final-proof");
-  assert.equal(dispatched.nextAction, "collect-final-proof");
-  assert.equal(dispatched.journal, null);
-  assert.equal(dispatched.possibleMutationCommands, 0);
-});
-
-test("dispatch resumes a candidate prefix by promoting only the prior suffix", () => {
-  const initial = prepared(["governance", "reserve"], {
-    startCandidateTargets: ["governance"],
-  });
-  const initialized = reduceForward(initial, [], event("initialize"), [
-    "governance",
     "reserve",
   ]);
   const dispatched = reduceForward(
@@ -637,13 +602,39 @@ test("dispatch resumes a candidate prefix by promoting only the prior suffix", (
       uploadReceipt: receipt(initialized.journal),
       freshSha: SHA,
       currentMappings: currentMappings(initialized.journal, {
-        governance: "candidate",
+        reserve: "candidate",
       }),
     }),
-    ["governance", "reserve"],
+    ["reserve"],
+  );
+  assert.equal(dispatched.transitionKind, "await-final-proof");
+  assert.equal(dispatched.nextAction, "collect-final-proof");
+  assert.equal(dispatched.journal, null);
+  assert.equal(dispatched.possibleMutationCommands, 0);
+});
+
+test("dispatch resumes a candidate prefix by promoting only the prior suffix", () => {
+  const initial = prepared(["reserve", "ui"], {
+    startCandidateTargets: ["reserve"],
+  });
+  const initialized = reduceForward(initial, [], event("initialize"), [
+    "reserve",
+    "ui",
+  ]);
+  const dispatched = reduceForward(
+    initial,
+    [initialized.journal],
+    event("dispatch", {
+      uploadReceipt: receipt(initialized.journal),
+      freshSha: SHA,
+      currentMappings: currentMappings(initialized.journal, {
+        reserve: "candidate",
+      }),
+    }),
+    ["reserve", "ui"],
   );
   assert.equal(dispatched.journal.operations.at(-1).type, "promote");
-  assert.equal(dispatched.journal.operations.at(-1).target, "reserve");
+  assert.equal(dispatched.journal.operations.at(-1).target, "ui");
   assert.equal(dispatched.afterUploadAction, "authorize");
 });
 
@@ -742,12 +733,12 @@ test("an App promote verified at prior routes to recovery instead of a bridge al
 });
 
 test("dispatch routes an unexpected ordinary mapping to recovery", () => {
-  const initial = prepared(["governance"]);
+  const initial = prepared(["reserve"]);
   const initialized = reduceForward(initial, [], event("initialize"), [
-    "governance",
+    "reserve",
   ]);
   const partial = currentMappings(initialized.journal).map((entry) =>
-    entry.alias === "governance.mento.org"
+    entry.alias === "reserve.mento.org"
       ? {
           ...entry,
           deploymentId: "dpl_unexpected123",
@@ -763,7 +754,7 @@ test("dispatch routes an unexpected ordinary mapping to recovery", () => {
       freshSha: SHA,
       currentMappings: partial,
     }),
-    ["governance"],
+    ["reserve"],
   );
   assert.equal(dispatched.transitionKind, "recovery-required");
   assert.equal(dispatched.nextAction, "recover");
@@ -771,9 +762,9 @@ test("dispatch routes an unexpected ordinary mapping to recovery", () => {
 });
 
 test("authorize requires an exact positive receipt for the started snapshot", () => {
-  const initial = prepared(["governance"]);
+  const initial = prepared(["reserve"]);
   const initialized = reduceForward(initial, [], event("initialize"), [
-    "governance",
+    "reserve",
   ]);
   const dispatched = reduceForward(
     initial,
@@ -783,7 +774,7 @@ test("authorize requires an exact positive receipt for the started snapshot", ()
       freshSha: SHA,
       currentMappings: currentMappings(initialized.journal),
     }),
-    ["governance"],
+    ["reserve"],
   );
   assert.throws(
     () =>
@@ -798,7 +789,7 @@ test("authorize requires an exact positive receipt for the started snapshot", ()
           freshSha: SHA,
           currentMappings: currentMappings(dispatched.journal),
         }),
-        ["governance"],
+        ["reserve"],
       ),
     /does not acknowledge/,
   );
@@ -833,10 +824,10 @@ test("finalize commits only after exact mappings, smokes, census, and v2 proof",
       uploadReceipt: receipt(history.at(-1)),
       freshSha: SHA,
       currentMappings: currentMappings(history.at(-1), {
-        governance: "candidate",
+        reserve: "candidate",
       }),
     }),
-    ["governance"],
+    ["reserve"],
   );
   assert.equal(ready.transitionKind, "await-final-proof");
   const committed = reduceForward(
@@ -846,14 +837,14 @@ test("finalize commits only after exact mappings, smokes, census, and v2 proof",
       uploadReceipt: receipt(history.at(-1)),
       freshSha: SHA,
       currentMappings: currentMappings(history.at(-1), {
-        governance: "candidate",
+        reserve: "candidate",
       }),
-      publicSmokes: publicSmokes(["governance"]),
+      publicSmokes: publicSmokes(["reserve"]),
       stateProof: activeStateProof(history.at(-1), {
-        activeTargets: ["governance"],
+        activeTargets: ["reserve"],
       }),
     }),
-    ["governance"],
+    ["reserve"],
   );
   assert.equal(committed.journal.status, "committed");
   assert.equal(committed.afterUploadAction, "complete");
@@ -861,10 +852,10 @@ test("finalize commits only after exact mappings, smokes, census, and v2 proof",
   assert.equal(committed.confirmedMutationCommands, 1);
 
   const tamperedPriorProof = activeStateProof(history.at(-1), {
-    activeTargets: ["governance"],
+    activeTargets: ["reserve"],
   });
-  tamperedPriorProof.projects.governance.priorDeploymentId =
-    "dpl_otherGovernancePrior123";
+  tamperedPriorProof.projects.reserve.priorDeploymentId =
+    "dpl_otherReservePrior123";
   assert.throws(
     () =>
       reduceForward(
@@ -874,21 +865,21 @@ test("finalize commits only after exact mappings, smokes, census, and v2 proof",
           uploadReceipt: receipt(history.at(-1)),
           freshSha: SHA,
           currentMappings: currentMappings(history.at(-1), {
-            governance: "candidate",
+            reserve: "candidate",
           }),
-          publicSmokes: publicSmokes(["governance"]),
+          publicSmokes: publicSmokes(["reserve"]),
           stateProof: tamperedPriorProof,
         }),
-        ["governance"],
+        ["reserve"],
       ),
-    /governance expectation is inconsistent/,
+    /reserve expectation is inconsistent/,
   );
 
   for (const [name, mutate, pattern] of [
     [
       "wrong final URL",
       (smokes) => {
-        smokes.governance.runtime.final_url = "https://governance.mento.org/";
+        smokes.reserve.runtime.final_url = "https://reserve.mento.org/";
       },
       /runtime is unproven/,
     ],
@@ -900,7 +891,7 @@ test("finalize commits only after exact mappings, smokes, census, and v2 proof",
       /Unselected public smoke app is malformed/,
     ],
   ]) {
-    const smokes = publicSmokes(["governance"]);
+    const smokes = publicSmokes(["reserve"]);
     mutate(smokes);
     assert.throws(
       () =>
@@ -911,14 +902,14 @@ test("finalize commits only after exact mappings, smokes, census, and v2 proof",
             uploadReceipt: receipt(history.at(-1)),
             freshSha: SHA,
             currentMappings: currentMappings(history.at(-1), {
-              governance: "candidate",
+              reserve: "candidate",
             }),
             publicSmokes: smokes,
             stateProof: activeStateProof(history.at(-1), {
-              activeTargets: ["governance"],
+              activeTargets: ["reserve"],
             }),
           }),
-          ["governance"],
+          ["reserve"],
         ),
       pattern,
       name,
@@ -930,20 +921,18 @@ test("mixed active and shadow planning validates shadow stages without journalin
   const { initial, history } = runOrdinaryForward();
   const stagedCandidates = {
     app: null,
-    governance: initial.candidates.governance,
-    reserve: candidate("reserve", initial.prior.reserve.aliases),
-    ui: null,
+    reserve: initial.candidates.reserve,
+    ui: candidate("ui", initial.prior.ui.aliases),
   };
   const mainOwnershipMode = {
     app: "github",
-    governance: "github",
-    reserve: "shadow",
-    ui: "github",
+    reserve: "github",
+    ui: "shadow",
   };
   const committed = reduceMainActiveTransition({
     preparedJournal: initial,
-    activeTargets: ["governance"],
-    shadowTargets: ["reserve"],
+    activeTargets: ["reserve"],
+    shadowTargets: ["ui"],
     stagedCandidates,
     mainOwnershipMode,
     projectIds: PROJECT_IDS,
@@ -952,12 +941,12 @@ test("mixed active and shadow planning validates shadow stages without journalin
       uploadReceipt: receipt(history.at(-1)),
       freshSha: SHA,
       currentMappings: currentMappings(history.at(-1), {
-        governance: "candidate",
+        reserve: "candidate",
       }),
-      publicSmokes: publicSmokes(["governance"]),
+      publicSmokes: publicSmokes(["reserve"]),
       stateProof: activeStateProof(history.at(-1), {
-        activeTargets: ["governance"],
-        shadowTargets: ["reserve"],
+        activeTargets: ["reserve"],
+        shadowTargets: ["ui"],
         stagedCandidates,
         mainOwnershipMode,
       }),
@@ -965,9 +954,7 @@ test("mixed active and shadow planning validates shadow stages without journalin
   });
   assert.equal(committed.journal.status, "committed");
   assert.equal(
-    committed.journal.operations.some(
-      (operation) => operation.target === "reserve",
-    ),
+    committed.journal.operations.some((operation) => operation.target === "ui"),
     false,
   );
 });
@@ -976,42 +963,40 @@ test("shadow final mapping accepts the bound prior and rejects unbound same-SHA 
   const { initial, history } = runOrdinaryForward();
   const stagedCandidates = {
     app: null,
-    governance: initial.candidates.governance,
-    reserve: candidate("reserve", initial.prior.reserve.aliases),
-    ui: null,
+    reserve: initial.candidates.reserve,
+    ui: candidate("ui", initial.prior.ui.aliases),
   };
   const mainOwnershipMode = {
     app: "github",
-    governance: "github",
-    reserve: "shadow",
-    ui: "github",
+    reserve: "github",
+    ui: "shadow",
   };
-  const nativeReserve = {
-    deploymentId: "dpl_reserveNative123",
-    deploymentUrl: "https://reserve-native.vercel.app",
+  const nativeUi = {
+    deploymentId: "dpl_uiNative123",
+    deploymentUrl: "https://ui-native.vercel.app",
   };
   const proof = activeStateProof(history.at(-1), {
-    activeTargets: ["governance"],
-    shadowTargets: ["reserve"],
+    activeTargets: ["reserve"],
+    shadowTargets: ["ui"],
     stagedCandidates,
     mainOwnershipMode,
   });
-  const finalize = (reserveDeployment) => {
+  const finalize = (uiDeployment) => {
     const mappings = currentMappings(history.at(-1), {
-      governance: "candidate",
+      reserve: "candidate",
     }).map((entry) =>
-      entry.alias === "reserve.mento.org"
+      entry.alias === "ui.mento.org"
         ? {
             alias: entry.alias,
-            deploymentId: reserveDeployment.deploymentId,
-            deploymentUrl: reserveDeployment.deploymentUrl,
+            deploymentId: uiDeployment.deploymentId,
+            deploymentUrl: uiDeployment.deploymentUrl,
           }
         : entry,
     );
     return reduceMainActiveTransition({
       preparedJournal: initial,
-      activeTargets: ["governance"],
-      shadowTargets: ["reserve"],
+      activeTargets: ["reserve"],
+      shadowTargets: ["ui"],
       stagedCandidates,
       mainOwnershipMode,
       projectIds: PROJECT_IDS,
@@ -1020,24 +1005,21 @@ test("shadow final mapping accepts the bound prior and rejects unbound same-SHA 
         uploadReceipt: receipt(history.at(-1)),
         freshSha: SHA,
         currentMappings: mappings,
-        publicSmokes: publicSmokes(["governance"]),
+        publicSmokes: publicSmokes(["reserve"]),
         stateProof: proof,
       }),
     });
   };
-  assert.equal(finalize(initial.prior.reserve).journal.status, "committed");
+  assert.equal(finalize(initial.prior.ui).journal.status, "committed");
   for (const forbidden of [
-    nativeReserve,
-    stagedCandidates.reserve,
+    nativeUi,
+    stagedCandidates.ui,
     {
-      deploymentId: "dpl_reserveUnexpected123",
-      deploymentUrl: "https://reserve-unexpected.vercel.app",
+      deploymentId: "dpl_uiUnexpected123",
+      deploymentUrl: "https://ui-unexpected.vercel.app",
     },
   ]) {
-    assert.throws(
-      () => finalize(forbidden),
-      /Final mapping reserve is invalid/,
-    );
+    assert.throws(() => finalize(forbidden), /Final mapping ui is invalid/);
   }
 });
 
@@ -1054,7 +1036,7 @@ test("recovery reducer persists recovering, started, returned, verified, and ter
   const plan = planMainTransactionRecovery({
     journal: history.at(-1),
     currentMappings: currentMappings(history.at(-1), {
-      governance: "candidate",
+      reserve: "candidate",
     }),
   });
   const recovering = reduceMainActiveRecoveryTransition({
@@ -1072,7 +1054,7 @@ test("recovery reducer persists recovering, started, returned, verified, and ter
     event: recoveryEvent("dispatch", {
       uploadReceipt: receipt(history.at(-1)),
       currentMappings: recoveryCurrentMappings(history.at(-1), {
-        governance: "candidate",
+        reserve: "candidate",
       }),
     }),
   });
@@ -1083,7 +1065,7 @@ test("recovery reducer persists recovering, started, returned, verified, and ter
     event: recoveryEvent("authorize", {
       uploadReceipt: receipt(history.at(-1)),
       currentMappings: recoveryCurrentMappings(history.at(-1), {
-        governance: "candidate",
+        reserve: "candidate",
       }),
     }),
   });
@@ -1124,23 +1106,8 @@ test("recovery reducer persists recovering, started, returned, verified, and ter
 });
 
 test("recovery reducer checkpoints safe reverse recovery before manual intervention", () => {
-  const initial = prepared(["governance", "reserve"]);
-  const governanceStarted = startMainTransactionOperation(initial, {
-    type: "promote",
-    target: "governance",
-  });
-  const governanceReturned = recordMainTransactionCommandReturned(
-    governanceStarted,
-    {
-      operationId: governanceStarted.operations.at(-1).operationId,
-      outcome: "success",
-    },
-  );
-  const governanceVerified = recordMainTransactionVerified(governanceReturned, {
-    operationId: governanceStarted.operations.at(-1).operationId,
-    mappingState: "candidate",
-  });
-  const reserveStarted = startMainTransactionOperation(governanceVerified, {
+  const initial = prepared(["reserve", "ui"]);
+  const reserveStarted = startMainTransactionOperation(initial, {
     type: "promote",
     target: "reserve",
   });
@@ -1148,14 +1115,26 @@ test("recovery reducer checkpoints safe reverse recovery before manual intervent
     operationId: reserveStarted.operations.at(-1).operationId,
     outcome: "success",
   });
-  const highest = recordMainTransactionVerified(reserveReturned, {
+  const reserveVerified = recordMainTransactionVerified(reserveReturned, {
     operationId: reserveStarted.operations.at(-1).operationId,
     mappingState: "candidate",
   });
+  const uiStarted = startMainTransactionOperation(reserveVerified, {
+    type: "promote",
+    target: "ui",
+  });
+  const uiReturned = recordMainTransactionCommandReturned(uiStarted, {
+    operationId: uiStarted.operations.at(-1).operationId,
+    outcome: "success",
+  });
+  const highest = recordMainTransactionVerified(uiReturned, {
+    operationId: uiStarted.operations.at(-1).operationId,
+    mappingState: "candidate",
+  });
   const plannedMappings = currentMappings(highest, {
-    reserve: "candidate",
+    ui: "candidate",
   }).map((mapping) =>
-    mapping.alias === "governance.mento.org"
+    mapping.alias === "reserve.mento.org"
       ? {
           ...mapping,
           deploymentId: "dpl_operator123",
@@ -1163,10 +1142,10 @@ test("recovery reducer checkpoints safe reverse recovery before manual intervent
         }
       : mapping,
   );
-  const unexpectedGovernance = recoveryCurrentMappings(highest, {
-    reserve: "candidate",
+  const unexpectedReserve = recoveryCurrentMappings(highest, {
+    ui: "candidate",
   }).map((mapping) =>
-    mapping.alias === "governance.mento.org"
+    mapping.alias === "reserve.mento.org"
       ? {
           ...mapping,
           deploymentId: "dpl_operator123",
@@ -1182,18 +1161,18 @@ test("recovery reducer checkpoints safe reverse recovery before manual intervent
   assert.deepEqual(
     plan.actions.map((action) => [action.kind, action.target]),
     [
-      ["ordinary_rollback", "reserve"],
-      ["manual_intervention", "governance"],
+      ["ordinary_rollback", "ui"],
+      ["manual_intervention", "reserve"],
     ],
   );
 
   const history = [
     initial,
-    governanceStarted,
-    governanceReturned,
-    governanceVerified,
     reserveStarted,
     reserveReturned,
+    reserveVerified,
+    uiStarted,
+    uiReturned,
     highest,
   ];
   const recovering = reduceMainActiveRecoveryTransition({
@@ -1209,7 +1188,7 @@ test("recovery reducer checkpoints safe reverse recovery before manual intervent
     history,
     event: recoveryEvent("dispatch", {
       uploadReceipt: receipt(recovering.journal),
-      currentMappings: unexpectedGovernance,
+      currentMappings: unexpectedReserve,
     }),
   });
   assert.equal(started.journal.operations.at(-1).type, "ordinary_rollback");
@@ -1220,7 +1199,7 @@ test("recovery reducer checkpoints safe reverse recovery before manual intervent
     history,
     event: recoveryEvent("authorize", {
       uploadReceipt: receipt(started.journal),
-      currentMappings: unexpectedGovernance,
+      currentMappings: unexpectedReserve,
     }),
   });
   assert.equal(authorized.command.kind, "ordinary-rollback");
@@ -1235,12 +1214,12 @@ test("recovery reducer checkpoints safe reverse recovery before manual intervent
     }),
   });
   history.push(returned.journal);
-  const restoredReserve = unexpectedGovernance.map((mapping) =>
-    mapping.alias === "reserve.mento.org"
+  const restoredUi = unexpectedReserve.map((mapping) =>
+    mapping.alias === "ui.mento.org"
       ? {
           ...mapping,
-          deploymentId: highest.prior.reserve.deploymentId,
-          deploymentUrl: highest.prior.reserve.deploymentUrl,
+          deploymentId: highest.prior.ui.deploymentId,
+          deploymentUrl: highest.prior.ui.deploymentUrl,
         }
       : mapping,
   );
@@ -1249,7 +1228,7 @@ test("recovery reducer checkpoints safe reverse recovery before manual intervent
     history,
     event: recoveryEvent("verify", {
       uploadReceipt: receipt(returned.journal),
-      currentMappings: restoredReserve,
+      currentMappings: restoredUi,
     }),
   });
   assert.equal(verified.journal.operations.at(-1).mappingState, "prior");
@@ -1260,7 +1239,7 @@ test("recovery reducer checkpoints safe reverse recovery before manual intervent
     history,
     event: recoveryEvent("dispatch", {
       uploadReceipt: receipt(verified.journal),
-      currentMappings: restoredReserve,
+      currentMappings: restoredUi,
     }),
   });
   assert.equal(terminal.journal.status, "manual_intervention");
@@ -1274,10 +1253,10 @@ test("recovery reducer checkpoints safe reverse recovery before manual intervent
 // reverse activation order.
 test("App promote recovery is a noop at prior, a rollback at candidate, and manual on an unexpected mapping", () => {
   for (const appMapping of ["prior", "candidate", "unexpected"]) {
-    const initial = prepared(["app", "governance", "reserve", "ui"]);
+    const initial = prepared(["app", "reserve", "ui"]);
     const history = [initial];
     let highest = initial;
-    for (const target of ["governance", "reserve", "ui"]) {
+    for (const target of ["reserve", "ui"]) {
       const started = startMainTransactionOperation(highest, {
         type: "promote",
         target,
@@ -1306,7 +1285,6 @@ test("App promote recovery is a noop at prior, a rollback at candidate, and manu
     history.push(highest);
 
     const ordinaryStates = {
-      governance: "candidate",
       reserve: "candidate",
       ui: "candidate",
     };
@@ -1337,7 +1315,6 @@ test("App promote recovery is a noop at prior, a rollback at candidate, and manu
         ["app", appKind],
         ["ui", "ordinary_rollback"],
         ["reserve", "ordinary_rollback"],
-        ["governance", "ordinary_rollback"],
       ],
       appMapping,
     );
@@ -1349,7 +1326,6 @@ test("App promote recovery is a noop at prior, a rollback at candidate, and manu
       ...(appMapping === "candidate" ? ["app"] : []),
       "ui",
       "reserve",
-      "governance",
     ]);
   }
 });
@@ -1456,7 +1432,7 @@ test("unknown recovery that is not restored persists manual intervention", () =>
   const plan = planMainTransactionRecovery({
     journal: history.at(-1),
     currentMappings: currentMappings(history.at(-1), {
-      governance: "candidate",
+      reserve: "candidate",
     }),
   });
   for (const transition of [
@@ -1476,7 +1452,7 @@ test("unknown recovery that is not restored persists manual intervention", () =>
     event: recoveryEvent("dispatch", {
       uploadReceipt: receipt(history.at(-1)),
       currentMappings: recoveryCurrentMappings(history.at(-1), {
-        governance: "candidate",
+        reserve: "candidate",
       }),
     }),
   });
@@ -1487,7 +1463,7 @@ test("unknown recovery that is not restored persists manual intervention", () =>
     event: recoveryEvent("authorize", {
       uploadReceipt: receipt(history.at(-1)),
       currentMappings: recoveryCurrentMappings(history.at(-1), {
-        governance: "candidate",
+        reserve: "candidate",
       }),
     }),
   });
@@ -1503,9 +1479,9 @@ test("unknown recovery that is not restored persists manual intervention", () =>
   });
   history.push(returned.journal);
   const unexpectedMappings = recoveryCurrentMappings(history.at(-1), {
-    governance: "candidate",
+    reserve: "candidate",
   }).map((mapping) =>
-    mapping.alias === "governance.mento.org"
+    mapping.alias === "reserve.mento.org"
       ? {
           ...mapping,
           deploymentId: "dpl_unexpected123",
@@ -1558,7 +1534,7 @@ test("recovery rechecks a planned noop and restores an exact late candidate", ()
     event: recoveryEvent("dispatch", {
       uploadReceipt: receipt(history.at(-1)),
       currentMappings: recoveryCurrentMappings(history.at(-1), {
-        governance: "candidate",
+        reserve: "candidate",
       }),
     }),
   });
@@ -1594,7 +1570,7 @@ test("separate command executor treats malformed adapter results as unknown", as
 });
 
 test("history loader accepts only contiguous identity-bound artifact directories", () => {
-  const initial = prepared(["governance"]);
+  const initial = prepared(["reserve"]);
   const root = mkdtempSync(join(tmpdir(), "main-active-history-"));
   try {
     const directory = join(root, mainTransactionJournalArtifactName(initial));
@@ -1656,7 +1632,7 @@ test("history loader accepts only contiguous identity-bound artifact directories
 });
 
 test("history loader rejects multi-link and oversized journal files", () => {
-  const initial = prepared(["governance"]);
+  const initial = prepared(["reserve"]);
   const root = mkdtempSync(join(tmpdir(), "main-active-history-bounds-"));
   try {
     const directory = join(root, mainTransactionJournalArtifactName(initial));
@@ -1704,7 +1680,7 @@ test("history loader rejects multi-link and oversized journal files", () => {
 test("fresh App provider census accepts one stable candidate and rejects a third deployment", async () => {
   const journal = prepared(["app"]);
   const mappings = Object.fromEntries(
-    ["governance", "reserve", "ui", "app"].map((target) => [
+    ["reserve", "ui", "app"].map((target) => [
       target,
       journal.prior[target].aliases.map((alias) => ({
         alias,
@@ -1792,7 +1768,7 @@ test("forward dispatch and authorize reject a fresh App-only recovery residual",
     }),
     TARGETS,
   );
-  assert.equal(dispatched.journal.operations.at(-1).target, "governance");
+  assert.equal(dispatched.journal.operations.at(-1).target, "reserve");
   assert.throws(
     () =>
       reduceForward(
@@ -1812,7 +1788,7 @@ test("forward dispatch and authorize reject a fresh App-only recovery residual",
 test("current-attempt inherited recovery binds the inherited release SHA and completes", () => {
   const inherited = prepared(TARGETS);
   const observed = groupedCurrentMappings(inherited, {
-    governance: "candidate",
+    reserve: "candidate",
   });
   const { journal: current } = createCurrentMainActiveRecoveryJournal({
     inheritedJournal: inherited,
@@ -1838,7 +1814,7 @@ test("current-attempt inherited recovery binds the inherited release SHA and com
   assert.equal(plan.journal.transactionId, current.transactionId);
   assert.deepEqual(
     plan.actions.map(({ target }) => target),
-    ["governance"],
+    ["reserve"],
   );
 
   const history = [current];
@@ -1853,7 +1829,7 @@ test("current-attempt inherited recovery binds the inherited release SHA and com
   assert.equal(recovering.journal.status, "recovering");
 
   const moved = recoveryCurrentMappings(recovering.journal, {
-    governance: "candidate",
+    reserve: "candidate",
   });
   const started = reduceMainActiveRecoveryTransition({
     recoveryPlan: plan,
@@ -2032,7 +2008,6 @@ test("App-only recovery residual rolls back its moved mapping before a fresh bas
 test("inherited recovery refuses missing, divergent, and all-candidate current journals", () => {
   const inherited = prepared(TARGETS);
   const partial = groupedCurrentMappings(inherited, {
-    governance: "candidate",
     reserve: "candidate",
     ui: "candidate",
   });
@@ -2074,7 +2049,6 @@ test("inherited recovery refuses missing, divergent, and all-candidate current j
 
   const allCandidate = groupedCurrentMappings(inherited, {
     app: "candidate",
-    governance: "candidate",
     reserve: "candidate",
     ui: "candidate",
   });

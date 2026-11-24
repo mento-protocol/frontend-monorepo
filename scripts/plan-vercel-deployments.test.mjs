@@ -115,7 +115,6 @@ function appendFixtureChange(directory, path, message) {
 
 for (const [target, packageName] of [
   ["app", "app.mento.org"],
-  ["governance", "governance.mento.org"],
   ["reserve", "reserve.mento.org"],
   ["ui", "ui.mento.org"],
 ]) {
@@ -135,7 +134,7 @@ for (const [target, packageName] of [
   });
 }
 
-test("packages/ui affects all four deployments", () => {
+test("packages/ui affects all three deployments", () => {
   withFixture("packages/ui/src/button.tsx", (fixture) => {
     const plan = planVercelDeployments({
       repoRoot: fixture.directory,
@@ -153,7 +152,10 @@ test("packages/ui affects all four deployments", () => {
   });
 });
 
-test("packages/web3 affects app, governance, and reserve in stable order", () => {
+// Turbo still reports the governance workspace as affected, because the app
+// still builds in CI. It is no longer a deployment target (ADR 0017), so the
+// planner maps only the deployable packages.
+test("packages/web3 affects app and reserve in stable order", () => {
   withFixture("packages/web3/src/config.ts", (fixture) => {
     const plan = planVercelDeployments({
       repoRoot: fixture.directory,
@@ -166,8 +168,50 @@ test("packages/web3 affects app, governance, and reserve in stable order", () =>
           "app.mento.org",
         ]),
     });
-    assert.deepEqual(plan.deployments, ["app", "governance", "reserve"]);
+    assert.deepEqual(plan.deployments, ["app", "reserve"]);
   });
+});
+
+test("a governance-only change plans no deployment", () => {
+  for (const path of [
+    "apps/governance.mento.org/app/page.tsx",
+    "apps/governance.mento.org/src/lib/config.ts",
+    "apps/governance.mento.org/package.json",
+    "apps/governance.mento.org/vercel.json",
+  ]) {
+    withFixture(path, (fixture) => {
+      const plan = planVercelDeployments({
+        repoRoot: fixture.directory,
+        base: fixture.base,
+        head: fixture.head,
+        runTurbo: () =>
+          assert.fail("Turbo must not run for a governance-only change"),
+      });
+      assert.deepEqual(plan.deployments, [], path);
+      assert.equal(plan.reason, "non-runtime-only", path);
+    });
+  }
+});
+
+test("a governance change alongside a shared package maps only deployable targets", () => {
+  withFixture(
+    ["apps/governance.mento.org/app/page.tsx", "packages/web3/src/config.ts"],
+    (fixture) => {
+      const plan = planVercelDeployments({
+        repoRoot: fixture.directory,
+        base: fixture.base,
+        head: fixture.head,
+        runTurbo: () =>
+          turboPlan([
+            "governance.mento.org",
+            "reserve.mento.org",
+            "app.mento.org",
+          ]),
+      });
+      assert.deepEqual(plan.deployments, ["app", "reserve"]);
+      assert.equal(plan.reason, "affected-packages");
+    },
+  );
 });
 
 for (const globalPath of [
@@ -406,7 +450,7 @@ test(
       );
       assert.deepEqual(
         planVercelDeployments({ repoRoot: directory, base, head }).deployments,
-        ["app", "governance", "reserve"],
+        ["app", "reserve"],
       );
     } finally {
       rmSync(parentDirectory, { force: true, recursive: true });
@@ -585,11 +629,7 @@ test("trusted checkout still narrows existing packages but fails closed for abse
       encoding: "utf8",
     }).trim();
     for (const [path, expected, reason] of [
-      [
-        "packages/web3/src/index.ts",
-        ["app", "governance", "reserve"],
-        "affected-packages",
-      ],
+      ["packages/web3/src/index.ts", ["app", "reserve"], "affected-packages"],
       [
         "packages/absent-package/README.md",
         VERCEL_DEPLOYMENTS,

@@ -48,7 +48,7 @@ import {
 
 const SHA_PATTERN = /^[a-f0-9]{40}$/;
 const POSITIVE_ID_PATTERN = /^[1-9][0-9]*$/;
-const TARGETS = ["app", "governance", "reserve", "ui"];
+const TARGETS = ["app", "reserve", "ui"];
 const EXECUTION_DIAGNOSTIC_PHASES = Object.freeze({
   INPUT: "input",
   PREPLAN: "preplan",
@@ -60,7 +60,6 @@ const EXECUTION_DIAGNOSTIC_PHASES = Object.freeze({
   OWNERSHIP: "ownership",
   BASELINE_SOURCE_GIT: "baseline-source-git",
   BASELINE_PRIOR_APP: "baseline-prior-app",
-  BASELINE_PRIOR_GOVERNANCE: "baseline-prior-governance",
   BASELINE_PRIOR_RESERVE: "baseline-prior-reserve",
   BASELINE_PRIOR_UI: "baseline-prior-ui",
   BASELINE_PLANNER_RANGE: "baseline-planner-range",
@@ -91,8 +90,6 @@ export const MAIN_RELEASE_EXECUTION_DIAGNOSTIC_CODES = Object.freeze({
     "main-release-execution-baseline-source-git",
   [EXECUTION_DIAGNOSTIC_PHASES.BASELINE_PRIOR_APP]:
     "main-release-execution-baseline-prior-app",
-  [EXECUTION_DIAGNOSTIC_PHASES.BASELINE_PRIOR_GOVERNANCE]:
-    "main-release-execution-baseline-prior-governance",
   [EXECUTION_DIAGNOSTIC_PHASES.BASELINE_PRIOR_RESERVE]:
     "main-release-execution-baseline-prior-reserve",
   [EXECUTION_DIAGNOSTIC_PHASES.BASELINE_PRIOR_UI]:
@@ -136,7 +133,6 @@ export const MAIN_RELEASE_TERMINAL_ARTIFACT_DIAGNOSTIC_CODES = Object.freeze({
 
 const BASELINE_PRIOR_PHASE_BY_TARGET = Object.freeze({
   app: EXECUTION_DIAGNOSTIC_PHASES.BASELINE_PRIOR_APP,
-  governance: EXECUTION_DIAGNOSTIC_PHASES.BASELINE_PRIOR_GOVERNANCE,
   reserve: EXECUTION_DIAGNOSTIC_PHASES.BASELINE_PRIOR_RESERVE,
   ui: EXECUTION_DIAGNOSTIC_PHASES.BASELINE_PRIOR_UI,
 });
@@ -144,7 +140,6 @@ const OPTIONS = Object.freeze({
   "candidate-receipts": Object.freeze([
     "app",
     "execution",
-    "governance",
     "output",
     "reserve",
     "ui",
@@ -171,7 +166,6 @@ const OPTIONS = Object.freeze({
   "inherited-candidate-intent": Object.freeze(["output", "preplan", "target"]),
   "inherited-candidate-receipts": Object.freeze([
     "app",
-    "governance",
     "output",
     "preplan",
     "reserve",
@@ -183,7 +177,6 @@ const OPTIONS = Object.freeze({
     "app-result",
     "coordinator-result",
     "execution",
-    "governance-result",
     "output",
     "reserve-result",
     "ui-result",
@@ -733,7 +726,6 @@ export async function runMainReleaseCli({
       execution,
       results: {
         app: options["app-result"],
-        governance: options["governance-result"],
         reserve: options["reserve-result"],
         ui: options["ui-result"],
       },
@@ -863,7 +855,7 @@ export async function runMainReleaseCli({
     nextUpstreamRunId: identity.upstreamRunId,
     candidateReleases: discovery.discovery.candidateReleases,
     currentMappings: Object.fromEntries(
-      ["governance", "reserve", "ui", "app"].map((target) => [
+      ["reserve", "ui", "app"].map((target) => [
         target,
         currentMappings[target],
       ]),
@@ -922,10 +914,7 @@ export async function runMainReleaseCli({
     planningSnapshotDigest: discovery.planningSnapshotDigest,
     rollbackOnlyTargets: discovery.discovery.rollbackOnlyTargets,
     projectIds: Object.fromEntries(
-      ["governance", "reserve", "ui", "app"].map((target) => [
-        target,
-        projectIds[target],
-      ]),
+      ["reserve", "ui", "app"].map((target) => [target, projectIds[target]]),
     ),
     mode,
     mainOwnershipMode,

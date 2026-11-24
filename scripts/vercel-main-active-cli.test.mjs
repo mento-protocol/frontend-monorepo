@@ -150,7 +150,7 @@ test("CLI parser accepts only exact command option sets and no credential argume
 test("execute validates the descriptor and passes the token only through a filtered environment", async (t) => {
   const directory = privateTestDirectory(t);
   const command = buildMainActivePromotionCommand({
-    target: "governance",
+    target: "reserve",
     ...CANDIDATE,
   });
   const descriptor = writePrivateJson(directory, "descriptor.json", command);
@@ -230,7 +230,7 @@ test("execute preserves reviewed ESM sibling resolution after its entrypoint pat
   const directory = privateTestDirectory(t);
   const env = executionEnvironment(directory);
   const command = buildMainActivePromotionCommand({
-    target: "governance",
+    target: "reserve",
     ...CANDIDATE,
   });
   const descriptor = writePrivateJson(directory, "descriptor.json", command);

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
+import { createHash } from "node:crypto";
 import { test } from "node:test";
 
 import {
@@ -21,6 +22,7 @@ import {
   dependabotIntakeRunName,
   getWorkerRun,
   normalizePlannerResult,
+  parsePreviewJournalComments,
   parseWorkerRunName,
   previewObservationArtifactName,
   previewOwnerAtSha,
@@ -51,7 +53,10 @@ import {
   writeRepositoryDispatchOutputs,
 } from "./vercel-preview-controller.mjs";
 import { validateGitBranch } from "./vercel-prebuilt-workflow.mjs";
-import { legacyPreviewJournalBody } from "./fixtures/vercel-preview-legacy-journal.mjs";
+import {
+  governanceEraPreviewJournalBody,
+  legacyPreviewJournalBody,
+} from "./fixtures/vercel-preview-legacy-journal.mjs";
 import {
   PREVIEW_TARGET_CONFIG,
   PREVIEW_TARGETS,
@@ -1404,7 +1409,7 @@ test("pre-base-ref v2 state keeps its canonical digests and remains reconcilable
   assert.equal(fixture.dispatches.length, 1);
 });
 
-test("planner preserves canonical four-target order and fails closed to all targets", () => {
+test("planner preserves canonical three-target order and fails closed to all targets", () => {
   const receipt = event({
     run: 10,
     action: "opened",
@@ -1433,7 +1438,7 @@ test("planner preserves canonical four-target order and fails closed to all targ
   );
 });
 
-test("one affected event selects four independent workers in stable order", () => {
+test("one affected event selects three independent workers in stable order", () => {
   const opened = event({
     run: 11,
     action: "opened",
@@ -1451,7 +1456,6 @@ test("one affected event selects four independent workers in stable order", () =
   );
   assert.deepEqual(reconciled.state.status_decisions[0].targets, {
     app: "pending",
-    governance: "pending",
     reserve: "pending",
     ui: "pending",
   });
@@ -1499,7 +1503,7 @@ test("one target completion advances independently while other workers remain ac
     advanced.nextDispatches.map(({ target, sha }) => [target, sha]),
     [["app", SHA.B]],
   );
-  for (const target of ["governance", "reserve", "ui"]) {
+  for (const target of ["reserve", "ui"]) {
     assert.equal(advanced.state.targets[target].active.sha, SHA.A);
   }
   assert.equal(advanced.state.status_decisions.at(-1).targets.app, "pending");
@@ -2118,7 +2122,7 @@ test("an unaffected target inherits its prior runtime coalescing proof", () => {
       action: "synchronize",
       before: SHA.B,
       head: SHA.C,
-      targets: ["app", "governance", "reserve"],
+      targets: ["app", "reserve"],
       updated: timestamp(3),
     }),
     event({
@@ -2159,7 +2163,6 @@ test("an unaffected target inherits its prior runtime coalescing proof", () => {
     selectedLatest.nextDispatches.map(({ target, sha }) => ({ target, sha })),
     [
       { target: "app", sha: SHA.C },
-      { target: "governance", sha: SHA.C },
       { target: "reserve", sha: SHA.C },
       { target: "ui", sha: SHA.D },
     ],
@@ -2184,32 +2187,27 @@ test("an unaffected target inherits its prior runtime coalescing proof", () => {
   );
   assert.deepEqual(decisions.get(SHA.A).targets, {
     app: "deployed",
-    governance: "deployed",
     reserve: "deployed",
     ui: "deployed",
   });
   assert.deepEqual(decisions.get(SHA.B).targets, {
     app: "coalesced",
-    governance: "coalesced",
     reserve: "coalesced",
     ui: "coalesced",
   });
   assert.deepEqual(decisions.get(SHA.C).targets, {
     app: "deployed",
-    governance: "deployed",
     reserve: "deployed",
     ui: "coalesced",
   });
   assert.equal(decisions.get(SHA.C).state, "success");
   assert.deepEqual(decisions.get(SHA.D).targets, {
     app: "runtime-equivalent",
-    governance: "runtime-equivalent",
     reserve: "runtime-equivalent",
     ui: "deployed",
   });
   assert.deepEqual(decisions.get(SHA.E).targets, {
     app: "runtime-equivalent",
-    governance: "runtime-equivalent",
     reserve: "runtime-equivalent",
     ui: "runtime-equivalent",
   });
@@ -2963,7 +2961,7 @@ test("capacity checkpoints keep a long overlapping push burst recoverable", () =
   );
 });
 
-test("two-event four-target recovery fits the result-only write before terminal folding", () => {
+test("three-event three-target recovery fits the result-only write before terminal folding", () => {
   const firstEvent = event({
     run: 317_000_000,
     action: "opened",
@@ -3029,14 +3027,50 @@ test("two-event four-target recovery fits the result-only write before terminal 
     targets: PREVIEW_TARGETS,
     updated: timestamp(2),
   });
-  const events = [firstEvent, secondEvent];
-  const secondPull = pull({ head: SHA.B, updated: timestamp(2) });
+  const middleEvents = [firstEvent, secondEvent];
+  const middlePull = pull({ head: SHA.B, updated: timestamp(2) });
+  selected = reconcile({
+    events: middleEvents,
+    selections,
+    results,
+    pullRequest: middlePull,
+    existingState: firstTerminal.state,
+  });
+  activeWave = persistWave(selected, 317_150_000);
+  failWave(activeWave.state, activeWave.runIds);
+  selected = reconcile({
+    events: middleEvents,
+    selections,
+    results,
+    pullRequest: middlePull,
+    existingState: activeWave.state,
+  });
+  activeWave = persistWave(selected, 317_160_000);
+  failWave(activeWave.state, activeWave.runIds);
+  const secondTerminal = reconcile({
+    events: middleEvents,
+    selections,
+    results,
+    pullRequest: middlePull,
+    existingState: activeWave.state,
+  });
+
+  const thirdEvent = event({
+    run: 317_000_002,
+    action: "synchronize",
+    before: SHA.B,
+    head: SHA.C,
+    targets: PREVIEW_TARGETS,
+    updated: timestamp(3),
+  });
+  const events = [firstEvent, secondEvent, thirdEvent];
+  const finalPull = pull({ head: SHA.C, updated: timestamp(3) });
   selected = reconcile({
     events,
     selections,
     results,
-    pullRequest: secondPull,
-    existingState: firstTerminal.state,
+    pullRequest: finalPull,
+    existingState: secondTerminal.state,
   });
   activeWave = persistWave(selected, 317_200_000);
   failWave(activeWave.state, activeWave.runIds);
@@ -3044,7 +3078,7 @@ test("two-event four-target recovery fits the result-only write before terminal 
     events,
     selections,
     results,
-    pullRequest: secondPull,
+    pullRequest: finalPull,
     existingState: activeWave.state,
   });
   activeWave = persistWave(selected, 317_210_000);
@@ -3083,7 +3117,7 @@ test("two-event four-target recovery fits the result-only write before terminal 
       events,
       selections,
       results,
-      pullRequest: secondPull,
+      pullRequest: finalPull,
       existingState: state,
     }).state;
   }
@@ -3123,10 +3157,10 @@ test("two-event four-target recovery fits the result-only write before terminal 
 
 test("non-event capacity writes checkpoint an artifact-covered prefix and preserve the observable suffix", async () => {
   const liveDeploymentFields = (target, runId) => ({
-    vercel_deployment_id: `dpl_${target}_${runId}_${"a".repeat(16)}`,
+    vercel_deployment_id: `dpl_${target}_${runId}_${"a".repeat(104)}`,
     next_deployment_id: `m-${target}-${runId}`,
-    vercel_deployment_url: `https://${target}-${runId}-${"b".repeat(8)}.vercel.app`,
-    verified_upload_url: `https://${target}-${runId}-${"b".repeat(8)}.vercel.app`,
+    vercel_deployment_url: `https://${target}-${runId}-${"b".repeat(45)}.vercel.app`,
+    verified_upload_url: `https://${target}-${runId}-${"b".repeat(45)}.vercel.app`,
   });
   const liveWorkerEvidence = (dispatch, runId) => ({
     ...workerEvidence(dispatch, { runId }),
@@ -3149,7 +3183,8 @@ test("non-event capacity writes checkpoint an artifact-covered prefix and preser
   let state = null;
   let previousHead = null;
 
-  for (let wave = 0; wave < 4; wave += 1) {
+  const waveCount = 5;
+  for (let wave = 0; wave < waveCount; wave += 1) {
     const head = (700 + wave).toString(16).padStart(40, "0");
     const receipt = event({
       run: 330_000_000 + wave,
@@ -3181,7 +3216,7 @@ test("non-event capacity writes checkpoint an artifact-covered prefix and preser
       const dispatch = state.targets[target].active;
       selections.push(selectionReceiptFromDispatch(dispatch));
       const hasUploadEvidence =
-        wave !== 1 && !(wave === 3 && target === "governance");
+        wave !== 1 && !(wave === waveCount - 1 && target === "ui");
       if (hasUploadEvidence) {
         workerEvidenceReceipts.push(
           liveWorkerEvidence(dispatch, runIds[target]),
@@ -3202,13 +3237,13 @@ test("non-event capacity writes checkpoint an artifact-covered prefix and preser
   }
 
   const covered = event({
-    run: 330_000_004,
-    runNumber: 504,
+    run: 330_000_000 + waveCount,
+    runNumber: 500 + waveCount,
     action: "synchronize",
     before: previousHead,
     head: SHA.B,
     runtime: false,
-    updated: timestamp(5),
+    updated: timestamp(waveCount + 1),
     retainObservationReceipt: true,
   });
   events.push(covered);
@@ -3216,18 +3251,18 @@ test("non-event capacity writes checkpoint an artifact-covered prefix and preser
     events,
     selections,
     results,
-    pullRequest: pull({ head: SHA.B, updated: timestamp(5) }),
+    pullRequest: pull({ head: SHA.B, updated: timestamp(waveCount + 1) }),
     existingState: state,
   }).state;
 
   const suffix = event({
-    run: 330_000_005,
-    runNumber: 505,
+    run: 330_000_001 + waveCount,
+    runNumber: 501 + waveCount,
     action: "synchronize",
     before: SHA.B,
     head: SHA.C,
     targets: PREVIEW_TARGETS,
-    updated: timestamp(6),
+    updated: timestamp(waveCount + 2),
     retainObservationReceipt: true,
   });
   events.push(suffix);
@@ -3235,7 +3270,7 @@ test("non-event capacity writes checkpoint an artifact-covered prefix and preser
     events,
     selections,
     results,
-    pullRequest: pull({ head: SHA.C, updated: timestamp(6) }),
+    pullRequest: pull({ head: SHA.C, updated: timestamp(waveCount + 2) }),
     existingState: state,
   });
   const suffixRunIds = Object.fromEntries(
@@ -3251,7 +3286,7 @@ test("non-event capacity writes checkpoint an artifact-covered prefix and preser
   for (const target of PREVIEW_TARGETS) {
     selections.push(selectionReceiptFromDispatch(suffixDispatches[target]));
   }
-  for (const target of ["reserve", "ui", "app"]) {
+  for (const target of ["reserve", "app"]) {
     workerEvidenceReceipts.push(
       liveWorkerEvidence(suffixDispatches[target], suffixRunIds[target]),
     );
@@ -3263,7 +3298,7 @@ test("non-event capacity writes checkpoint an artifact-covered prefix and preser
     events,
     selections,
     results,
-    pullRequest: pull({ head: SHA.C, updated: timestamp(6) }),
+    pullRequest: pull({ head: SHA.C, updated: timestamp(waveCount + 2) }),
     existingState: state,
   }).state;
 
@@ -3288,7 +3323,7 @@ test("non-event capacity writes checkpoint an artifact-covered prefix and preser
         entries.length,
       ]),
     ),
-    { events: 6, selections: 20, worker_evidence: 14, results: 17 },
+    { events: 7, selections: 18, worker_evidence: 13, results: 16 },
   );
   const suffixKeys = new Set(
     Object.values(suffixDispatches).map((dispatch) => dispatch.key_digest),
@@ -3320,13 +3355,13 @@ test("non-event capacity writes checkpoint an artifact-covered prefix and preser
   const preWriteBytes = Buffer.byteLength(comment.body, "utf8");
   assert.ok(preWriteBytes > 62_000, `journal was ${preWriteBytes} bytes`);
   assert.ok(preWriteBytes <= 64_000, `journal was ${preWriteBytes} bytes`);
-  const uncheckpointedGovernanceEvidence = {
-    ...workerEvidence(suffixDispatches.governance, {
-      runId: suffixRunIds.governance,
+  const uncheckpointedUiEvidence = {
+    ...workerEvidence(suffixDispatches.ui, {
+      runId: suffixRunIds.ui,
     }),
-    vercel_deployment_id: "dpl_governance_suffix",
-    next_deployment_id: "m-governance-suffix",
-    verified_upload_url: "https://governance-suffix.vercel.app",
+    vercel_deployment_id: "dpl_ui_suffix",
+    next_deployment_id: "m-ui-suffix",
+    verified_upload_url: "https://ui-suffix.vercel.app",
   };
   const uncheckpointedCandidate = {
     ...structuredClone(before),
@@ -3335,7 +3370,7 @@ test("non-event capacity writes checkpoint an artifact-covered prefix and preser
       ...structuredClone(before.receipts),
       worker_evidence: [
         ...structuredClone(before.receipts.worker_evidence),
-        uncheckpointedGovernanceEvidence,
+        uncheckpointedUiEvidence,
       ],
     },
   };
@@ -3371,19 +3406,19 @@ test("non-event capacity writes checkpoint an artifact-covered prefix and preser
     workerRun(suffixDispatches[target], {
       id: suffixRunIds[target],
       status: "completed",
-      conclusion: target === "governance" ? "failure" : "success",
-      createdAt: timestamp(6),
+      conclusion: target === "ui" ? "failure" : "success",
+      createdAt: timestamp(waveCount + 2),
     }),
   );
   const fixture = fakeGitHub({
-    pullRequest: pull({ head: SHA.C, updated: timestamp(6) }),
+    pullRequest: pull({ head: SHA.C, updated: timestamp(waveCount + 2) }),
     comments: [comment],
     runs,
     workflowRunJobs: new Map([
       [
-        `${suffixRunIds.governance}:1`,
-        successfulBuildRecoveryJobs(suffixDispatches.governance, {
-          runId: suffixRunIds.governance,
+        `${suffixRunIds.ui}:1`,
+        successfulBuildRecoveryJobs(suffixDispatches.ui, {
+          runId: suffixRunIds.ui,
         }),
       ],
     ]),
@@ -3461,7 +3496,7 @@ test("non-event capacity writes checkpoint an artifact-covered prefix and preser
   );
 
   const misplacedArtifactFixture = fakeGitHub({
-    pullRequest: pull({ head: SHA.C, updated: timestamp(6) }),
+    pullRequest: pull({ head: SHA.C, updated: timestamp(waveCount + 2) }),
     artifacts: [
       {
         id: 900_002,
@@ -3477,7 +3512,7 @@ test("non-event capacity writes checkpoint an artifact-covered prefix and preser
   );
 
   const stateWriteFixture = fakeGitHub({
-    pullRequest: pull({ head: SHA.C, updated: timestamp(6) }),
+    pullRequest: pull({ head: SHA.C, updated: timestamp(waveCount + 2) }),
     comments: [structuredClone(comment)],
     runs: [
       ...events.map((receipt) =>
@@ -3494,9 +3529,9 @@ test("non-event capacity writes checkpoint an artifact-covered prefix and preser
     ],
     workflowRunJobs: new Map([
       [
-        `${suffixRunIds.governance}:1`,
-        successfulBuildRecoveryJobs(suffixDispatches.governance, {
-          runId: suffixRunIds.governance,
+        `${suffixRunIds.ui}:1`,
+        successfulBuildRecoveryJobs(suffixDispatches.ui, {
+          runId: suffixRunIds.ui,
         }),
       ],
     ]),
@@ -3547,7 +3582,7 @@ test("non-event capacity writes checkpoint an artifact-covered prefix and preser
     events: stateWriteJournal.receipts.events,
     selections: stateWriteJournal.receipts.selections,
     results: stateWriteJournal.receipts.results,
-    pullRequest: pull({ head: SHA.C, updated: timestamp(6) }),
+    pullRequest: pull({ head: SHA.C, updated: timestamp(waveCount + 2) }),
     existingState: stateWriteJournal.state,
     checkpoint: stateWriteJournal.checkpoint,
   }).state;
@@ -3557,24 +3592,22 @@ test("non-event capacity writes checkpoint an artifact-covered prefix and preser
   );
   assert.equal(stateWriteFixture.lostSerializedUpdates.length, 0);
 
-  const governanceCore = fakeCore();
-  const governanceResult = await recoverWorkerResult({
+  const uiCore = fakeCore();
+  const uiResult = await recoverWorkerResult({
     github: fixture.github,
     context: fakeContext({
-      workflowRun: runs.find((run) =>
-        run.display_title.includes("target=governance"),
-      ),
+      workflowRun: runs.find((run) => run.display_title.includes("target=ui")),
     }),
-    core: governanceCore,
+    core: uiCore,
   });
-  assert.equal(governanceResult.target, "governance");
-  assert.equal(governanceResult.state, "success");
-  assert.equal(governanceCore.outputs.get("worker_evidence_recovered"), "true");
+  assert.equal(uiResult.target, "ui");
+  assert.equal(uiResult.state, "success");
+  assert.equal(uiCore.outputs.get("worker_evidence_recovered"), "true");
 
   let persisted = journalFromComment(fixture.comments[0]);
   assert.equal(persisted.checkpoint.event.event_run_id, covered.event_run_id);
   assert.deepEqual(persisted.receipts.events, [suffix]);
-  for (const target of ["app", "governance", "ui"]) {
+  for (const target of ["app", "ui"]) {
     assert.equal(
       before.state.targets[target].active.selection_receipt_run_id,
       suffix.event_run_id,
@@ -3607,22 +3640,19 @@ test("non-event capacity writes checkpoint an artifact-covered prefix and preser
       .map((entry) => entry.key_digest)
       .sort(),
   );
-  assert.equal(persisted.receipts.worker_evidence.length, 4);
+  assert.equal(persisted.receipts.worker_evidence.length, 3);
   assert.equal(persisted.receipts.results.length, 2);
-  const governanceEvidence = persisted.receipts.worker_evidence.find(
-    (entry) => entry.target === "governance",
+  const uiEvidence = persisted.receipts.worker_evidence.find(
+    (entry) => entry.target === "ui",
   );
-  assert.equal(governanceEvidence.execution_mode, "build");
-  assert.equal(governanceEvidence.build_completed, true);
-  assert.equal(governanceEvidence.vercel_deployment_id, null);
-  assert.equal(governanceEvidence.next_deployment_id, null);
-  assert.equal(
-    governanceEvidence.verified_upload_url,
-    "https://governance-suffix.vercel.app",
-  );
+  assert.equal(uiEvidence.execution_mode, "build");
+  assert.equal(uiEvidence.build_completed, true);
+  assert.equal(uiEvidence.vercel_deployment_id, null);
+  assert.equal(uiEvidence.next_deployment_id, null);
+  assert.equal(uiEvidence.verified_upload_url, "https://ui-suffix.vercel.app");
   assert.ok(Buffer.byteLength(fixture.comments[0].body, "utf8") < 64_000);
 
-  for (const target of ["app", "ui"]) {
+  for (const target of ["app"]) {
     const outcome = await recoverWorkerResult({
       github: fixture.github,
       context: fakeContext({
@@ -3635,19 +3665,19 @@ test("non-event capacity writes checkpoint an artifact-covered prefix and preser
     assert.equal(outcome.state, "success");
   }
   persisted = journalFromComment(fixture.comments[0]);
-  assert.equal(persisted.receipts.results.length, 4);
+  assert.equal(persisted.receipts.results.length, 3);
   const settled = reconcile({
     events: persisted.receipts.events,
     selections: persisted.receipts.selections,
     results: persisted.receipts.results,
-    pullRequest: pull({ head: SHA.C, updated: timestamp(6) }),
+    pullRequest: pull({ head: SHA.C, updated: timestamp(waveCount + 2) }),
     existingState: persisted.state,
     checkpoint: persisted.checkpoint,
   });
   assert.deepEqual(settled.nextDispatches, []);
   const settledState = settled.state;
   const staleDesiredState = structuredClone(persisted.state);
-  for (const target of ["app", "governance", "ui"]) {
+  for (const target of ["app", "ui"]) {
     assert.equal(
       staleDesiredState.targets[target].active.selection_receipt_run_id,
       suffix.event_run_id,
@@ -3662,7 +3692,7 @@ test("non-event capacity writes checkpoint an artifact-covered prefix and preser
     events: persisted.receipts.events,
     selections: persisted.receipts.selections,
     results: persisted.receipts.results,
-    pullRequest: pull({ head: SHA.C, updated: timestamp(6) }),
+    pullRequest: pull({ head: SHA.C, updated: timestamp(waveCount + 2) }),
     existingState: staleDesiredState,
     checkpoint: persisted.checkpoint,
   });
@@ -3700,7 +3730,6 @@ test("non-event capacity writes checkpoint an artifact-covered prefix and preser
   });
   assert.deepEqual(settledState.status_decisions.at(-1).targets, {
     app: "deployed",
-    governance: "deployed",
     reserve: "deployed",
     ui: "deployed",
   });
@@ -3732,7 +3761,7 @@ test("non-event capacity writes checkpoint an artifact-covered prefix and preser
   const repeatedEvidence = [];
   const repeatedResults = [];
   for (const target of PREVIEW_TARGETS) {
-    for (const offset of [100, 200]) {
+    for (const offset of [100, 200, 300, 400, 500, 600, 700]) {
       const runId = suffixRunIds[target] + offset;
       repeatedEvidence.push(
         workerEvidence(suffixDispatches[target], { runId }),
@@ -5129,7 +5158,7 @@ test("docs-only checkpoint tails preserve prior runtime terminal semantics", () 
   });
   assert.equal(
     laterDocsState.state.status_decisions.at(-1).description,
-    "app=none; governance=none; reserve=none; ui=none",
+    "app=none; reserve=none; ui=none",
   );
 });
 
@@ -5369,7 +5398,6 @@ function successfulBuildRecoveryJobs(
 ) {
   const titles = {
     app: "App",
-    governance: "Governance",
     reserve: "Reserve",
     ui: "UI",
   };
@@ -6275,11 +6303,10 @@ function nativeUiAggregateStatus(sha, runId) {
   return {
     sha,
     state: "success",
-    description: "app=none; governance=none; reserve=none; ui=native",
+    description: "app=none; reserve=none; ui=native",
     target_url: `https://github.com/${PREVIEW_REPOSITORY}/actions/runs/${runId}`,
     targets: {
       app: "not affected",
-      governance: "not affected",
       reserve: "not affected",
       ui: "native-owned",
     },
@@ -7066,7 +7093,7 @@ function closedBootstrapTerminalRecoverySetup() {
     run: 70_001,
     action: "opened",
     head: SHA.A,
-    targets: ["app", "governance", "reserve"],
+    targets: ["app", "reserve"],
     updated: timestamp(1),
   });
   const selected = reconcile({
@@ -7075,7 +7102,6 @@ function closedBootstrapTerminalRecoverySetup() {
   });
   const runIdsByTarget = {
     app: 80_001,
-    governance: 80_002,
     reserve: 80_003,
   };
   const state = persistTargetDispatches(selected, runIdsByTarget);
@@ -7184,7 +7210,7 @@ test("closed bootstrap authenticates terminal stale owners before its one reconc
   );
   assert.equal(
     setup.inputs.core.outputs.get("closed_bootstrap_terminal_owner_count"),
-    "3",
+    "2",
   );
   assert.deepEqual(
     fixture.workflowRunAttemptRequests.map(({ run_id: runId }) => runId),
@@ -7289,7 +7315,7 @@ test("closed bootstrap drains a near-capacity closed state with terminal active 
     existingState: setup.state,
   });
   assert.equal(closedBeforeTerminalFold.state.closed, true);
-  for (const target of ["app", "governance", "reserve"]) {
+  for (const target of ["app", "reserve"]) {
     assert.ok(closedBeforeTerminalFold.state.targets[target].active);
   }
   const events = [setup.opened, closed];
@@ -7310,7 +7336,7 @@ test("closed bootstrap drains a near-capacity closed state with terminal active 
         run: 72_000 + index,
         action: "opened",
         head: SHA.A,
-        targets: ["app", "governance", "reserve"],
+        targets: ["app", "reserve"],
         updated: timestamp(1),
       }),
     );
@@ -7355,7 +7381,7 @@ test("closed bootstrap drains a near-capacity closed state with terminal active 
   const admitted = journalFromComment(fixture.comments[0]);
   assert.equal(admitted.checkpoint, null);
   assert.equal(admitted.state.closed, true);
-  for (const target of ["app", "governance", "reserve"]) {
+  for (const target of ["app", "reserve"]) {
     assert.ok(admitted.state.targets[target].active);
   }
   assert.deepEqual(admitted.admission, {
@@ -7454,7 +7480,7 @@ test("closed bootstrap drains a near-capacity closed state with terminal active 
   const stillPending = journalFromComment(fixture.comments[0]);
   assert.equal(stillPending.checkpoint, null);
   assert.equal(stillPending.state.closed, true);
-  for (const target of ["app", "governance", "reserve"]) {
+  for (const target of ["app", "reserve"]) {
     assert.ok(stillPending.state.targets[target].active);
   }
 
@@ -7877,7 +7903,7 @@ test("closed bootstrap terminal recovery rejects unfinished retired and checkpoi
             action: "synchronize",
             before: previousHead,
             head,
-            targets: ["app", "governance", "reserve"],
+            targets: ["app", "reserve"],
             updated: new Date(
               Date.UTC(2026, 6, 15, 10, 0, index + 2),
             ).toISOString(),
@@ -7934,7 +7960,7 @@ test("closed bootstrap preserves the drained contract for terminal non-pending r
   const state = structuredClone(setup.state);
   state.targets.app.retired_active = [state.targets.app.active];
   state.targets.app.active = null;
-  for (const target of ["governance", "reserve"]) {
+  for (const target of ["reserve"]) {
     state.targets[target].active = null;
   }
   const fixture = fakeGitHub({
@@ -9055,7 +9081,6 @@ test("journal comment visibly summarizes all target outcomes in canonical order"
   );
   const expectedRows = [
     "| `app` | `not affected` |",
-    "| `governance` | `not affected` |",
     "| `reserve` | `not affected` |",
     "| `ui` | `deployed` ([open](https://ui-8000.vercel.app)) |",
   ];
@@ -9806,7 +9831,7 @@ test("a large journal compacts a closed receipt without losing branch identity",
     updated: timestamp(1),
   });
   const events = [opened];
-  for (let index = 1; index < 33; index += 1) {
+  for (let index = 1; index < 34; index += 1) {
     events.push(
       event({
         run: 20_000 + index,
@@ -12035,11 +12060,10 @@ test("sequential native ownership checkpoints through docs-only C before only Gi
     {
       sha: SHA.B,
       state: "pending",
-      description: "app=none; governance=none; reserve=none; ui=pending",
+      description: "app=none; reserve=none; ui=pending",
       target_url: githubB.targets.ui.active.html_url,
       targets: {
         app: "not affected",
-        governance: "not affected",
         reserve: "not affected",
         ui: "pending",
       },
@@ -12142,10 +12166,7 @@ test("generic no-dispatch retirement does not claim native ownership of a GitHub
   );
   assert.equal(statusA.state, "error");
   assert.equal(statusA.targets.ui, "error");
-  assert.equal(
-    statusA.description,
-    "app=none; governance=none; reserve=none; ui=error",
-  );
+  assert.equal(statusA.description, "app=none; reserve=none; ui=error");
   assert.doesNotMatch(statusA.description, /Native Vercel/);
 });
 
@@ -12390,7 +12411,7 @@ test("a GitHub-owned receipt followed by a native-owned head never dispatches th
   assert.equal(fixture.commitStatuses.at(-1).state, "success");
   assert.equal(
     fixture.commitStatuses.at(-1).description,
-    "app=none; governance=none; reserve=none; ui=native",
+    "app=none; reserve=none; ui=native",
   );
 });
 
@@ -12475,7 +12496,7 @@ test("active controller defers an exact native-config rollback head without a di
   assert.equal(fixture.commitStatuses.at(-1).state, "success");
   assert.equal(
     fixture.commitStatuses.at(-1).description,
-    "app=none; governance=none; reserve=none; ui=native",
+    "app=none; reserve=none; ui=native",
   );
   assert.equal(
     fixture.commitStatuses.at(-1).target_url,
@@ -12534,7 +12555,7 @@ test("active controller rechecks exact-head ownership after recovery and blocks 
   assert.equal(fixture.commitStatuses.at(-1).state, "success");
   assert.equal(
     fixture.commitStatuses.at(-1).description,
-    "app=none; governance=none; reserve=none; ui=native",
+    "app=none; reserve=none; ui=native",
   );
 });
 
@@ -12587,7 +12608,7 @@ test("active controller settles a completed crash-window worker after a racing n
   assert.equal(fixture.commitStatuses.at(-1).state, "success");
   assert.equal(
     fixture.commitStatuses.at(-1).description,
-    "app=none; governance=none; reserve=none; ui=native",
+    "app=none; reserve=none; ui=native",
   );
 });
 
@@ -12672,7 +12693,7 @@ test("native cutover progress converges independently from a serialized update r
   assert.equal(fixture.commitStatuses.at(-1).state, "success");
   assert.equal(
     fixture.commitStatuses.at(-1).description,
-    "app=none; governance=none; reserve=none; ui=native",
+    "app=none; reserve=none; ui=native",
   );
 });
 
@@ -13033,7 +13054,6 @@ test("observe-only mode durably attaches an in-progress crash-window worker and 
       "https://github.com/mento-protocol/frontend-monorepo/actions/runs/7001",
     targets: {
       app: "native-owned",
-      governance: "native-owned",
       reserve: "native-owned",
       ui: "pending",
     },
@@ -13274,7 +13294,7 @@ test("same-SHA native-owned receipts stay distinct across epoch selection digest
   assert.equal(reconciled.state.status_decisions[0].state, "success");
   assert.equal(
     reconciled.state.status_decisions[0].description,
-    "app=none; governance=none; reserve=none; ui=native",
+    "app=none; reserve=none; ui=native",
   );
 
   const journal = createPreviewJournal({
@@ -15090,7 +15110,7 @@ test("quarantined retired recovery cannot block native preview ownership", async
   assert.equal(fixture.commitStatuses.at(-1).state, "success");
   assert.equal(
     fixture.commitStatuses.at(-1).description,
-    "app=none; governance=none; reserve=none; ui=native",
+    "app=none; reserve=none; ui=native",
   );
   assert.deepEqual(fixture.workflowRunAttemptRequests, [
     { run_id: 8_000, attempt_number: 1 },
@@ -15111,7 +15131,7 @@ test("quarantined retired recovery cannot block native preview ownership", async
   assert.equal(fixture.commitStatuses.at(-1).state, "success");
   assert.equal(
     fixture.commitStatuses.at(-1).description,
-    "app=none; governance=none; reserve=none; ui=native",
+    "app=none; reserve=none; ui=native",
   );
 });
 
@@ -17257,4 +17277,460 @@ test("preview receipts retain distinct planner failure reasons", () => {
       reason,
     );
   }
+});
+
+// ADR 0017 retired `governance` as a preview target while open pull requests
+// still carried governance-era journals. The fixtures below build exactly what
+// that era wrote: every target-keyed map holds the current targets plus
+// `governance`, a persisted plan names it in its retired position, and the
+// journal and body digests are bound by an independent re-implementation of
+// the journal digest, never by the production writer.
+function independentCanonicalJson(value) {
+  if (Array.isArray(value)) {
+    return `[${value.map(independentCanonicalJson).join(",")}]`;
+  }
+  if (value !== null && typeof value === "object") {
+    return `{${Object.keys(value)
+      .sort()
+      .map(
+        (key) =>
+          `${JSON.stringify(key)}:${independentCanonicalJson(value[key])}`,
+      )
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function independentDigest(value, length = 64) {
+  return createHash("sha256")
+    .update(independentCanonicalJson(value))
+    .digest("hex")
+    .slice(0, length);
+}
+
+function independentJournalDigest(journal) {
+  const sortedReceipts = (name) =>
+    journal.receipts[name].map(independentCanonicalJson).sort();
+  return independentDigest({
+    ...(Object.hasOwn(journal, "admission")
+      ? { admission: journal.admission }
+      : {}),
+    checkpoint: journal.checkpoint,
+    receipts_digest: independentDigest({
+      events: sortedReceipts("events"),
+      selections: sortedReceipts("selections"),
+      worker_evidence: sortedReceipts("worker_evidence"),
+      results: sortedReceipts("results"),
+    }),
+    state: journal.state,
+  });
+}
+
+function withRetiredTarget(targets, governance) {
+  return {
+    app: targets.app,
+    governance,
+    ...Object.fromEntries(
+      Object.entries(targets).filter(([target]) => target !== "app"),
+    ),
+  };
+}
+
+// A governance dispatch the retired controller could have persisted: App's
+// selection rebound to the retired target with its own key and digest.
+function governanceDispatchLike(dispatch) {
+  const key = `vercel-preview:v1:pr:${dispatch.pr}:target:governance:sha:${dispatch.sha}`;
+  return {
+    ...structuredClone(dispatch),
+    target: "governance",
+    key,
+    key_digest: independentDigest(
+      {
+        key,
+        epoch_anchor_run_id: dispatch.epoch_anchor_run_id,
+        reconciliation_basis_digest: dispatch.reconciliation_basis_digest,
+        selection_receipt_run_id: dispatch.selection_receipt_run_id,
+        expected_workflow_sha: dispatch.expected_workflow_sha,
+      },
+      24,
+    ),
+  };
+}
+
+function governanceEraStateJournal() {
+  const opened = event({
+    run: 41_000,
+    runNumber: 2,
+    action: "opened",
+    head: SHA.A,
+    targets: ["app", "reserve"],
+    updated: timestamp(1),
+  });
+  // Persisted before ADR 0017: the plan names the retired target in its
+  // governance-era position, which the current reader still accepts.
+  opened.plan.targets = ["app", "governance", "reserve"];
+  const reconciled = reconcile({
+    events: [opened],
+    pullRequest: pull({ head: SHA.A, updated: timestamp(1) }),
+  });
+  const state = persistTargetDispatches(reconciled, {
+    app: 41_001,
+    reserve: 41_002,
+  });
+  const current = journalFromComment(
+    journalComment({
+      events: [opened],
+      selections: ["app", "reserve"].map((target) =>
+        selectionReceiptFromDispatch(state.targets[target].active),
+      ),
+      state,
+      admission: {
+        schema: "vercel-preview-controller-admission:v1",
+        workflow_id: CONTROLLER_WORKFLOW_ID,
+        through_run_id: opened.event_run_id,
+        through_run_number: opened.event_run_number,
+      },
+    }),
+  );
+  const governanceDispatch = {
+    ...governanceDispatchLike(state.targets.app.active),
+    workflow_run_id: 41_003,
+    run_url:
+      "https://api.github.com/repos/mento-protocol/frontend-monorepo/actions/runs/41003",
+    html_url:
+      "https://github.com/mento-protocol/frontend-monorepo/actions/runs/41003",
+  };
+  const governanceEra = structuredClone(current);
+  governanceEra.state.targets = withRetiredTarget(current.state.targets, {
+    ...structuredClone(current.state.targets.app),
+    active: governanceDispatch,
+  });
+  for (const decision of governanceEra.state.status_decisions) {
+    decision.targets = withRetiredTarget(decision.targets, "pending");
+  }
+  governanceEra.receipts.selections.push({
+    ...selectionReceiptFromDispatch(state.targets.app.active),
+    target: "governance",
+    key: governanceDispatch.key,
+    key_digest: governanceDispatch.key_digest,
+  });
+  governanceEra.receipts.worker_evidence.push(
+    workerEvidence(governanceDispatch, { runId: 41_003 }),
+  );
+  governanceEra.journal_digest = independentJournalDigest(governanceEra);
+  return { opened, current, governanceEra };
+}
+
+function governanceEraComment(journal, options) {
+  return {
+    id: 1,
+    user: { type: "Bot", login: "github-actions[bot]" },
+    body: governanceEraPreviewJournalBody(journal, options),
+  };
+}
+
+test("a governance-era journal normalizes to the current targets on read", () => {
+  const { current, governanceEra } = governanceEraStateJournal();
+  assert.deepEqual(Object.keys(governanceEra.state.targets), [
+    "app",
+    "governance",
+    "reserve",
+    "ui",
+  ]);
+  assert.equal(
+    governanceEra.state.targets.governance.active.target,
+    "governance",
+  );
+  for (const compact of [true, false]) {
+    const comment = governanceEraComment(governanceEra, { compact });
+    assert.match(comment.body, /\| `governance` \| `pending` \(\[open\]/);
+    const { journal } = parsePreviewJournalComments([comment], 519);
+    assert.deepEqual(Object.keys(journal.state.targets), [...PREVIEW_TARGETS]);
+    for (const decision of journal.state.status_decisions) {
+      assert.deepEqual(Object.keys(decision.targets).sort(), [
+        ...PREVIEW_TARGETS,
+      ]);
+    }
+    // In-flight governance ownership and every governance receipt are gone;
+    // every other target is exactly what was persisted.
+    for (const name of ["selections", "worker_evidence", "results"]) {
+      assert.deepEqual(journal.receipts[name], current.receipts[name], name);
+    }
+    for (const target of PREVIEW_TARGETS) {
+      assert.deepEqual(
+        journal.state.targets[target],
+        current.state.targets[target],
+        target,
+      );
+    }
+    // Event receipts are never rewritten, so semantic keys stay put.
+    assert.deepEqual(journal.receipts.events, governanceEra.receipts.events);
+    assert.deepEqual(journal.receipts.events[0].plan.targets, [
+      "app",
+      "governance",
+      "reserve",
+    ]);
+    assert.equal(
+      journal.state.receipts_digest,
+      governanceEra.state.receipts_digest,
+    );
+    assert.equal(journal.journal_digest, independentJournalDigest(journal));
+    assert.equal(journal.revision, governanceEra.revision);
+  }
+});
+
+test("a governance-era checkpoint normalizes to the current targets on read", () => {
+  const headFor = (index) => (41_100 + index).toString(16).padStart(40, "0");
+  const events = [
+    event({
+      run: 41_100,
+      runNumber: 4,
+      action: "opened",
+      head: headFor(0),
+      runtime: false,
+      updated: timestamp(1),
+    }),
+    event({
+      run: 41_101,
+      runNumber: 5,
+      action: "synchronize",
+      before: headFor(0),
+      head: headFor(1),
+      runtime: false,
+      updated: timestamp(2),
+    }),
+  ];
+  const reconciled = reconcile({
+    events,
+    pullRequest: pull({ head: headFor(1), updated: timestamp(2) }),
+  });
+  const current = compactPreviewJournal(
+    createPreviewJournal({
+      pr: 519,
+      events,
+      state: reconciled.state,
+      admission: {
+        schema: "vercel-preview-controller-admission:v1",
+        workflow_id: CONTROLLER_WORKFLOW_ID,
+        through_run_id: events.at(-1).event_run_id,
+        through_run_number: events.at(-1).event_run_number,
+      },
+    }),
+  );
+  assert.ok(current.checkpoint, "fixture must carry a checkpoint");
+  const governanceEra = structuredClone(current);
+  governanceEra.checkpoint.targets = withRetiredTarget(
+    current.checkpoint.targets,
+    structuredClone(current.checkpoint.targets.ui),
+  );
+  governanceEra.state.targets = withRetiredTarget(
+    current.state.targets,
+    structuredClone(current.state.targets.ui),
+  );
+  for (const decision of governanceEra.state.status_decisions) {
+    decision.targets = withRetiredTarget(decision.targets, "not affected");
+  }
+  governanceEra.journal_digest = independentJournalDigest(governanceEra);
+  for (const compact of [true, false]) {
+    const { journal } = parsePreviewJournalComments(
+      [governanceEraComment(governanceEra, { compact })],
+      519,
+    );
+    assert.deepEqual(journal.checkpoint, current.checkpoint);
+    assert.deepEqual(journal.state, current.state);
+    assert.deepEqual(journal.receipts, current.receipts);
+    assert.equal(journal.journal_digest, current.journal_digest);
+  }
+});
+
+test("only the exact governance-era journal shape is normalized", () => {
+  const { current, governanceEra } = governanceEraStateJournal();
+  const rejected = (mutate, { body } = {}) => {
+    const value = structuredClone(governanceEra);
+    mutate(value);
+    value.journal_digest = independentJournalDigest(value);
+    const comment = governanceEraComment(value);
+    if (body) comment.body = body(value, comment.body);
+    return () => parsePreviewJournalComments([comment], 519);
+  };
+  // A fifth target, or any key other than the retired one, is not the
+  // governance-era shape and stays a strict failure. Governance receipts are
+  // removed first so the failure is the target-key check itself.
+  const withoutGovernanceReceipts = (value) => {
+    for (const name of ["selections", "worker_evidence", "results"]) {
+      value.receipts[name] = value.receipts[name].filter(
+        ({ target }) => target !== "governance",
+      );
+    }
+  };
+  assert.throws(
+    rejected((value) => {
+      withoutGovernanceReceipts(value);
+      value.state.targets.docs = structuredClone(value.state.targets.ui);
+    }),
+    /Controller target state keys are invalid/,
+  );
+  assert.throws(
+    rejected((value) => {
+      withoutGovernanceReceipts(value);
+      const { governance, ...rest } = value.state.targets;
+      value.state.targets = { ...rest, governanceArchive: governance };
+      for (const decision of value.state.status_decisions) {
+        const { governance: outcome, ...others } = decision.targets;
+        decision.targets = { ...others, governanceArchive: outcome };
+      }
+    }),
+    /Controller target state keys are invalid/,
+  );
+  // Every target-keyed map must be governance-era at once.
+  assert.throws(
+    rejected((value) => {
+      delete value.state.status_decisions.at(-1).targets.governance;
+    }),
+    /Governance-era controller target state keys are invalid/,
+  );
+  // The raw journal must still be canonical and match its own digest before
+  // anything is dropped.
+  assert.throws(
+    rejected(() => {}, {
+      body: (value, body) =>
+        body.replace(
+          JSON.stringify(value),
+          JSON.stringify({ ...value, journal_digest: "0".repeat(64) }),
+        ),
+    }),
+    /Preview journal digest mismatch/,
+  );
+  assert.throws(
+    rejected(() => {}, {
+      body: (value, body) => body.replace(/\n\| `governance` \| [^\n]+/, ""),
+    }),
+    /Preview journal body is not canonical/,
+  );
+  // The current shape is still read strictly and untouched.
+  const { journal } = parsePreviewJournalComments(
+    [
+      journalComment({
+        ...current,
+        events: current.receipts.events,
+        selections: current.receipts.selections,
+        state: current.state,
+      }),
+    ],
+    519,
+  );
+  assert.deepEqual(journal.state, current.state);
+});
+
+test("a governance-era journal persists the current targets on the next write", async () => {
+  const { opened, governanceEra } = governanceEraStateJournal();
+  const closed = event({
+    run: 41_004,
+    runNumber: 3,
+    action: "closed",
+    head: SHA.A,
+    updated: timestamp(2),
+  });
+  const fixture = fakeGitHub({
+    pullRequest: pull({
+      head: SHA.A,
+      state: "closed",
+      updated: timestamp(2),
+      closed: timestamp(2),
+    }),
+    comments: [governanceEraComment(governanceEra)],
+    runs: [
+      controllerEventRun({
+        id: opened.event_run_id,
+        runNumber: opened.event_run_number,
+        action: "opened",
+        sha: SHA.A,
+      }),
+      controllerEventRun({
+        id: closed.event_run_id,
+        runNumber: closed.event_run_number,
+        action: "closed",
+        sha: SHA.A,
+        linked: false,
+        createdAt: timestamp(2),
+      }),
+    ],
+    includeDefaultControllerFloor: false,
+  });
+  const snapshot = structuredClone(closed);
+  delete snapshot.plan;
+  await recordEventReceipt({
+    github: fixture.github,
+    context: fakeContext({ runId: 41_004, runNumber: 3 }),
+    core: fakeCore(),
+    snapshotRaw: JSON.stringify(snapshot),
+    planRaw: "",
+    plannerOutcome: "skipped",
+  });
+  const persisted = journalFromComment(fixture.comments[0]);
+  assert.equal(persisted.revision, governanceEra.revision + 1);
+  assert.equal(fixture.comments[0].body, previewJournalBody(persisted));
+  assert.deepEqual(Object.keys(persisted.state.targets), [...PREVIEW_TARGETS]);
+  assert.ok(!fixture.comments[0].body.includes("`governance`"));
+  for (const name of ["selections", "worker_evidence", "results"]) {
+    assert.ok(
+      persisted.receipts[name].every(({ target }) => target !== "governance"),
+      name,
+    );
+  }
+});
+
+test("persisted plans may name the retired target but new plans and workers cannot", () => {
+  const opened = event({
+    run: 41_200,
+    action: "opened",
+    head: SHA.A,
+    targets: ["app", "reserve"],
+    updated: timestamp(1),
+  });
+  for (const targets of [
+    ["governance"],
+    ["app", "governance"],
+    ["app", "governance", "reserve", "ui"],
+  ]) {
+    assert.deepEqual(
+      validateEventReceipt({ ...opened, plan: { ...opened.plan, targets } })
+        .plan.targets,
+      targets,
+    );
+  }
+  for (const targets of [
+    ["governance", "app"],
+    ["app", "governance", "governance"],
+    ["app", "docs"],
+  ]) {
+    assert.throws(
+      () =>
+        validateEventReceipt({ ...opened, plan: { ...opened.plan, targets } }),
+      /Plan targets are (?:malformed or unordered|invalid)/,
+    );
+  }
+  const snapshot = structuredClone(opened);
+  delete snapshot.plan;
+  assert.throws(
+    () =>
+      normalizePlannerResult(
+        {
+          deployments: ["app", "governance", "reserve"],
+          base: opened.change_base_sha,
+          head: opened.head_sha,
+          reason: "affected-packages",
+        },
+        snapshot,
+      ),
+    /Planner (?:returned too many targets|targets are malformed or unordered)/,
+  );
+  // A late worker the retired controller dispatched no longer parses.
+  assert.throws(
+    () =>
+      parseWorkerRunName(
+        `Vercel preview worker | pr=519 | target=governance | sha=${SHA.A} | key=${"a".repeat(24)}`,
+      ),
+    /Worker run name is not strictly parseable/,
+  );
 });

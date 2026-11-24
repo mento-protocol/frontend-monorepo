@@ -153,7 +153,6 @@ test("checked-in ownership is all GitHub and partitions deterministically", () =
       mode: "active",
       mainOwnershipMode: {
         app: "github",
-        governance: "shadow",
         reserve: "github",
         ui: "shadow",
       },
@@ -161,12 +160,11 @@ test("checked-in ownership is all GitHub and partitions deterministically", () =
     {
       mainOwnershipMode: {
         app: "github",
-        governance: "shadow",
         reserve: "github",
         ui: "shadow",
       },
       githubTargets: ["app", "reserve"],
-      shadowTargets: ["governance", "ui"],
+      shadowTargets: ["ui"],
     },
   );
 });
@@ -239,7 +237,6 @@ test("mixed target-local rollback keeps staging separate from mutation", () => {
   assert.deepEqual(plan.shadowTargets, ["reserve"]);
   assert.deepEqual(plan.mainOwnershipMode, {
     app: "github",
-    governance: "github",
     reserve: "shadow",
     ui: "github",
   });
@@ -290,7 +287,6 @@ test("ownership maps fail closed on missing, extra, or malformed target modes", 
   for (const mainOwnershipMode of [
     {
       app: "github",
-      governance: "github",
       reserve: "github",
     },
     {
@@ -322,7 +318,7 @@ test("global shadow mode rejects any GitHub-owned target", () => {
           app: "github",
         },
       }),
-    /requires all four targets to use shadow ownership/,
+    /requires all three targets to use shadow ownership/,
   );
 });
 
@@ -335,7 +331,7 @@ test("groups distinct served bases, accumulates ranges, and unions targets in ca
         plannerOutput(
           "a".repeat(40),
           input.deploySha,
-          ["governance"],
+          ["ui"],
           "affected-packages",
         ),
       ],
@@ -372,12 +368,12 @@ test("groups distinct served bases, accumulates ranges, and unions targets in ca
       {
         base: "a".repeat(40),
         targets: ["app"],
-        deployments: ["governance"],
+        deployments: ["ui"],
         reason: "affected-packages",
       },
       {
         base: "b".repeat(40),
-        targets: ["governance", "reserve"],
+        targets: ["reserve"],
         deployments: ["app", "reserve"],
         reason: "affected-packages",
       },
@@ -389,7 +385,7 @@ test("groups distinct served bases, accumulates ranges, and unions targets in ca
       },
     ],
   );
-  assert.deepEqual(plan.plan, ["app", "governance", "reserve"]);
+  assert.deepEqual(plan.plan, ["app", "reserve", "ui"]);
   assert.deepEqual(
     plan.priors.map(({ target, deploymentId, deploymentUrl, servedSha }) => ({
       target,
@@ -403,12 +399,6 @@ test("groups distinct served bases, accumulates ranges, and unions targets in ca
         deploymentId: "dpl_appA123",
         deploymentUrl: "https://app-main-a.vercel.app",
         servedSha: "a".repeat(40),
-      },
-      {
-        target: "governance",
-        deploymentId: "dpl_governanceB123",
-        deploymentUrl: "https://governance-main-b.vercel.app",
-        servedSha: "b".repeat(40),
       },
       {
         target: "reserve",
@@ -471,7 +461,7 @@ test("active mode excludes a current target selected by an older served range", 
         plannerOutput(
           "a".repeat(40),
           input.deploySha,
-          ["governance"],
+          ["ui"],
           "affected-packages",
         ),
       ],
@@ -487,7 +477,7 @@ test("active mode excludes a current target selected by an older served range", 
     base: "a".repeat(40),
     head: input.deploySha,
     targets: ["app"],
-    deployments: ["governance"],
+    deployments: ["ui"],
     reason: "affected-packages",
   });
 });
@@ -505,7 +495,7 @@ test("active mode keeps an older range's behind target while excluding its curre
         plannerOutput(
           "a".repeat(40),
           input.deploySha,
-          ["app", "governance"],
+          ["app", "ui"],
           "affected-packages",
         ),
       ],
@@ -518,7 +508,7 @@ test("active mode keeps an older range's behind target while excluding its curre
   assert.deepEqual(plan.reasons, [
     { target: "app", reason: "affected-packages", base: "a".repeat(40) },
   ]);
-  assert.deepEqual(plan.ranges[0].deployments, ["app", "governance"]);
+  assert.deepEqual(plan.ranges[0].deployments, ["app", "ui"]);
 });
 
 test("a valid non-runtime result for every served range is an explained no-op", () => {
@@ -660,11 +650,7 @@ test("App priors are production-shaped and carry the project's other domains", (
 
   // Another main target's reviewed protected domain is the one alias condition
   // that still fails closed.
-  for (const alias of [
-    "governance.mento.org",
-    "reserve.mento.org",
-    "ui.mento.org",
-  ]) {
+  for (const alias of ["reserve.mento.org", "ui.mento.org"]) {
     const crossed = fixture();
     crossed.mode = "active";
     crossed.mainOwnershipMode = ownershipMode("github");
@@ -749,7 +735,6 @@ for (const [name, mutate, expectedReason, expectedServedSha] of [
     const input = fixture();
     input.mode = "active";
     input.mainOwnershipMode = ownershipMode("github");
-    setTargetSha(input, "governance", input.deploySha);
     setTargetSha(input, "reserve", input.deploySha);
     setTargetSha(input, "ui", input.deploySha);
     mutate(input);
@@ -798,7 +783,6 @@ for (const [name, gitOptions, reason] of [
     const input = fixture();
     input.mode = "active";
     input.mainOwnershipMode = ownershipMode("github");
-    setTargetSha(input, "governance", input.deploySha);
     setTargetSha(input, "reserve", input.deploySha);
     setTargetSha(input, "ui", input.deploySha);
     const git = createGitFixture(input, gitOptions);
@@ -820,13 +804,13 @@ test("planner execution failure selects every target that uses that served base"
     new Map([["b".repeat(40), new Error("private fixture error")]]),
   );
   const { plan } = runFixture(input, { planner });
-  assert.deepEqual(plan.plan, ["governance", "reserve"]);
+  assert.deepEqual(plan.plan, ["reserve"]);
   assert.deepEqual(plan.ranges[1], {
     kind: "served",
     base: "b".repeat(40),
     head: input.deploySha,
-    targets: ["governance", "reserve"],
-    deployments: ["governance", "reserve"],
+    targets: ["reserve"],
+    deployments: ["reserve"],
     reason: "planner-execution-failed",
   });
   assert.doesNotMatch(JSON.stringify(plan), /private fixture error/);
@@ -861,7 +845,7 @@ for (const reason of [
       ]),
     );
     const { plan } = runFixture(input, { planner });
-    assert.deepEqual(plan.plan, ["governance", "reserve"]);
+    assert.deepEqual(plan.plan, ["reserve"]);
     assert.equal(plan.ranges[1].reason, reason);
   });
 }
@@ -870,7 +854,6 @@ test("an unknowable affected set keeps current targets out of the active selecti
   const input = fixture();
   input.mode = "active";
   input.mainOwnershipMode = ownershipMode("github");
-  setTargetSha(input, "governance", input.deploySha);
   setTargetSha(input, "reserve", input.deploySha);
   setTargetSha(input, "ui", input.deploySha);
   const planner = createPlannerFixture(
@@ -919,7 +902,6 @@ for (const [name, response] of [
     const input = fixture();
     input.mode = "active";
     input.mainOwnershipMode = ownershipMode("github");
-    setTargetSha(input, "governance", input.deploySha);
     setTargetSha(input, "reserve", input.deploySha);
     setTargetSha(input, "ui", input.deploySha);
     const planner = createPlannerFixture(new Map([["a".repeat(40), response]]));
@@ -984,16 +966,16 @@ test("the shadow head-delta can select a target whose own served base differs", 
         plannerOutput(
           input.firstParent,
           input.deploySha,
-          ["governance"],
+          ["reserve"],
           "affected-packages",
         ),
       ],
     ]),
   );
   const { plan } = runFixture(input, { planner });
-  assert.deepEqual(plan.plan, ["governance"]);
+  assert.deepEqual(plan.plan, ["reserve"]);
   assert.deepEqual(plan.reasons.at(-1), {
-    target: "governance",
+    target: "reserve",
     reason: "shadow-native-already-current",
     base: input.firstParent,
   });
@@ -1010,7 +992,7 @@ test("shadow mode selects a current target only through its first-parent range",
         plannerOutput(
           "a".repeat(40),
           input.deploySha,
-          ["governance"],
+          ["reserve"],
           "affected-packages",
         ),
       ],
@@ -1019,7 +1001,7 @@ test("shadow mode selects a current target only through its first-parent range",
         plannerOutput(
           input.firstParent,
           input.deploySha,
-          ["governance"],
+          ["reserve"],
           "affected-packages",
         ),
       ],
@@ -1028,21 +1010,21 @@ test("shadow mode selects a current target only through its first-parent range",
 
   const { plan } = runFixture(input, { planner });
 
-  assert.deepEqual(plan.plan, ["governance"]);
+  assert.deepEqual(plan.plan, ["reserve"]);
   assert.deepEqual(plan.reasons, [
     {
-      target: "governance",
+      target: "reserve",
       reason: "shadow-native-already-current",
       base: input.firstParent,
     },
   ]);
-  assert.deepEqual(plan.ranges[0].deployments, ["governance"]);
+  assert.deepEqual(plan.ranges[0].deployments, ["reserve"]);
   assert.deepEqual(plan.ranges.at(-1), {
     kind: "shadow-first-parent",
     base: input.firstParent,
     head: input.deploySha,
-    targets: ["governance", "reserve", "ui"],
-    deployments: ["governance"],
+    targets: ["reserve", "ui"],
+    deployments: ["reserve"],
     reason: "affected-packages",
   });
 });
@@ -1075,9 +1057,7 @@ test("rollback-only mappings force selection before SHA and path-aware planning"
   const cases = [
     {
       name: "exact-current",
-      mutate(input) {
-        setTargetSha(input, "governance", input.deploySha);
-      },
+      mutate() {},
       servedSha(input) {
         return input.deploySha;
       },
@@ -1085,7 +1065,7 @@ test("rollback-only mappings force selection before SHA and path-aware planning"
     {
       name: "ancestor-with-no-runtime-diff",
       mutate(input) {
-        setTargetSha(input, "governance", "a".repeat(40));
+        setTargetSha(input, "reserve", "a".repeat(40));
       },
       servedSha() {
         return "a".repeat(40);
@@ -1094,7 +1074,7 @@ test("rollback-only mappings force selection before SHA and path-aware planning"
     {
       name: "missing-git",
       mutate(input) {
-        for (const state of input.priorStates.governance.states) {
+        for (const state of input.priorStates.reserve.states) {
           delete state.git;
         }
       },
@@ -1105,7 +1085,7 @@ test("rollback-only mappings force selection before SHA and path-aware planning"
     {
       name: "malformed-git",
       mutate(input) {
-        for (const state of input.priorStates.governance.states) {
+        for (const state of input.priorStates.reserve.states) {
           state.git.sha = "not-a-sha";
         }
       },
@@ -1121,16 +1101,16 @@ test("rollback-only mappings force selection before SHA and path-aware planning"
     setAllTargetShas(input, input.deploySha);
     scenario.mutate(input);
     const { plan, planner } = runFixture(input, {
-      rollbackOnlyTargets: ["governance"],
+      rollbackOnlyTargets: ["reserve"],
     });
     assert.deepEqual(
       plan.activeTargets,
-      ["governance"],
+      ["reserve"],
       `${scenario.name} must remain selected`,
     );
     assert.deepEqual(plan.reasons, [
       {
-        target: "governance",
+        target: "reserve",
         reason: "served-mapping-rollback-only",
         base: scenario.servedSha(input),
       },
@@ -1141,12 +1121,12 @@ test("rollback-only mappings force selection before SHA and path-aware planning"
       `${scenario.name} must bypass path-aware planning`,
     );
     assert.deepEqual(
-      plan.priors.find(({ target }) => target === "governance"),
+      plan.priors.find(({ target }) => target === "reserve"),
       {
-        target: "governance",
-        aliases: ["governance.mento.org"],
-        deploymentId: input.priorStates.governance.states[0].deploymentId,
-        deploymentUrl: input.priorStates.governance.states[0].deploymentUrl,
+        target: "reserve",
+        aliases: ["reserve.mento.org"],
+        deploymentId: input.priorStates.reserve.states[0].deploymentId,
+        deploymentUrl: input.priorStates.reserve.states[0].deploymentUrl,
         servedSha: scenario.servedSha(input),
       },
       `${scenario.name} must preserve the exact rollback prior`,
@@ -1154,7 +1134,7 @@ test("rollback-only mappings force selection before SHA and path-aware planning"
   }
 });
 
-test("all-four first-cutover rollback priors use canonical target order", () => {
+test("all-three first-cutover rollback priors use canonical target order", () => {
   const input = fixture();
   input.mode = "active";
   input.mainOwnershipMode = ownershipMode("github");
@@ -1208,7 +1188,7 @@ test("cross-run ordinary planning no-ops a candidate already serving the exact S
     plan.ranges.some(
       (range) =>
         range.reason === "served-sha-already-current" &&
-        range.targets.includes("governance"),
+        range.targets.includes("reserve"),
     ),
     true,
   );
@@ -1220,7 +1200,7 @@ test("cross-run ordinary planning selects the exact candidate when the prior map
   input.mainOwnershipMode = ownershipMode("github");
   setAllTargetShas(input, input.deploySha);
   const priorSha = "a".repeat(40);
-  setTargetSha(input, "governance", priorSha);
+  setTargetSha(input, "reserve", priorSha);
   const planner = createPlannerFixture(
     new Map([
       [
@@ -1228,14 +1208,14 @@ test("cross-run ordinary planning selects the exact candidate when the prior map
         plannerOutput(
           priorSha,
           input.deploySha,
-          ["governance"],
+          ["reserve"],
           "affected-packages",
         ),
       ],
     ]),
   );
   const { plan } = runFixture(input, { planner });
-  assert.deepEqual(plan.activeTargets, ["governance"]);
+  assert.deepEqual(plan.activeTargets, ["reserve"]);
 });
 
 test("active mode applies the first-parent fallback only to already-current shadow ownership", () => {
@@ -1243,7 +1223,6 @@ test("active mode applies the first-parent fallback only to already-current shad
   input.mode = "active";
   input.mainOwnershipMode = {
     app: "github",
-    governance: "github",
     reserve: "github",
     ui: "shadow",
   };
@@ -1288,7 +1267,7 @@ test("active mode applies the first-parent fallback only to already-current shad
   );
 });
 
-test("an unresolvable first parent selects all four only in shadow mode", () => {
+test("an unresolvable first parent selects all three only in shadow mode", () => {
   const input = fixture();
   setTargetSha(input, "app", input.deploySha);
   const git = createGitFixture(input, { firstParentError: true });
@@ -1296,8 +1275,8 @@ test("an unresolvable first parent selects all four only in shadow mode", () => 
   assert.deepEqual(plan.plan, MAIN_DEPLOYMENT_TARGETS);
   assert.equal(plan.ranges.at(-1).reason, "shadow-first-parent-unresolved");
   assert.deepEqual(
-    plan.reasons.slice(-4).map((reason) => reason.reason),
-    Array(4).fill("shadow-first-parent-unresolved"),
+    plan.reasons.slice(-3).map((reason) => reason.reason),
+    Array(3).fill("shadow-first-parent-unresolved"),
   );
 });
 
@@ -1318,7 +1297,7 @@ test("a malformed shadow fallback plan selects its current-base target and keeps
 });
 
 test("ordinary served priors accept every finite reviewed generated-alias subset", () => {
-  for (const target of ["governance", "reserve", "ui"]) {
+  for (const target of ["reserve", "ui"]) {
     for (const generatedAliases of ordinaryGeneratedAliasSubsets(target)) {
       const input = fixture();
       input.priorStates[target].states[0].aliases = [
@@ -1336,7 +1315,7 @@ test("ordinary served priors accept every finite reviewed generated-alias subset
 });
 
 test("native git-main served priors remain selectable in active, shadow, and rollback-only planning", () => {
-  for (const target of ["governance", "reserve", "ui"]) {
+  for (const target of ["reserve", "ui"]) {
     for (const context of ["active", "shadow", "rollback-only"]) {
       const input = fixture();
       input.priorStates[target].states[0].aliases = [
@@ -1383,10 +1362,10 @@ test("native git-main served priors remain selectable in active, shadow, and rol
 const activationAmbiguities = [
   {
     name: "missing protected alias",
-    target: "governance",
+    target: "reserve",
     code: "alias-set-ambiguous",
     mutate(input) {
-      input.priorStates.governance.states.pop();
+      input.priorStates.reserve.states.pop();
     },
   },
   {
@@ -1409,35 +1388,35 @@ const activationAmbiguities = [
   },
   {
     name: "malformed deployment alias set",
-    target: "governance",
+    target: "reserve",
     code: "alias-set-ambiguous",
     mutate(input) {
-      input.priorStates.governance.states[0].aliases = [
-        "governance.mento.org",
-        "governance.mento.org",
+      input.priorStates.reserve.states[0].aliases = [
+        "reserve.mento.org",
+        "reserve.mento.org",
       ];
     },
   },
   {
     name: "malformed alias hostname",
-    target: "governance",
+    target: "reserve",
     code: "alias-set-ambiguous",
     mutate(input) {
-      input.priorStates.governance.states[0].aliases.push(
+      input.priorStates.reserve.states[0].aliases.push(
         "https://attacker.invalid/path",
       );
-      input.priorStates.governance.states[0].aliases.sort();
+      input.priorStates.reserve.states[0].aliases.sort();
     },
   },
   {
     // The reviewed mappings crossing is the one alias condition a served prior
     // may never present.
     name: "another target's reviewed protected domain",
-    target: "governance",
+    target: "reserve",
     code: "alias-set-ambiguous",
     mutate(input) {
-      input.priorStates.governance.states[0].aliases.push("app.mento.org");
-      input.priorStates.governance.states[0].aliases.sort();
+      input.priorStates.reserve.states[0].aliases.push("app.mento.org");
+      input.priorStates.reserve.states[0].aliases.sort();
     },
   },
   {
@@ -1474,20 +1453,20 @@ const activationAmbiguities = [
   },
   {
     // The retired custom environment cannot re-enter through any target.
-    name: "v3-shaped governance prior",
-    target: "governance",
+    name: "v3-shaped reserve prior",
+    target: "reserve",
     code: "environment-identity-ambiguous",
     mutate(input) {
-      input.priorStates.governance.states[0].target = null;
-      input.priorStates.governance.states[0].customEnvironmentSlug = "v3";
+      input.priorStates.reserve.states[0].target = null;
+      input.priorStates.reserve.states[0].customEnvironmentSlug = "v3";
     },
   },
   {
     name: "non-ready deployment",
-    target: "governance",
+    target: "reserve",
     code: "prior-readiness-ambiguous",
     mutate(input) {
-      input.priorStates.governance.states[0].readyState = "BUILDING";
+      input.priorStates.reserve.states[0].readyState = "BUILDING";
     },
   },
   {
@@ -1510,10 +1489,10 @@ const activationAmbiguities = [
   },
   {
     name: "malformed rollback deployment ID",
-    target: "governance",
+    target: "reserve",
     code: "rollback-target-ambiguous",
     mutate(input) {
-      input.priorStates.governance.states[0].deploymentId = "latest";
+      input.priorStates.reserve.states[0].deploymentId = "latest";
     },
   },
   {
@@ -1587,7 +1566,6 @@ test("invalid global input fails before any served-range planning", () => {
     {
       projectIds: {
         app: "prj_app123",
-        governance: "prj_governance123",
         reserve: "prj_reserve123",
       },
     },

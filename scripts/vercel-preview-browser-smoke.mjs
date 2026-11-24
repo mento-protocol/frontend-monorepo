@@ -197,9 +197,7 @@ export async function runBrowserSmoke({
     page.setDefaultNavigationTimeout(timeoutMs);
     const monitor = createBrowserFailureMonitor(page, baseUrl.origin);
     const deploymentIdentityMonitor =
-      (tuple.logicalTarget === "governance" ||
-        tuple.logicalTarget === "reserve") &&
-      tuple.nextDeploymentId
+      tuple.logicalTarget === "reserve" && tuple.nextDeploymentId
         ? createBrowserDeploymentIdentityMonitor(page, baseUrl.origin)
         : undefined;
     const response = await page.goto(baseUrl.toString(), {

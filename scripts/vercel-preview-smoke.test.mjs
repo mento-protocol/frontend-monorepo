@@ -11,7 +11,6 @@ const SHA = "0123456789abcdef0123456789abcdef01234567";
 const VERCEL_ACTOR = { login: "vercel[bot]", id: 35_613_825, type: "Bot" };
 const URLS = {
   app: "https://appmento-abc123-mentolabs.vercel.app/",
-  governance: "https://governancemento-abc123-mentolabs.vercel.app/",
   reserve: "https://reservemento-abc123-mentolabs.vercel.app/",
   ui: "https://uimento-abc123-mentolabs.vercel.app/",
 };
@@ -56,8 +55,8 @@ function runtime(overrides = {}) {
 }
 
 function nativeEvent(target = "app", overrides = {}) {
-  const domain = target === "app" ? "app.mento.org" : "governance.mento.org";
-  const project = target === "app" ? "appmento" : "governancemento";
+  const domain = `${target}.mento.org`;
+  const project = `${target}mento`;
   const environment = `Preview – ${domain}`;
   const url = `https://${project}-abc123-mentolabs.vercel.app`;
   return {
@@ -117,8 +116,8 @@ function nativeSmokeValues(target, runtimeOverrides = {}) {
   };
 }
 
-test("controller smoke tuple is target, project, SHA, and build-ID bound for all four targets", () => {
-  for (const target of ["app", "governance", "reserve", "ui"]) {
+test("controller smoke tuple is target, project, SHA, and build-ID bound for all three targets", () => {
+  for (const target of ["app", "reserve", "ui"]) {
     const tuple = validatePreviewSmokeTuple(controllerTuple(target));
     assert.equal(tuple.logicalTarget, target);
     assert.equal(tuple.expectedProjectId, `prj_${target}`);
@@ -163,8 +162,8 @@ test("controller smoke rejects cross-target keys and lookalike project hosts", (
   );
 });
 
-test("native classifier accepts only the exact Vercel actor and App or Governance preview success", () => {
-  for (const target of ["app", "governance"]) {
+test("native classifier accepts only the exact Vercel actor and App preview success", () => {
+  for (const target of ["app"]) {
     const classification = classifyNativePreviewEvent(
       nativeEvent(target),
       runtime(),
@@ -203,16 +202,42 @@ test("native classifier accepts only the exact Vercel actor and App or Governanc
   }
 });
 
+// Governance is no longer a deployment target (ADR 0017), and Reserve and UI
+// previews are GitHub-owned, so a native success for any of them is never
+// eligible for the adapter, and a forged native tuple is refused outright.
+test("native classifier refuses every non-App native preview success", () => {
+  for (const target of ["governance", "reserve", "ui"]) {
+    assert.deepEqual(
+      classifyNativePreviewEvent(nativeEvent(target), runtime()),
+      { eligible: false, reason: "not-app-native-preview-success" },
+      target,
+    );
+  }
+  const values = nativeSmokeValues("app");
+  assert.throws(
+    () =>
+      validatePreviewSmokeTuple({
+        ...values,
+        logicalTarget: "reserve",
+        metadataLogicalTarget: "reserve",
+        deploymentUrl: URLS.reserve,
+        metadataUrl: URLS.reserve,
+        metadataEnvironment: "Preview – reserve.mento.org",
+      }),
+    /Native adapter smoke supports only App/,
+  );
+});
+
 test("native classifier preserves the original Vercel actor trust on maintainer reruns", () => {
   const classification = classifyNativePreviewEvent(
-    nativeEvent("governance"),
+    nativeEvent("app"),
     runtime({
       triggeringActor: "maintainer",
       triggeringActorId: "987654",
     }),
   );
   assert.equal(classification.eligible, true);
-  assert.equal(classification.logicalTarget, "governance");
+  assert.equal(classification.logicalTarget, "app");
 });
 
 test("native classifier rejects production, inactive, main, controller, and actor-lookalike events", () => {
@@ -232,7 +257,7 @@ test("native classifier rejects production, inactive, main, controller, and acto
   inactive.deployment_status.description = "Skipped - Not affected";
   assert.equal(classifyNativePreviewEvent(inactive, runtime()).eligible, false);
 
-  const main = nativeEvent("governance");
+  const main = nativeEvent("app");
   main.deployment.ref = "main";
   assert.equal(classifyNativePreviewEvent(main, runtime()).eligible, false);
 
@@ -257,7 +282,7 @@ test("native classifier rejects production, inactive, main, controller, and acto
     false,
   );
 
-  const misleadingBoolean = nativeEvent("governance");
+  const misleadingBoolean = nativeEvent("app");
   misleadingBoolean.deployment.production_environment = true;
   assert.equal(
     classifyNativePreviewEvent(misleadingBoolean, runtime()).eligible,
@@ -322,10 +347,10 @@ test("common HTTP smoke checks target marker, headers, assets, and controller bu
   assert.equal(requested.length, 5);
 });
 
-test("common HTTP smoke accepts native App and Governance profiles without font assets", async () => {
-  for (const target of ["app", "governance"]) {
+test("common HTTP smoke accepts the native App profile without font assets", async () => {
+  for (const target of ["app"]) {
     const values = nativeSmokeValues(target);
-    const marker = target === "app" ? "Mento App" : "Mento Governance";
+    const marker = "Mento App";
     const html = `<title>${marker}</title>
       <script src="/_next/static/app.js"></script>
       <link rel="stylesheet" href="/_next/static/app.css">`;
@@ -411,11 +436,10 @@ test("common HTTP smoke fails closed on missing headers and mixed deployment ass
   );
 });
 
-test("custom-ID Governance, Reserve, and UI HTTP smoke require exact server-rendered identity", async () => {
-  for (const target of ["governance", "reserve", "ui"]) {
+test("custom-ID Reserve and UI HTTP smoke require exact server-rendered identity", async () => {
+  for (const target of ["reserve", "ui"]) {
     const values = controllerTuple(target);
     const documentMarker = {
-      governance: "Mento Governance",
       reserve: "Mento Reserve",
       ui: "Basic Components",
     }[target];
@@ -505,7 +529,7 @@ test("common HTTP smoke rejects representative assets redirected off the immutab
 });
 
 test("common HTTP smoke aborts a streaming response as soon as it exceeds 5 MiB", async () => {
-  const values = controllerTuple("governance");
+  const values = controllerTuple("reserve");
   let emittedChunks = 0;
   let observedSignal;
   const fetchImplementation = async (url, options) => {

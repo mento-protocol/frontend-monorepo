@@ -6,6 +6,8 @@ canonical: true
 last_verified: 2026-09-02
 scope: ci/deployment
 date: 2026-07
+superseded_in_part_by:
+  - "0017"
 ---
 
 # ADR 0001 — GitHub Actions owns Vercel build and deployment orchestration; Vercel remains hosting and runtime
@@ -14,6 +16,10 @@ date: 2026-07
 Amended 2026-09-01 to retire the legacy App v2 path per MGP-18. Amended
 2026-09-02 to retire the App custom `v3` environment and its transitional
 bridge, completing MGP-18's normalization.
+Amended 2026-11-24 by
+[ADR 0017](0017-retire-governance-from-vercel-deployment.md) to retire
+Governance as a preview and main deployment target; every four-target
+statement below is history.
 **Scope:** ci/deployment
 
 ## Context
