@@ -12,15 +12,12 @@
     "lint": "npx @trunkio/launcher check .",
     "start": "next start",
     "test": "vitest run",
-    "test:connected": "playwright test --project=connected --workers=1",
-    "test:connected:monad": "playwright test --project=connected-monad --workers=1",
     "test:coverage": "vitest run --coverage",
     "test:preview": "playwright test -c playwright.preview.config.ts",
     "test:visual": "playwright test --project=desktop --project=mobile",
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@hookform/resolvers": "^5.2.2",
     "@mento-protocol/mento-sdk": "catalog:",
     "@mento-protocol/ui": "workspace:*",
     "@rainbow-me/rainbowkit": "catalog:",
@@ -36,7 +33,6 @@
     "next-themes": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",
-    "react-hook-form": "catalog:",
     "sonner": "catalog:",
     "tailwindcss": "catalog:",
     "viem": "catalog:",

@@ -24,8 +24,8 @@ const REQUIRED_RESOURCE_TYPES = ["document", "font", "script", "stylesheet"];
 export const MAIN_RUNTIME_TARGETS = Object.freeze({
   app: Object.freeze({
     publicUrl: "https://app.mento.org/",
-    landingPath: "/swap/celo",
-    finalPath: "/swap/celo",
+    landingPath: "/pools",
+    finalPath: "/pools",
     interaction: "real-production-wallet-list",
   }),
   governance: Object.freeze({

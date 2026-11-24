@@ -1,20 +1,13 @@
 "use client";
 
-import {
-  ChainButton,
-  ChainId,
-  ConnectButton,
-  chainIdToSlug,
-  getPreferredVisibleChain,
-  useTestnetMode,
-} from "@repo/web3";
-import { useChainId } from "@repo/web3/wagmi";
+import { ChainButton, ConnectButton } from "@repo/web3";
 
 import { useTheme } from "next-themes";
 import { useAtomValue } from "jotai";
 import { Button, cn, Logo } from "@mento-protocol/ui";
-import { Moon, Sun } from "lucide-react";
+import { ArrowUpRight, Moon, Sun } from "lucide-react";
 import { type AppTab, activeTabAtom } from "@/atoms/navigation";
+import { SQUID_SWAP_URL } from "@/lib/external-links";
 import { useRef, useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -57,7 +50,6 @@ function ThemeSwitch() {
 }
 
 const tabs: { value: AppTab; label: string }[] = [
-  { value: "swap", label: "Swap" },
   { value: "pool", label: "Pool" },
   { value: "borrow", label: "Borrow" },
   { value: "earn", label: "Earn" },
@@ -70,13 +62,9 @@ export function Header() {
   const navRef = useRef<HTMLElement>(null);
   const [indicatorStyle, setIndicatorStyle] = useState({ left: 0, width: 0 });
 
-  const walletChainId = useChainId();
-  const [testnetMode] = useTestnetMode();
-
   // Derive active tab from URL when on routed pages
   const activeTab: AppTab = useMemo(() => {
     if (pathname.startsWith("/pools")) return "pool";
-    if (pathname.startsWith("/swap")) return "swap";
     if (pathname.startsWith("/borrow")) return "borrow";
     if (pathname.startsWith("/earn")) return "earn";
     if (pathname.startsWith("/bridge")) return "bridge";
@@ -85,16 +73,6 @@ export function Header() {
 
   const getTabHref = (tab: AppTab): string => {
     switch (tab) {
-      case "swap": {
-        const routeChainId = getPreferredVisibleChain({
-          chainId: walletChainId,
-          feature: "swap",
-          testnetMode,
-          fallbackChainId: ChainId.Celo,
-        });
-        const chainSlug = chainIdToSlug(routeChainId) || "celo";
-        return `/swap/${chainSlug}`;
-      }
       case "pool":
         return "/pools";
       case "borrow":
@@ -173,6 +151,18 @@ export function Header() {
                 {tab.label}
               </Link>
             ))}
+            {/* Swapping moved to Squid; this leaves the app, so it is a plain
+                external link rather than a tab. */}
+            <a
+              href={SQUID_SWAP_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="pb-1 text-md font-medium gap-0.5 relative z-10 flex items-center text-muted-foreground transition-colors outline-none hover:text-foreground"
+            >
+              Swap
+              <ArrowUpRight className="size-4" aria-hidden="true" />
+              <span className="sr-only">(opens Squid in a new tab)</span>
+            </a>
             {/* Sliding underline indicator */}
             <div
               className="bottom-0 h-0.5 ease-out absolute bg-primary transition-all duration-300"

@@ -4,11 +4,9 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  atomTab: "swap",
-  chainId: 42220,
+  atomTab: "pool",
   pathname: "/",
   setTheme: vi.fn(),
-  testnetMode: false,
   theme: "light",
 }));
 
@@ -29,16 +27,11 @@ vi.mock("next/link", () => ({
   ),
 }));
 vi.mock("@/atoms/navigation", () => ({ activeTabAtom: {} }));
-vi.mock("@repo/web3/wagmi", () => ({ useChainId: () => mocks.chainId }));
 vi.mock("@repo/web3", () => ({
   ChainButton: () => <span>chain</span>,
-  ChainId: { Celo: 42220 },
   ConnectButton: ({ text }: { text?: string }) => (
     <span>{text ?? "Connect wallet"}</span>
   ),
-  chainIdToSlug: (chainId: number) => (chainId === 42220 ? "celo" : undefined),
-  getPreferredVisibleChain: () => mocks.chainId,
-  useTestnetMode: () => [mocks.testnetMode],
 }));
 vi.mock("@mento-protocol/ui", () => ({
   Button: ({
@@ -52,6 +45,7 @@ vi.mock("@mento-protocol/ui", () => ({
     classes.filter(Boolean).join(" "),
 }));
 vi.mock("lucide-react", () => ({
+  ArrowUpRight: () => <span>arrow</span>,
   Moon: () => <span>moon</span>,
   Sun: () => <span>sun</span>,
 }));
@@ -61,10 +55,8 @@ import { Header } from "./header";
 beforeEach(() => {
   vi.clearAllMocks();
   Object.assign(mocks, {
-    atomTab: "swap",
-    chainId: 42220,
+    atomTab: "pool",
     pathname: "/",
-    testnetMode: false,
     theme: "light",
   });
 });
@@ -73,9 +65,6 @@ afterEach(cleanup);
 describe("Header", () => {
   it("builds all navigation links and toggles the theme", () => {
     render(<Header />);
-    expect(
-      screen.getByRole("link", { name: "Swap" }).getAttribute("href"),
-    ).toBe("/swap/celo");
     expect(
       screen.getByRole("link", { name: "Pool" }).getAttribute("href"),
     ).toBe("/pools");
@@ -94,7 +83,25 @@ describe("Header", () => {
     expect(mocks.setTheme).toHaveBeenCalledWith("dark");
   });
 
-  it.each(["/pools", "/swap/celo", "/borrow", "/earn", "/bridge"])(
+  it("links Swap to Squid in a new tab, after the in-app tabs", () => {
+    render(<Header />);
+    const links = screen
+      .getAllByRole("link")
+      .filter((link) => link.closest("nav"));
+    expect(links.map((link) => link.textContent)).toEqual([
+      "Pool",
+      "Borrow",
+      "Earn",
+      "Bridge",
+      "Swaparrow(opens Squid in a new tab)",
+    ]);
+    const swap = screen.getByRole("link", { name: /Swap/ });
+    expect(swap.getAttribute("href")).toBe("https://app.squidrouter.com/");
+    expect(swap.getAttribute("target")).toBe("_blank");
+    expect(swap.getAttribute("rel")).toBe("noopener noreferrer");
+  });
+
+  it.each(["/pools", "/borrow", "/earn", "/bridge"])(
     "derives the active tab from %s",
     (pathname) => {
       mocks.pathname = pathname;
@@ -105,14 +112,13 @@ describe("Header", () => {
     },
   );
 
-  it("uses the atom fallback and a fallback swap slug", () => {
+  it("falls back to the stored tab on unrouted paths", () => {
     mocks.pathname = "/other";
-    mocks.atomTab = "pool";
-    mocks.chainId = 999;
+    mocks.atomTab = "borrow";
     render(<Header />);
-    expect(
-      screen.getByRole("link", { name: "Swap" }).getAttribute("href"),
-    ).toBe("/swap/celo");
+    expect(screen.getByRole("link", { name: "Borrow" }).className).toContain(
+      "text-foreground",
+    );
   });
 
   it("switches a dark theme to light", () => {

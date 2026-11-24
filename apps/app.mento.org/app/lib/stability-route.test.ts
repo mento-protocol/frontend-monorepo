@@ -34,11 +34,9 @@ vi.mock("@repo/web3", () => ({
 }));
 
 import {
-  DEFAULT_STABILITY_CHAIN_ID,
   getStabilityChainName,
   getStabilityFallbackChainId,
   getStabilityRoute,
-  getStabilitySwapRoute,
   getSupportedDeployments,
   isStabilityChainVisible,
   readTestnetModeCookie,
@@ -58,9 +56,6 @@ describe("stability-route", () => {
     expect(getStabilityRoute("GBPm")).toBe("/earn/stability/celo/gbpm");
     expect(getStabilityRoute("GBPm", 11142220)).toBe(
       "/earn/stability/celo-sepolia/gbpm",
-    );
-    expect(getStabilitySwapRoute("GBPm", DEFAULT_STABILITY_CHAIN_ID)).toBe(
-      "/swap/celo?from=USDm&to=GBPm",
     );
   });
 

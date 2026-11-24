@@ -20,7 +20,7 @@ import {
 
 const SHA = "0123456789abcdef0123456789abcdef01234567";
 const ACTUAL_LANDING_PATHS = Object.freeze({
-  app: "/swap/celo",
+  app: "/pools",
   governance: "/",
   reserve: "/",
   ui: "/basic-components",
@@ -358,23 +358,23 @@ test("hard-binds each logical target to its literal public URL and SHA", () => {
 });
 
 test("App public runtime verification follows the production root redirect", () => {
-  assert.equal(MAIN_RUNTIME_TARGETS.app.landingPath, "/swap/celo");
-  assert.equal(MAIN_RUNTIME_TARGETS.app.finalPath, "/swap/celo");
+  assert.equal(MAIN_RUNTIME_TARGETS.app.landingPath, "/pools");
+  assert.equal(MAIN_RUNTIME_TARGETS.app.finalPath, "/pools");
 });
 
-test("App waits for the client-side production root redirect", async () => {
+test("App waits for the production root redirect to Pools", async () => {
   const page = new FakePage("app", {
     initialLanding: "/",
-    waitForUrlNavigation: "/swap/celo",
+    waitForUrlNavigation: "/pools",
   });
   const result = await runMainRuntimeSmoke({
     chromium: fakeChromium(page).chromium,
     values: inputFor("app"),
   });
-  assert.equal(result.final_url, "https://app.mento.org/swap/celo");
+  assert.equal(result.final_url, "https://app.mento.org/pools");
   assert.deepEqual(
     page.calls.find(([operation]) => operation === "wait-url"),
-    ["wait-url", "https://app.mento.org/swap/celo"],
+    ["wait-url", "https://app.mento.org/pools"],
   );
 });
 
