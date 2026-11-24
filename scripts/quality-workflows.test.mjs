@@ -168,7 +168,7 @@ test("the Celo E2E fork excludes the exhausted anonymous 1RPC endpoint", () => {
   ].map((match) => match[1]);
 
   assert.doesNotMatch(workflow, /https:\/\/1rpc\.io\/celo/);
-  assert.equal(celoCandidateLists.length, 4);
+  assert.equal(celoCandidateLists.length, 2);
   for (const candidates of celoCandidateLists) {
     assert.equal(
       [...candidates.matchAll(/https:\/\/rpc\.ankr\.com\/celo/g)].length,
