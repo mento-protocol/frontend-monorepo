@@ -1,6 +1,3 @@
 {
-  "aliases": [
-    { "alias": "governance.mento.org" },
-    { "alias": "not a hostname" }
-  ]
+  "aliases": [{ "alias": "reserve.mento.org" }, { "alias": "not a hostname" }]
 }

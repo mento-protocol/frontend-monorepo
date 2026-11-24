@@ -17,6 +17,7 @@ import {
   decodeMainCandidateReceipt,
   encodeMainCandidateReceipt,
   isBridgeEraCandidateMetadata,
+  isGovernanceEraCandidateMetadata,
   mainCandidateVercelMetadataByteLength,
   resolveMainCandidateProviderState,
 } from "./vercel-main-candidate.mjs";
@@ -37,7 +38,7 @@ function fixture() {
 function planContext() {
   const input = fixture();
   const priorSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-  for (const target of ["app", "governance", "reserve", "ui"]) {
+  for (const target of ["app", "reserve", "ui"]) {
     for (const state of input.priorStates[target].states)
       state.git.sha = priorSha;
   }
@@ -57,12 +58,12 @@ function planContext() {
     runPlanner: ({ base, head }) => ({
       base,
       head,
-      deployments: ["app", "governance", "reserve", "ui"],
+      deployments: ["app", "reserve", "ui"],
       reason: "global-build-input",
     }),
   });
   const originalPriors = Object.fromEntries(
-    ["governance", "reserve", "ui", "app"].map((target) => {
+    ["reserve", "ui", "app"].map((target) => {
       const state = input.priorStates[target].states[0];
       const prior = plan.priors.find((entry) => entry.target === target);
       return [
@@ -249,7 +250,7 @@ test("metadata chunks round-trip the complete manifest within fixed field bounds
   );
   assert.deepEqual(canonical.releaseManifest, current.releaseManifest);
   assert.equal(canonical.stableIntentDigest, current.stableIntentDigest);
-  const capacity = ["app", "governance", "reserve", "ui"].map((target) => {
+  const capacity = ["app", "reserve", "ui"].map((target) => {
     const candidateIntent = intent({ target });
     const candidateMetadata = createMainCandidateVercelMetadata({
       intent: candidateIntent,
@@ -262,12 +263,12 @@ test("metadata chunks round-trip the complete manifest within fixed field bounds
   assert.ok(
     Math.max(...capacity.map(({ bytes }) => bytes)) <=
       MAIN_CANDIDATE_MAX_METADATA_BYTES,
-    "every target's full four-prior manifest must fit the metadata bound",
+    "every target's full three-prior manifest must fit the metadata bound",
   );
   assert.ok(
     Math.max(...capacity.map(({ chunks: count }) => count)) <=
       MAIN_CANDIDATE_MAX_MANIFEST_CHUNKS,
-    "every target's full four-prior manifest must fit the chunk bound",
+    "every target's full three-prior manifest must fit the chunk bound",
   );
   for (const mutate of [
     (value) => {
@@ -450,7 +451,7 @@ test("candidate receipt job output encoding is canonical and intent-bound", () =
   const encoded = encodeMainCandidateReceipt(receipt, current);
   assert.deepEqual(decodeMainCandidateReceipt(encoded, current), receipt);
   assert.throws(
-    () => decodeMainCandidateReceipt(encoded, intent({ target: "governance" })),
+    () => decodeMainCandidateReceipt(encoded, intent({ target: "reserve" })),
     /different intent/,
   );
   assert.throws(
@@ -460,7 +461,7 @@ test("candidate receipt job output encoding is canonical and intent-bound", () =
 });
 
 test("every main candidate uses the ordinary production environment", () => {
-  for (const target of ["app", "governance", "reserve", "ui"]) {
+  for (const target of ["app", "reserve", "ui"]) {
     assert.deepEqual(intent({ target }).environment, {
       target: "production",
       customEnvironmentSlug: null,
@@ -515,23 +516,116 @@ test("historical seal fixtures record the exact stable-body environment each era
 });
 
 test("a genuine bridge-era seal is admitted as a bridge-era mapping", () => {
-  for (const [era, target] of [
-    ["bridgeEra", "app"],
-    ["bridgeEra", "governance"],
-    ["preConversion", "governance"],
-  ]) {
-    const { deployment, context } = HISTORICAL_SEALS[era].seals[target];
+  const { deployment, context } = HISTORICAL_SEALS.bridgeEra.seals.app;
+  assert.equal(isBridgeEraCandidateMetadata(deployment.meta, context), true);
+  // A bridge-era manifest is four-target, but its App prior keeps it out of
+  // the governance-era path, so exactly one classifier owns it.
+  assert.equal(
+    isGovernanceEraCandidateMetadata(deployment.meta, context),
+    false,
+  );
+  // The strict current contract still refuses it, which is exactly why the
+  // bridge-era admission has to exist.
+  assert.throws(
+    () => canonicalizeMainCandidateVercelMetadata(deployment.meta, context),
+    /Main release manifest/,
+  );
+});
+
+// ADR 0017 retired `governance` as a main target. Every reviewed domain was
+// still served by a deployment sealed against the four-target universe when
+// that happened, so those seals are the first thing pre-planning meets.
+test("a genuine governance-era seal is admitted as a governance-era mapping", () => {
+  assert.equal(HISTORICAL_SEALS.governanceEra.sealedAt, "982342ad");
+  assert.deepEqual(HISTORICAL_SEALS.governanceEra.manifestPriorOrder, [
+    "governance",
+    "reserve",
+    "ui",
+    "app",
+  ]);
+  for (const target of ["app", "reserve", "ui"]) {
+    const { deployment, context } =
+      HISTORICAL_SEALS.governanceEra.seals[target];
+    assert.deepEqual(
+      HISTORICAL_SEALS.governanceEra.seals[target].stableBodyEnvironment,
+      { target: "production", customEnvironmentSlug: null },
+      target,
+    );
+    assert.equal(
+      isGovernanceEraCandidateMetadata(deployment.meta, context),
+      true,
+      target,
+    );
     assert.equal(
       isBridgeEraCandidateMetadata(deployment.meta, context),
-      true,
-      `${era}/${target}`,
+      false,
+      target,
     );
-    // The strict current contract still refuses it, which is exactly why the
-    // bridge-era admission has to exist.
+    // The strict current contract refuses the four-target manifest, which is
+    // exactly why the governance-era admission has to exist.
     assert.throws(
       () => canonicalizeMainCandidateVercelMetadata(deployment.meta, context),
       /Main release manifest/,
-      `${era}/${target}`,
+      target,
+    );
+  }
+});
+
+// A seal bound to the retired target itself is never a mapping of a current
+// target, in any era: neither classifier may admit it.
+test("a governance deployment's own seal is never admitted", () => {
+  for (const era of ["governanceEra", "bridgeEra", "preConversion"]) {
+    const { deployment, context } = HISTORICAL_SEALS[era].seals.governance;
+    assert.equal(context.target, "governance");
+    assert.equal(
+      isGovernanceEraCandidateMetadata(deployment.meta, context),
+      false,
+      era,
+    );
+    assert.equal(
+      isBridgeEraCandidateMetadata(deployment.meta, context),
+      false,
+      era,
+    );
+  }
+});
+
+test("no corruption of a genuine governance-era seal is admitted", () => {
+  const { deployment, context } = HISTORICAL_SEALS.governanceEra.seals.reserve;
+  for (const [name, override] of [
+    ["digest", { mentoStableIntentDigest: "0".repeat(64) }],
+    ["release ID", { mentoReleaseId: `mr-${"0".repeat(24)}` }],
+    ["candidate ID", { mentoCandidateId: `mr-reserve-${"0".repeat(14)}` }],
+    ["next deployment ID", { mentoNextDeploymentId: "m-reserve-tampered" }],
+    ["chunk count", { mentoReleaseManifestChunkCount: "99" }],
+    ["encoding", { mentoReleaseManifestEncoding: "identity:v1" }],
+    ["schema", { mentoCandidateSchema: "vercel-main-candidate-metadata:v2" }],
+    ["origin run", { mentoOriginRunId: "0" }],
+    ["unsupported field", { mentoUnreviewed: "1" }],
+  ]) {
+    const corrupted = { ...deployment.meta, ...override };
+    assert.equal(
+      isGovernanceEraCandidateMetadata(corrupted, context),
+      false,
+      name,
+    );
+    assert.throws(
+      () => canonicalizeMainCandidateVercelMetadata(corrupted, context),
+      Error,
+      name,
+    );
+  }
+  // Rebinding the seal to another project, SHA, or target is not the observed
+  // mapping and must not be admitted either.
+  for (const [name, changed] of [
+    ["project", { ...context, projectId: "prj_other" }],
+    ["SHA", { ...context, deploySha: "b".repeat(40) }],
+    ["target", { ...context, target: "ui", projectName: "ui.mento.org" }],
+  ]) {
+    assert.equal(
+      isGovernanceEraCandidateMetadata(deployment.meta, changed),
+      false,
+      name,
     );
   }
 });
@@ -563,7 +657,7 @@ test("no corruption of a genuine bridge-era seal is admitted", () => {
     ["SHA", { ...context, deploySha: "b".repeat(40) }],
     [
       "target",
-      { ...context, target: "governance", projectName: "governance.mento.org" },
+      { ...context, target: "reserve", projectName: "reserve.mento.org" },
     ],
   ]) {
     assert.equal(
@@ -589,6 +683,7 @@ test("a current-contract seal is never admitted through the bridge-era path", ()
     "production",
   );
   assert.equal(isBridgeEraCandidateMetadata(metadata, context), false);
+  assert.equal(isGovernanceEraCandidateMetadata(metadata, context), false);
 });
 
 // The pre-conversion App seal is the one seal that ever bound the retired

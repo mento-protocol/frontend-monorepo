@@ -457,7 +457,7 @@ test("candidate builds are standalone and external references fail before handof
   );
   assert.match(
     build.run,
-    /app\|governance\|reserve\|ui\) build_arguments=\(build --yes --standalone --prod --project "\$VERCEL_PROJECT_ID"\)/,
+    /app\|reserve\|ui\) build_arguments=\(build --yes --standalone --prod --project "\$VERCEL_PROJECT_ID"\)/,
   );
   assert.ok(
     build.run.indexOf("validate-candidate-pull") <
@@ -562,10 +562,9 @@ test("candidate build action validates inputs and builds without a Vercel token"
     candidateAction.outputs.turbo_cache_misses.value,
     "${{ steps.build.outputs.turbo_cache_misses }}",
   );
-  assert.match(
-    candidateBuild.run,
-    optionalShellEnvironmentAssignment("ETHERSCAN_API_KEY"),
-  );
+  // The governance build was the only consumer of ETHERSCAN_API_KEY, and
+  // Governance is no longer a deployment target (ADR 0017).
+  assert.doesNotMatch(candidateActionSource, /ETHERSCAN_API_KEY/);
   assert.match(
     candidateBuild.run,
     optionalShellEnvironmentAssignment("SENTRY_AUTH_TOKEN"),
@@ -574,7 +573,7 @@ test("candidate build action validates inputs and builds without a Vercel token"
 });
 
 test("every target binds the exact deployment SHA into its runtime and cache", () => {
-  for (const target of ["app", "governance", "reserve", "ui"]) {
+  for (const target of ["app", "reserve", "ui"]) {
     const nextConfig = readFileSync(
       new URL(`../apps/${target}.mento.org/next.config.ts`, import.meta.url),
       "utf8",

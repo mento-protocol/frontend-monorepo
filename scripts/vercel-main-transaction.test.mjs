@@ -49,7 +49,7 @@ const identity = Object.freeze({
   runId: "987654321",
   runAttempt: "2",
 });
-const TARGET_ORDER = Object.freeze(["app", "governance", "reserve", "ui"]);
+const TARGET_ORDER = Object.freeze(["app", "reserve", "ui"]);
 // The retired App `v3` custom environment and its generated alias. MGP-18
 // deleted both, so nothing exports them any more. They stay here as literals
 // because every remaining test that names them proves they cannot re-enter a
@@ -211,7 +211,6 @@ function candidateRecord(name, aliases, releaseManifest) {
 function priorState() {
   return {
     app: deploymentRecord("app", ["app.mento.org"]),
-    governance: deploymentRecord("governance", ["governance.mento.org"]),
     reserve: deploymentRecord("reserve", ["reserve.mento.org"]),
     ui: deploymentRecord("ui", ["ui.mento.org"]),
   };
@@ -239,9 +238,6 @@ function candidateState(
             aliases: [...prior.app.aliases],
             discovery: appDiscovery(releaseManifest),
           },
-    governance: selected.has("governance")
-      ? candidateRecord("governance", prior.governance.aliases, releaseManifest)
-      : null,
     reserve: selected.has("reserve")
       ? candidateRecord("reserve", prior.reserve.aliases, releaseManifest)
       : null,
@@ -283,7 +279,7 @@ function runMainTransaction(options) {
   const mode = options.mode ?? MAIN_TRANSACTION_MODE;
   const candidates =
     mode === "shadow"
-      ? { app: null, governance: null, reserve: null, ui: null }
+      ? { app: null, reserve: null, ui: null }
       : options.candidates;
   const release =
     options.release ??
@@ -376,7 +372,6 @@ function preparedPendingApp() {
         aliases: prior.app.aliases,
         discovery,
       },
-      governance: null,
       reserve: null,
       ui: null,
     },
@@ -514,7 +509,7 @@ function transitionSuccessfulOperation(journal, intent) {
   };
 }
 
-function plannedOrdinaryRecovery(targets = ["governance"]) {
+function plannedOrdinaryRecovery(targets = ["reserve"]) {
   let highest = prepared({ app: "known" });
   for (const target of targets) {
     highest = transitionSuccessfulOperation(highest, {
@@ -647,10 +642,10 @@ test("static fixture remains compatible with the canonical journal schema", () =
 });
 
 test("operation snapshots form an append-only monotonic history", () => {
-  const initial = preparedForTargets(["governance"], { app: "known" });
+  const initial = preparedForTargets(["reserve"], { app: "known" });
   const { started, returned, verified } = transitionSuccessfulOperation(
     initial,
-    { type: "promote", target: "governance" },
+    { type: "promote", target: "reserve" },
   );
   const committed = markMainTransactionCommitted(verified);
   const history = [initial, started, returned, verified, committed];
@@ -711,10 +706,10 @@ test("operation snapshots form an append-only monotonic history", () => {
 });
 
 test("operation event fields must match the constructor state", () => {
-  const initial = preparedForTargets(["governance"], { app: "known" });
+  const initial = preparedForTargets(["reserve"], { app: "known" });
   const { started, returned, verified } = transitionSuccessfulOperation(
     initial,
-    { type: "promote", target: "governance" },
+    { type: "promote", target: "reserve" },
   );
   const cases = [
     {
@@ -782,12 +777,12 @@ test("operation event fields must match the constructor state", () => {
 });
 
 test("adjacent journal snapshots append exactly one helper-legal event", () => {
-  const initial = preparedForTargets(["governance"], { app: "known" });
+  const initial = preparedForTargets(["reserve"], { app: "known" });
   const { started, returned, verified } = transitionSuccessfulOperation(
     initial,
     {
       type: "promote",
-      target: "governance",
+      target: "reserve",
     },
   );
   assert.throws(
@@ -869,7 +864,7 @@ test("adjacent journal snapshots append exactly one helper-legal event", () => {
 });
 
 test("forged terminal artifacts cannot bypass transaction recovery", () => {
-  const selected = preparedForTargets(["governance"], { app: "known" });
+  const selected = preparedForTargets(["reserve"], { app: "known" });
   assert.throws(
     () =>
       decideMainTransactionRecovery([
@@ -881,7 +876,7 @@ test("forged terminal artifacts cannot bypass transaction recovery", () => {
 
   const { started, returned, verified } = transitionSuccessfulOperation(
     selected,
-    { type: "promote", target: "governance" },
+    { type: "promote", target: "reserve" },
   );
   for (const status of ["recovered", "manual_intervention"]) {
     assert.throws(
@@ -903,10 +898,10 @@ test("forged terminal artifacts cannot bypass transaction recovery", () => {
 });
 
 test("recovery status helpers expose one legal durable transition at a time", () => {
-  const selected = preparedForTargets(["governance"], { app: "known" });
+  const selected = preparedForTargets(["reserve"], { app: "known" });
   const forwardTransition = transitionSuccessfulOperation(selected, {
     type: "promote",
-    target: "governance",
+    target: "reserve",
   });
   const forward = forwardTransition.verified;
   const recovering = startMainTransactionRecovery(forward);
@@ -915,7 +910,7 @@ test("recovery status helpers expose one legal durable transition at a time", ()
 
   const rollbackStarted = startMainTransactionOperation(recovering, {
     type: "ordinary_rollback",
-    target: "governance",
+    target: "reserve",
   });
   assert.throws(
     () => finishMainTransactionRecovery(rollbackStarted),
@@ -953,14 +948,14 @@ test("recovery status helpers expose one legal durable transition at a time", ()
 });
 
 test("recovery status helpers reject recovery-free and repeated terminals", () => {
-  const selected = preparedForTargets(["governance"], { app: "known" });
+  const selected = preparedForTargets(["reserve"], { app: "known" });
   assert.throws(
     () => startMainTransactionRecovery(selected),
     /does not require/,
   );
   const forward = transitionSuccessfulOperation(selected, {
     type: "promote",
-    target: "governance",
+    target: "reserve",
   }).verified;
   assert.throws(
     () => finishMainTransactionRecovery(forward),
@@ -975,39 +970,39 @@ test("recovery status helpers reject recovery-free and repeated terminals", () =
 });
 
 test("operation starts are phase-gated before any mutation descriptor exists", () => {
-  const selected = preparedForTargets(["governance", "reserve"], {
+  const selected = preparedForTargets(["reserve", "ui"], {
     app: "known",
   });
   assert.throws(
     () =>
       startMainTransactionOperation(selected, {
         type: "ordinary_rollback",
-        target: "governance",
+        target: "reserve",
       }),
     /not allowed in this transaction phase/,
   );
 
-  const governanceForward = transitionSuccessfulOperation(selected, {
-    type: "promote",
-    target: "governance",
-  }).verified;
-  const forward = transitionSuccessfulOperation(governanceForward, {
+  const reserveForward = transitionSuccessfulOperation(selected, {
     type: "promote",
     target: "reserve",
+  }).verified;
+  const forward = transitionSuccessfulOperation(reserveForward, {
+    type: "promote",
+    target: "ui",
   }).verified;
   const recovering = startMainTransactionRecovery(forward);
   assert.throws(
     () =>
       startMainTransactionOperation(recovering, {
         type: "promote",
-        target: "governance",
+        target: "reserve",
       }),
     /not allowed in this transaction phase/,
   );
 
   const rollbackStarted = startMainTransactionOperation(recovering, {
     type: "ordinary_rollback",
-    target: "governance",
+    target: "reserve",
   });
   const rollbackReturned = recordMainTransactionCommandReturned(
     rollbackStarted,
@@ -1024,13 +1019,13 @@ test("operation starts are phase-gated before any mutation descriptor exists", (
   assert.doesNotThrow(() =>
     startMainTransactionOperation(rollbackVerified, {
       type: "ordinary_rollback",
-      target: "reserve",
+      target: "ui",
     }),
   );
 });
 
 test("commit requires one verified forward operation for every selected candidate", () => {
-  const selected = preparedForTargets(["governance", "reserve"], {
+  const selected = preparedForTargets(["reserve", "ui"], {
     app: "known",
   });
   assert.throws(
@@ -1038,21 +1033,19 @@ test("commit requires one verified forward operation for every selected candidat
     /incomplete operations/,
   );
 
-  const governanceVerified = transitionSuccessfulOperation(selected, {
+  const reserveVerified = transitionSuccessfulOperation(selected, {
     type: "promote",
-    target: "governance",
+    target: "reserve",
   }).verified;
   assert.throws(
-    () => markMainTransactionCommitted(governanceVerified),
+    () => markMainTransactionCommitted(reserveVerified),
     /incomplete operations/,
   );
 
-  let fullyVerified = preparedForTargets(
-    ["app", "governance", "reserve", "ui"],
-    { app: "known" },
-  );
+  let fullyVerified = preparedForTargets(["app", "reserve", "ui"], {
+    app: "known",
+  });
   for (const intent of [
-    { type: "promote", target: "governance" },
     { type: "promote", target: "reserve" },
     { type: "promote", target: "ui" },
     { type: "promote", target: "app" },
@@ -1067,33 +1060,25 @@ test("commit requires one verified forward operation for every selected candidat
 
 test("commit requires mutations only for ordinary targets that started at prior", () => {
   const prior = priorState();
-  const candidates = candidateState({ app: "known" }, [
-    "governance",
-    "reserve",
-  ]);
+  const candidates = candidateState({ app: "known" }, ["reserve", "ui"]);
   const startMappings = startMappingsAtPrior(prior);
-  startMappings.governance = prior.governance.aliases.map((alias) =>
-    mapping(alias, candidates.governance),
+  startMappings.reserve = prior.reserve.aliases.map((alias) =>
+    mapping(alias, candidates.reserve),
   );
-  const selected = preparedForTargets(["governance", "reserve"], {
+  const selected = preparedForTargets(["reserve", "ui"], {
     app: "known",
     prior,
     startMappings,
   });
-  const reserveVerified = transitionSuccessfulOperation(selected, {
+  const uiVerified = transitionSuccessfulOperation(selected, {
     type: "promote",
-    target: "reserve",
+    target: "ui",
   }).verified;
   assert.equal(
-    reserveVerified.operations.some(
-      (operation) => operation.target === "governance",
-    ),
+    uiVerified.operations.some((operation) => operation.target === "reserve"),
     false,
   );
-  assert.equal(
-    markMainTransactionCommitted(reserveVerified).status,
-    "committed",
-  );
+  assert.equal(markMainTransactionCommitted(uiVerified).status, "committed");
 });
 
 // Replaces the retired "pending App candidate cannot commit" guard: an App
@@ -1245,14 +1230,14 @@ test("retired bridge alias operations cannot re-enter the transaction model", ()
 
 test("duplicate forward mutations are rejected after a verified attempt", () => {
   const ordinary = transitionSuccessfulOperation(
-    preparedForTargets(["governance"], { app: "known" }),
-    { type: "promote", target: "governance" },
+    preparedForTargets(["reserve"], { app: "known" }),
+    { type: "promote", target: "reserve" },
   ).verified;
   assert.throws(
     () =>
       startMainTransactionOperation(ordinary, {
         type: "promote",
-        target: "governance",
+        target: "reserve",
       }),
     /already recorded/,
   );
@@ -1372,7 +1357,7 @@ test("started journal is durably acknowledged before mutation callback", async (
   const events = [];
   const journal = await executeJournaledMainMutation({
     journal: prepared({ app: "known" }),
-    intent: { type: "promote", target: "governance" },
+    intent: { type: "promote", target: "reserve" },
     uploadJournal: async (payload) => {
       events.push(`upload:${payload.journal.status}`);
       return {
@@ -1418,7 +1403,7 @@ test("upload failure prevents mutation and leaves only prior durable state", asy
   await assert.rejects(
     executeJournaledMainMutation({
       journal: prepared({ app: "known" }),
-      intent: { type: "promote", target: "governance" },
+      intent: { type: "promote", target: "reserve" },
       uploadJournal: async () => {
         throw new Error("artifact service unavailable");
       },
@@ -1449,7 +1434,7 @@ test("every forward upload failure exposes only the last durable journal", async
     await assert.rejects(
       executeJournaledMainMutation({
         journal: prepared({ app: "known" }),
-        intent: { type: "promote", target: "governance" },
+        intent: { type: "promote", target: "reserve" },
         uploadJournal: async ({ artifactName, journal }) => {
           attempts += 1;
           if (attempts === index + 1) {
@@ -1486,7 +1471,7 @@ test("main advancing before an operation performs no mutation", async () => {
   await assert.rejects(
     executeJournaledMainMutation({
       journal: prepared({ app: "known" }),
-      intent: { type: "promote", target: "governance" },
+      intent: { type: "promote", target: "reserve" },
       uploadJournal: async () => {
         uploads += 1;
       },
@@ -1511,7 +1496,7 @@ test("main advancing after started upload hands recovery a durable operation", a
   await assert.rejects(
     executeJournaledMainMutation({
       journal: prepared({ app: "known" }),
-      intent: { type: "promote", target: "governance" },
+      intent: { type: "promote", target: "reserve" },
       uploadJournal: acknowledgedUploader(uploads),
       assertFreshness: async ({ phase }) => ({
         sha: phase === "pre-command" ? OTHER_SHA : SHA,
@@ -1540,7 +1525,7 @@ test("protected mapping drift before command prevents the mutation callback", as
   await assert.rejects(
     executeJournaledMainMutation({
       journal: prepared({ app: "known" }),
-      intent: { type: "promote", target: "governance" },
+      intent: { type: "promote", target: "reserve" },
       uploadJournal: acknowledgedUploader(uploads),
       assertFreshness: async () => ({ sha: SHA }),
       inspectMutationState: async () => {
@@ -1571,7 +1556,7 @@ test("main advancing during or after a command forces recovery", async () => {
   await assert.rejects(
     executeJournaledMainMutation({
       journal: prepared({ app: "known" }),
-      intent: { type: "promote", target: "governance" },
+      intent: { type: "promote", target: "reserve" },
       uploadJournal: acknowledgedUploader(uploads),
       assertFreshness: async () => ({ sha: currentSha }),
       executeMutation: async () => {
@@ -1658,7 +1643,7 @@ test("a cancellation after started persistence is recoverable by a separate job"
   const initial = prepared({ app: "known" });
   const started = startMainTransactionOperation(initial, {
     type: "promote",
-    target: "governance",
+    target: "reserve",
   });
   const uploads = [];
   await persistMainTransactionJournal(started, acknowledgedUploader(uploads));
@@ -1740,7 +1725,7 @@ test("mapping classifier distinguishes prior, candidate, partial, and unexpected
 test("ordinary recovery is planned and executed in reverse activation order", async () => {
   const snapshots = [prepared({ app: "known" })];
   let highest = snapshots[0];
-  for (const target of ["governance", "reserve", "ui"]) {
+  for (const target of ["reserve", "ui"]) {
     const transitions = transitionSuccessfulOperation(highest, {
       type: "promote",
       target,
@@ -1753,7 +1738,7 @@ test("ordinary recovery is planned and executed in reverse activation order", as
     highest = transitions.verified;
   }
   const overrides = Object.fromEntries(
-    ["governance", "reserve", "ui"].flatMap((target) =>
+    ["reserve", "ui"].flatMap((target) =>
       highest.prior[target].aliases.map((alias) => [
         alias,
         highest.candidates[target],
@@ -1767,13 +1752,9 @@ test("ordinary recovery is planned and executed in reverse activation order", as
   assert.equal(plan.decision, "recover");
   assert.deepEqual(
     plan.actions.map((entry) => `${entry.kind}:${entry.target}`),
-    [
-      "ordinary_rollback:ui",
-      "ordinary_rollback:reserve",
-      "ordinary_rollback:governance",
-    ],
+    ["ordinary_rollback:ui", "ordinary_rollback:reserve"],
   );
-  assert.deepEqual(plan.rollbackStateTargets, ["ui", "reserve", "governance"]);
+  assert.deepEqual(plan.rollbackStateTargets, ["ui", "reserve"]);
   assert.ok(plan.actions.every((entry) => entry.entersRollbackState));
 
   const calls = [];
@@ -1801,30 +1782,23 @@ test("ordinary recovery is planned and executed in reverse activation order", as
   assert.equal(calls.includes("restoreAppAlias"), false);
   assert.deepEqual(
     calls.map((entry) => entry.split(":").slice(0, 2).join(":")),
-    [
-      "rollback:ui",
-      "verify:ui",
-      "rollback:reserve",
-      "verify:reserve",
-      "rollback:governance",
-      "verify:governance",
-    ],
+    ["rollback:ui", "verify:ui", "rollback:reserve", "verify:reserve"],
   );
   assert.equal(recovered.status, "recovered");
   const rollbackEvents = recovered.operations.filter(
     (operation) =>
       operation.type === "ordinary_rollback" && operation.state === "verified",
   );
-  assert.equal(rollbackEvents.length, 3);
+  assert.equal(rollbackEvents.length, 2);
   assert.ok(
     rollbackEvents.every((operation) => operation.rollbackState === "entered"),
   );
 });
 
 test("forged recovery action fields never reach inspection or mutation adapters", async () => {
-  const basePlan = plannedOrdinaryRecovery(["governance", "reserve"]);
+  const basePlan = plannedOrdinaryRecovery(["reserve", "ui"]);
   const mutations = [
-    ["target", (plan) => (plan.actions[0].target = "governance")],
+    ["target", (plan) => (plan.actions[0].target = "reserve")],
     ["operation ID", (plan) => (plan.actions[0].operationId = "op-0001")],
     [
       "prior deployment ID",
@@ -1986,10 +1960,10 @@ test("every recovery upload failure exposes only the last durable journal", asyn
 });
 
 test("a noop that moves after planning cannot be recorded as recovered", async () => {
-  const initial = preparedForTargets(["governance"], { app: "known" });
+  const initial = preparedForTargets(["reserve"], { app: "known" });
   const transitions = transitionSuccessfulOperation(initial, {
     type: "promote",
-    target: "governance",
+    target: "reserve",
   });
   const plan = planMainTransactionRecovery({
     journal: transitions.verified,
@@ -2075,9 +2049,9 @@ test("unexpected ordinary movement preserves possible operator intervention", ()
   const initial = prepared({ app: "known" });
   const { started } = transitionSuccessfulOperation(initial, {
     type: "promote",
-    target: "governance",
+    target: "reserve",
   });
-  const aliases = started.prior.governance.aliases;
+  const aliases = started.prior.reserve.aliases;
   const plan = planMainTransactionRecovery({
     journal: started,
     currentMappings: currentMappings(started, {
@@ -2094,20 +2068,17 @@ test("unexpected ordinary movement preserves possible operator intervention", ()
 
 test("manual intervention on one target does not skip safe reverse recovery elsewhere", async () => {
   let highest = prepared({ app: "known" });
-  for (const target of ["governance", "reserve"]) {
+  for (const target of ["reserve", "ui"]) {
     highest = transitionSuccessfulOperation(highest, {
       type: "promote",
       target,
     }).verified;
   }
-  const governanceAlias = highest.prior.governance.aliases[0];
+  const reserveAlias = highest.prior.reserve.aliases[0];
   const overrides = Object.fromEntries(
-    highest.prior.reserve.aliases.map((alias) => [
-      alias,
-      highest.candidates.reserve,
-    ]),
+    highest.prior.ui.aliases.map((alias) => [alias, highest.candidates.ui]),
   );
-  overrides[governanceAlias] = {
+  overrides[reserveAlias] = {
     deploymentId: "dpl_operator123",
     deploymentUrl: "https://operator.vercel.app",
   };
@@ -2133,7 +2104,7 @@ test("manual intervention on one target does not skip safe reverse recovery else
     }),
     verifyMapping: async () => ({ mappingState: "prior" }),
   });
-  assert.deepEqual(calls, ["reserve"]);
+  assert.deepEqual(calls, ["ui"]);
   assert.equal(result.status, "manual_intervention");
 });
 
@@ -2224,7 +2195,7 @@ test("staged App candidate removes the unresolved-candidate recovery model", () 
 
 test("manual App recovery retains safe ordinary rollback actions", () => {
   let highest = prepared();
-  for (const target of ["governance", "reserve", "ui"]) {
+  for (const target of ["reserve", "ui"]) {
     highest = transitionSuccessfulOperation(highest, {
       type: "promote",
       target,
@@ -2240,7 +2211,7 @@ test("manual App recovery retains safe ordinary rollback actions", () => {
   });
 
   const overrides = Object.fromEntries(
-    ["governance", "reserve", "ui"].flatMap((target) =>
+    ["reserve", "ui"].flatMap((target) =>
       highest.prior[target].aliases.map((alias) => [
         alias,
         highest.candidates[target],
@@ -2271,9 +2242,9 @@ test("manual App recovery retains safe ordinary rollback actions", () => {
     plan.actions
       .filter((entry) => entry.kind === "ordinary_rollback")
       .map((entry) => entry.target),
-    ["ui", "reserve", "governance"],
+    ["ui", "reserve"],
   );
-  assert.deepEqual(plan.rollbackStateTargets, ["ui", "reserve", "governance"]);
+  assert.deepEqual(plan.rollbackStateTargets, ["ui", "reserve"]);
 });
 
 test("unexpected app mapping is never overwritten", () => {
@@ -2388,7 +2359,7 @@ test("retired v3-shaped App prior cannot re-enter a release manifest or journal"
 // The whole forward path ran and the run failed after the last promote. Every
 // reviewed target — App included — is compensated by its own ordinary
 // rollback, in reverse activation order, with no alias slot in between.
-test("a full forward activation is compensated by four reverse ordinary rollbacks", () => {
+test("a full forward activation is compensated by three reverse ordinary rollbacks", () => {
   let journal = prepared();
   for (const target of MAIN_RELEASE_ACTIVATION_ORDER) {
     journal = transitionSuccessfulOperation(journal, {
@@ -2413,34 +2384,29 @@ test("a full forward activation is compensated by four reverse ordinary rollback
     plan.reason,
     "started-operations-require-verification-or-recovery",
   );
-  // Four started promotes yield four ordinary slots, the maximum.
-  assert.equal(plan.actions.length, 4);
+  // Three started promotes yield three ordinary slots, the maximum.
+  assert.equal(plan.actions.length, 3);
   assert.deepEqual(
     plan.actions.map(({ kind, target }) => ({ kind, target })),
     [...MAIN_RELEASE_ACTIVATION_ORDER]
       .reverse()
       .map((target) => ({ kind: "ordinary_rollback", target })),
   );
-  assert.deepEqual(plan.rollbackStateTargets, [
-    "app",
-    "ui",
-    "reserve",
-    "governance",
-  ]);
+  assert.deepEqual(plan.rollbackStateTargets, ["app", "ui", "reserve"]);
   assert.equal(
     plan.actions.every((entry) => !Object.hasOwn(entry, "alias")),
     true,
   );
   assert.deepEqual(assertMainTransactionRecoveryPlan(plan), plan);
 
-  // A fifth slot cannot exist: no forward operation type but `promote`
+  // A fourth slot cannot exist: no forward operation type but `promote`
   // remains, and every target is already covered.
   assert.throws(
     () =>
       assertMainTransactionRecoveryPlan({
         ...plan,
         actions: [...plan.actions, plan.actions.at(-1)],
-        rollbackStateTargets: [...plan.rollbackStateTargets, "governance"],
+        rollbackStateTargets: [...plan.rollbackStateTargets],
       }),
     /do not cover the journal exactly/,
   );
@@ -2627,15 +2593,14 @@ test("active mode promotes ordinary targets sequentially and activates App last"
 
   assert.equal(result.outcome, "active-committed");
   assert.equal(result.journal.status, "committed");
-  assert.equal(result.mutationCallbacksCalled, 4);
-  // Forward activation is exactly four promotes. App promotes last and its own
+  assert.equal(result.mutationCallbacksCalled, 3);
+  // Forward activation is exactly three promotes. App promotes last and its own
   // promote carries the reviewed domain; there is no alias slot behind it.
   assert.deepEqual(
     result.journal.operations
       .filter((operation) => operation.state === "started")
       .map((operation) => [operation.type, operation.target, operation.alias]),
     [
-      ["promote", "governance", null],
       ["promote", "reserve", null],
       ["promote", "ui", null],
       ["promote", "app", null],
@@ -2650,7 +2615,6 @@ test("active mode promotes ordinary targets sequentially and activates App last"
         operation.mappingState,
       ]),
     [
-      ["promote", "governance", "candidate"],
       ["promote", "reserve", "candidate"],
       ["promote", "ui", "candidate"],
       ["promote", "app", "candidate"],
@@ -2658,7 +2622,6 @@ test("active mode promotes ordinary targets sequentially and activates App last"
   );
   const mutations = events.filter((event) => event.startsWith("mutate:"));
   assert.deepEqual(mutations, [
-    "mutate:promote:governance",
     "mutate:promote:reserve",
     "mutate:promote:ui",
     "mutate:promote:app",
@@ -2680,7 +2643,7 @@ test("active mode promotes ordinary targets sequentially and activates App last"
   );
   assert.deepEqual(
     harness.commands.map(({ type, target }) => `${type}:${target}`),
-    ["promote:governance", "promote:reserve", "promote:ui", "promote:app"],
+    ["promote:reserve", "promote:ui", "promote:app"],
   );
   assert.equal(
     result.journal.operations.every((operation) => operation.alias === null),
@@ -2720,14 +2683,14 @@ test("active mode promotes ordinary targets sequentially and activates App last"
   }
   assert.equal(events[0], "upload:prepared:none");
   assert.match(events.at(-1), /^upload:committed:op-[0-9]{4}$/);
-  // prepared(1) + four promotes x (started, command_returned, verified) +
-  // committed(1) = 14 durable snapshots, so the last sequence is 13.
+  // prepared(1) + three promotes x (started, command_returned, verified) +
+  // committed(1) = 11 durable snapshots, so the last sequence is 10.
   assert.equal(
     events.filter((event) => event.startsWith("upload:")).length,
-    14,
+    11,
   );
-  assert.equal(result.journal.sequence, 13);
-  assert.equal(freshness.filter((phase) => phase === "pre-command").length, 4);
+  assert.equal(result.journal.sequence, 10);
+  assert.equal(freshness.filter((phase) => phase === "pre-command").length, 3);
   assert.equal(freshness.at(-1), "transaction-commit");
   assert.equal(
     result.journal.candidates.app.deploymentId,
@@ -2784,11 +2747,7 @@ test("a reviewed App mapping already at the candidate is drift, not a silent noo
   );
   assert.deepEqual(
     harness.events.filter((event) => event.startsWith("mutate:")),
-    [
-      "mutate:promote:governance",
-      "mutate:promote:reserve",
-      "mutate:promote:ui",
-    ],
+    ["mutate:promote:reserve", "mutate:promote:ui"],
   );
   assert.equal(
     uploads.some((entry) => entry.status === "committed"),
@@ -2832,7 +2791,7 @@ test("active mode binds the staged App candidate and promotes it onto the review
   });
 
   assert.equal(result.journal.status, "committed");
-  assert.equal(result.mutationCallbacksCalled, 4);
+  assert.equal(result.mutationCallbacksCalled, 3);
   assert.deepEqual(verifiedAppPromote, {
     deploymentId: "dpl_appCandidate123",
     deploymentUrl: "https://app-candidate.vercel.app",
@@ -2842,7 +2801,7 @@ test("active mode binds the staged App candidate and promotes it onto the review
     result.journal.operations
       .filter((operation) => operation.state === "started")
       .map((operation) => `${operation.type}:${operation.target}`),
-    ["promote:governance", "promote:reserve", "promote:ui", "promote:app"],
+    ["promote:reserve", "promote:ui", "promote:app"],
   );
   assert.deepEqual(
     harness.events.filter((event) => event.startsWith("mutate:app_alias_set")),
@@ -2993,10 +2952,10 @@ test("active mode rejects a drifted reviewed App mapping before its promote", as
 });
 
 test("active mode hands an incomplete durable history to recovery without replay", async () => {
-  const initial = preparedForTargets(["governance"], { app: "known" });
+  const initial = preparedForTargets(["reserve"], { app: "known" });
   const started = startMainTransactionOperation(initial, {
     type: "promote",
-    target: "governance",
+    target: "reserve",
   });
   const harness = activeMutationHarness();
   let uploads = 0;
@@ -3061,13 +3020,13 @@ test("active mode stops at the next freshness barrier and preserves the last dur
       assert.ok(error instanceof MainTransactionError);
       assert.equal(error.code, "SUPERSEDED_DURING_MUTATION");
       assert.equal(error.journal.status, "verified");
-      assert.equal(error.journal.operations.at(-1).target, "governance");
+      assert.equal(error.journal.operations.at(-1).target, "reserve");
       return true;
     },
   );
   assert.deepEqual(
     harness.events.filter((event) => event.startsWith("mutate:")),
-    ["mutate:promote:governance"],
+    ["mutate:promote:reserve"],
   );
   assert.equal(uploads.at(-1).status, "verified");
 });
@@ -3133,7 +3092,7 @@ test("active mode requires every selected forward and verification adapter befor
 function preparedWithCandidatePrefix(prefix) {
   const prior = priorState();
   const candidates = candidateState({ app: "known" });
-  const activationOrder = ["governance", "reserve", "ui", "app"];
+  const activationOrder = ["reserve", "ui", "app"];
   const inherited = new Set(activationOrder.slice(0, prefix));
   const startMappings = Object.fromEntries(
     Object.entries(prior).map(([target, record]) => [
@@ -3153,16 +3112,11 @@ function preparedWithCandidatePrefix(prefix) {
   });
 }
 
-test("v3 journal binds durable release, all four priors, and exact start mappings", () => {
+test("v3 journal binds durable release, all three priors, and exact start mappings", () => {
   const journal = prepared();
   assert.equal(journal.schema, 3);
   assert.equal(journal.release.deploySha, journal.deploySha);
-  assert.deepEqual(Object.keys(journal.prior), [
-    "app",
-    "governance",
-    "reserve",
-    "ui",
-  ]);
+  assert.deepEqual(Object.keys(journal.prior), ["app", "reserve", "ui"]);
   assert.deepEqual(
     Object.keys(journal.startMappings),
     Object.keys(journal.prior),
@@ -3172,10 +3126,10 @@ test("v3 journal binds durable release, all four priors, and exact start mapping
 });
 
 test("v3 history freezes release and start mappings", () => {
-  const initial = preparedForTargets(["governance"], { app: "known" });
+  const initial = preparedForTargets(["reserve"], { app: "known" });
   const started = startMainTransactionOperation(initial, {
     type: "promote",
-    target: "governance",
+    target: "reserve",
   });
   const changedRelease = structuredClone(started);
   changedRelease.release.releasePlanDigest = "0".repeat(64);
@@ -3184,7 +3138,7 @@ test("v3 history freezes release and start mappings", () => {
     /release|manifest|identity/,
   );
   const changedStart = structuredClone(started);
-  changedStart.startMappings.governance[0].deploymentId = "dpl_operator123";
+  changedStart.startMappings.reserve[0].deploymentId = "dpl_operator123";
   assert.throws(
     () => assertMainTransactionJournalHistory([initial, changedStart]),
     /mapping|start/,
@@ -3256,7 +3210,7 @@ test("selected App target promotes its staged candidate with no alias mutation",
 });
 
 test("v3 release reconciliation rejects non-prefix inherited mappings", () => {
-  const journal = preparedWithCandidatePrefix(1);
+  const journal = preparedWithCandidatePrefix(0);
   const invalid = structuredClone(journal);
   invalid.startMappings.ui = invalid.startMappings.ui.map((entry) =>
     mapping(entry.alias, invalid.candidates.ui),
@@ -3267,8 +3221,8 @@ test("v3 release reconciliation rejects non-prefix inherited mappings", () => {
   );
 });
 
-test("one, two, and three inherited targets receive reverse recovery authority", () => {
-  for (const prefix of [1, 2, 3]) {
+test("one and two inherited targets receive reverse recovery authority", () => {
+  for (const prefix of [1, 2]) {
     const journal = preparedWithCandidatePrefix(prefix);
     const plan = planInheritedMainTransactionRecovery({
       journal,
@@ -3277,11 +3231,11 @@ test("one, two, and three inherited targets receive reverse recovery authority",
     assert.equal(plan.decision, "restore-inherited");
     assert.deepEqual(
       plan.rollbackAuthority.targets,
-      ["governance", "reserve", "ui"].slice(0, prefix),
+      ["reserve", "ui"].slice(0, prefix),
     );
     assert.deepEqual(
       plan.actions.map(({ target }) => target),
-      ["governance", "reserve", "ui"].slice(0, prefix).reverse(),
+      ["reserve", "ui"].slice(0, prefix).reverse(),
     );
     assert.deepEqual(assertMainInheritedTransactionRecoveryPlan(plan), plan);
     const recovering = startInheritedMainTransactionRecovery({
@@ -3334,7 +3288,7 @@ test("inherited recovery binds the fresh journal and untampered restore plan", (
 // maps exactly one alias, so a per-target mixed state is unreachable and the
 // retired v3 generated alias cannot re-enter the journal.
 test("single-alias targets make a mixed inherited App state unreachable", () => {
-  const journal = preparedWithCandidatePrefix(3);
+  const journal = preparedWithCandidatePrefix(2);
   for (const target of MAIN_RELEASE_ACTIVATION_ORDER) {
     assert.deepEqual(journal.prior[target].aliases, [
       ...MAIN_TARGET_CONTRACTS[target].aliases,
@@ -3383,7 +3337,7 @@ test("terminal App recovery residual is compensated by one ordinary rollback", (
   const forwardBaseline = preparedWithCandidatePrefix(0);
   const forgedForwardStart = startMainTransactionOperation(forwardBaseline, {
     type: "promote",
-    target: "governance",
+    target: "reserve",
   });
   const journal = structuredClone(forwardBaseline);
   journal.startMappings.app = journal.startMappings.app.map(({ alias }) =>
@@ -3394,7 +3348,7 @@ test("terminal App recovery residual is compensated by one ordinary rollback", (
     () =>
       startMainTransactionOperation(journal, {
         type: "promote",
-        target: "governance",
+        target: "reserve",
       }),
     /activation prefix/,
   );
@@ -3491,7 +3445,7 @@ test("a half-moved App target is unreachable and inherits one ordinary rollback"
 
 test("all-candidate reader is verify-only without rollback authority", () => {
   const plan = planInheritedMainTransactionRecovery({
-    journal: preparedWithCandidatePrefix(4),
+    journal: preparedWithCandidatePrefix(3),
     reason: "main-stale-before-forward",
   });
   assert.equal(plan.decision, "verify-noop");
@@ -3521,7 +3475,7 @@ test("raw transaction wrapper requires and preserves v3 release bindings", async
     release,
     prior,
     startMappings,
-    candidates: { app: null, governance: null, reserve: null, ui: null },
+    candidates: { app: null, reserve: null, ui: null },
     assertFreshness: async () => ({ sha: SHA }),
     uploadJournal: acknowledgedUploader(),
   };

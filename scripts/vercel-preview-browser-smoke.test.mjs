@@ -11,12 +11,11 @@ import {
 
 const repoRoot = new URL("../", import.meta.url).pathname;
 const SHA = "0123456789abcdef0123456789abcdef01234567";
-const CUSTOM_ID_GENERIC_TARGETS = ["governance", "reserve"];
+const CUSTOM_ID_GENERIC_TARGETS = ["reserve"];
 
 function controllerTuple(target) {
   const hostname = {
     app: "appmento",
-    governance: "governancemento",
     reserve: "reservemento",
   }[target];
   const deploymentUrl = `https://${hostname}-abc123-mentolabs.vercel.app/`;
@@ -382,7 +381,7 @@ test("App browser smoke uses system Chrome when explicitly requested", async () 
   assert.ok(page.calls.some(([name]) => name === "body"));
 });
 
-test("custom-ID Governance and Reserve accept exact typed assets after hydration removes the marker", async () => {
+test("custom-ID Reserve accept exact typed assets after hydration removes the marker", async () => {
   for (const target of CUSTOM_ID_GENERIC_TARGETS) {
     const values = controllerTuple(target);
     const page = new FakePage(values, { htmlDeploymentId: null });
@@ -398,7 +397,7 @@ test("custom-ID Governance and Reserve accept exact typed assets after hydration
   }
 });
 
-test("custom-ID Governance and Reserve reject conflicting hydrated markers", async () => {
+test("custom-ID Reserve reject conflicting hydrated markers", async () => {
   for (const target of CUSTOM_ID_GENERIC_TARGETS) {
     const values = controllerTuple(target);
     const fake = fakeChromium(
@@ -415,7 +414,7 @@ test("custom-ID Governance and Reserve reject conflicting hydrated markers", asy
   }
 });
 
-test("custom-ID Governance and Reserve reject wrong, missing, or duplicate asset deployment IDs", async () => {
+test("custom-ID Reserve reject wrong, missing, or duplicate asset deployment IDs", async () => {
   for (const target of CUSTOM_ID_GENERIC_TARGETS) {
     const values = controllerTuple(target);
     const invalidJavaScriptPaths = [
@@ -446,7 +445,7 @@ test("custom-ID Governance and Reserve reject wrong, missing, or duplicate asset
   }
 });
 
-test("custom-ID Governance and Reserve reject resource-type suffix spoofs", async () => {
+test("custom-ID Reserve reject resource-type suffix spoofs", async () => {
   for (const target of CUSTOM_ID_GENERIC_TARGETS) {
     const values = controllerTuple(target);
     const fake = fakeChromium(
@@ -473,7 +472,7 @@ test("custom-ID Governance and Reserve reject resource-type suffix spoofs", asyn
   }
 });
 
-test("custom-ID Governance and Reserve reject late static asset redirects outside the immutable origin", async () => {
+test("custom-ID Reserve reject late static asset redirects outside the immutable origin", async () => {
   for (const target of CUSTOM_ID_GENERIC_TARGETS) {
     const values = controllerTuple(target);
     const page = new FakePage(values, {
@@ -500,7 +499,7 @@ test("custom-ID Governance and Reserve reject late static asset redirects outsid
   }
 });
 
-test("custom-ID Governance and Reserve settle requests started during the hydrated marker read", async () => {
+test("custom-ID Reserve settle requests started during the hydrated marker read", async () => {
   for (const target of CUSTOM_ID_GENERIC_TARGETS) {
     const values = controllerTuple(target);
     const page = new FakePage(values, {

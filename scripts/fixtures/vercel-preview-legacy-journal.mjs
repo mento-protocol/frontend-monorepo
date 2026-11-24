@@ -1,5 +1,5 @@
 const LEGACY_PREVIEW_REPOSITORY = "mento-protocol/frontend-monorepo";
-const LEGACY_PREVIEW_TARGETS = ["app", "governance", "reserve", "ui"];
+const LEGACY_PREVIEW_TARGETS = ["app", "reserve", "ui"];
 const LEGACY_PREVIEW_JOURNAL_MARKER = "<!-- vercel-preview-journal:v2 -->";
 const LEGACY_COMMENT_EXPLANATION =
   "**No reviewer action is required.** This repository builds pull request previews in GitHub Actions and deploys them to Vercel. This record lets the preview automation handle overlapping pushes and recover safely from retries. [How previews work](https://github.com/mento-protocol/frontend-monorepo/blob/main/docs/vercel-deployments.md#event-status-and-batching-contract).";
@@ -39,9 +39,9 @@ function legacyReviewerOutcomeUrl(value, target, outcome) {
   return legacyTerminalResultUrl(terminal);
 }
 
-function legacyReviewerOutcomeSummary(value) {
+function legacyReviewerOutcomeSummary(value, targets = LEGACY_PREVIEW_TARGETS) {
   const latestDecision = value.state?.status_decisions?.at(-1) ?? null;
-  const rows = LEGACY_PREVIEW_TARGETS.map((target) => {
+  const rows = targets.map((target) => {
     const outcome =
       latestDecision?.targets?.[target] ?? "awaiting reconciliation";
     const url = legacyReviewerOutcomeUrl(value, target, outcome);
@@ -60,4 +60,18 @@ function legacyReviewerOutcomeSummary(value) {
 // Do not source any Markdown or JSON bytes from the production renderers.
 export function legacyPreviewJournalBody(value) {
   return `${LEGACY_PREVIEW_JOURNAL_MARKER}\n\n${LEGACY_COMMENT_EXPLANATION}\n\n${legacyReviewerOutcomeSummary(value)}\n\n<details>\n<summary>${LEGACY_COMMENT_DETAILS_SUMMARY}</summary>\n\n\`\`\`json\n${JSON.stringify(value, null, 2)}\n\`\`\`\n\n</details>\n`;
+}
+
+// The governance-era representation, written before ADR 0017 retired the
+// `governance` preview target: one reviewer row per governance-era target, in
+// either the compact or the retired two-space JSON form. It is duplicated here
+// for the same reason as above; no production code writes it any more.
+const GOVERNANCE_ERA_PREVIEW_TARGETS = ["app", "governance", "reserve", "ui"];
+
+export function governanceEraPreviewJournalBody(
+  value,
+  { compact = true } = {},
+) {
+  const json = compact ? JSON.stringify(value) : JSON.stringify(value, null, 2);
+  return `${LEGACY_PREVIEW_JOURNAL_MARKER}\n\n${LEGACY_COMMENT_EXPLANATION}\n\n${legacyReviewerOutcomeSummary(value, GOVERNANCE_ERA_PREVIEW_TARGETS)}\n\n<details>\n<summary>${LEGACY_COMMENT_DETAILS_SUMMARY}</summary>\n\n\`\`\`json\n${json}\n\`\`\`\n\n</details>\n`;
 }

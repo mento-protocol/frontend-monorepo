@@ -7,7 +7,7 @@ inputs:
     required: false
     default: prepare
   logical-target:
-    description: Literal app, governance, reserve, or ui target
+    description: Literal app, reserve, or ui target
     required: true
   controller-path:
     description: Trusted workflow-controller checkout, required for prepare
@@ -79,7 +79,7 @@ runs:
           *) echo "Protected runtime operation must be prepare or cleanup" >&2; exit 1 ;;
         esac
         case "$LOGICAL_TARGET" in
-          app|governance|reserve|ui) ;;
+          app|reserve|ui) ;;
           *) echo "Unknown protected runtime target" >&2; exit 1 ;;
         esac
         if [[ ! "$GITHUB_RUN_ID" =~ ^[1-9][0-9]*$ ]] ||

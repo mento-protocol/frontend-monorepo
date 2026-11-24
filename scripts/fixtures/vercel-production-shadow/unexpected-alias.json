@@ -1,10 +1,10 @@
 {
-  "alias": "governance-immutable.vercel.app",
-  "deploymentId": "dpl_governance123",
-  "deploymentUrl": "https://governance-immutable.vercel.app",
+  "alias": "reserve-immutable.vercel.app",
+  "deploymentId": "dpl_reserve123",
+  "deploymentUrl": "https://reserve-immutable.vercel.app",
   "creatorUsername": null,
-  "projectId": "prj_governance123",
-  "projectName": "governance.mento.org",
+  "projectId": "prj_reserve123",
+  "projectName": "reserve.mento.org",
   "readyState": "READY",
   "target": "production",
   "customEnvironmentSlug": null,
@@ -14,5 +14,5 @@
     "ref": "main",
     "sha": "0123456789abcdef0123456789abcdef01234567"
   },
-  "aliases": ["governance.mento.org", "governancementoorg-mentolabs.vercel.app"]
+  "aliases": ["reserve.mento.org", "reservementoorg-mentolabs.vercel.app"]
 }

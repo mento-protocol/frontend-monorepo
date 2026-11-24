@@ -7,7 +7,7 @@ import {
   PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES,
 } from "./vercel-production-generated-aliases.mjs";
 
-const ORDINARY_TARGETS = ["governance", "reserve", "ui"];
+const ORDINARY_TARGETS = ["reserve", "ui"];
 const CREATOR_USERNAME = "fixture-author";
 
 function creatorAlias(target, creatorUsername = CREATOR_USERNAME) {
@@ -117,11 +117,7 @@ test("an operator-added project domain on a served prior never fails the release
         creatorUsername: CREATOR_USERNAME,
         logicalTarget: "app",
         mode: PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.SERVED_PRIOR,
-        foreignProtectedAliases: [
-          "governance.mento.org",
-          "reserve.mento.org",
-          "ui.mento.org",
-        ],
+        foreignProtectedAliases: ["reserve.mento.org", "ui.mento.org"],
       }),
       aliases,
       alias,
@@ -130,14 +126,14 @@ test("an operator-added project domain on a served prior never fails the release
 });
 
 test("served-prior mode tolerates unowned project domains but rejects malformed evidence", () => {
-  const contract = PRODUCTION_GENERATED_ALIAS_CONTRACTS.governance;
+  const contract = PRODUCTION_GENERATED_ALIAS_CONTRACTS.reserve;
   for (const [name, aliases] of [
     [
       "retired custom-environment alias",
       ["appmentoorg-env-v3-mentolabs.vercel.app"],
     ],
     ["retired legacy domain", ["v2-app.mento.org"]],
-    ["operator-added project domain", ["governance-preview.mento.org"]],
+    ["operator-added project domain", ["reserve-preview.mento.org"]],
     [
       "unreviewed Git branch",
       [
@@ -155,7 +151,7 @@ test("served-prior mode tolerates unowned project domains but rejects malformed 
       assertOnlyExpectedProductionGeneratedAliases({
         aliases,
         creatorUsername: CREATOR_USERNAME,
-        logicalTarget: "governance",
+        logicalTarget: "reserve",
         mode: PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.SERVED_PRIOR,
       }),
       aliases,
@@ -180,7 +176,7 @@ test("served-prior mode tolerates unowned project domains but rejects malformed 
         assertOnlyExpectedProductionGeneratedAliases({
           aliases,
           creatorUsername: CREATOR_USERNAME,
-          logicalTarget: "governance",
+          logicalTarget: "reserve",
           mode: PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.SERVED_PRIOR,
         }),
       /generated-alias topology is malformed/,
@@ -197,7 +193,7 @@ test("served-prior mode fails closed on another target's reviewed protected doma
     ["several foreign reviewed domains", ["app.mento.org", "ui.mento.org"]],
     [
       "foreign reviewed domain beside a legitimate project domain",
-      ["app.mento.org", "governancementoorg.vercel.app"],
+      ["app.mento.org", "reservementoorg.vercel.app"],
     ],
   ]) {
     assert.throws(
@@ -205,13 +201,9 @@ test("served-prior mode fails closed on another target's reviewed protected doma
         assertOnlyExpectedProductionGeneratedAliases({
           aliases: [...aliases].toSorted(),
           creatorUsername: CREATOR_USERNAME,
-          logicalTarget: "governance",
+          logicalTarget: "reserve",
           mode: PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.SERVED_PRIOR,
-          foreignProtectedAliases: [
-            "app.mento.org",
-            "reserve.mento.org",
-            "ui.mento.org",
-          ],
+          foreignProtectedAliases: ["app.mento.org", "ui.mento.org"],
         }),
       /carries another target's reviewed protected domain/,
       name,
@@ -220,17 +212,13 @@ test("served-prior mode fails closed on another target's reviewed protected doma
   // The target's own reviewed domain is never foreign to itself.
   assert.deepEqual(
     assertOnlyExpectedProductionGeneratedAliases({
-      aliases: ["governance.mento.org"],
+      aliases: ["reserve.mento.org"],
       creatorUsername: CREATOR_USERNAME,
-      logicalTarget: "governance",
+      logicalTarget: "reserve",
       mode: PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.SERVED_PRIOR,
-      foreignProtectedAliases: [
-        "app.mento.org",
-        "reserve.mento.org",
-        "ui.mento.org",
-      ],
+      foreignProtectedAliases: ["app.mento.org", "ui.mento.org"],
     }),
-    ["governance.mento.org"],
+    ["reserve.mento.org"],
   );
 });
 
@@ -240,10 +228,9 @@ test("candidate mode still rejects every alias a served prior now tolerates", ()
   for (const alias of [
     "appmentoorg-env-v3-mentolabs.vercel.app",
     "v2-app.mento.org",
-    "governance-preview.mento.org",
-    PRODUCTION_GENERATED_ALIAS_CONTRACTS.governance.generatedGitMainAlias,
-    PRODUCTION_GENERATED_ALIAS_CONTRACTS.governance
-      .generatedProjectDefaultAlias,
+    "reserve-preview.mento.org",
+    PRODUCTION_GENERATED_ALIAS_CONTRACTS.reserve.generatedGitMainAlias,
+    PRODUCTION_GENERATED_ALIAS_CONTRACTS.reserve.generatedProjectDefaultAlias,
   ]) {
     for (const mode of [
       PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.CANDIDATE,
@@ -254,11 +241,11 @@ test("candidate mode still rejects every alias a served prior now tolerates", ()
           assertOnlyExpectedProductionGeneratedAliases({
             aliases: [
               alias,
-              PRODUCTION_GENERATED_ALIAS_CONTRACTS.governance
+              PRODUCTION_GENERATED_ALIAS_CONTRACTS.reserve
                 .generatedProjectAlias,
             ].toSorted(),
             creatorUsername: CREATOR_USERNAME,
-            logicalTarget: "governance",
+            logicalTarget: "reserve",
             mode,
           }),
         /generated-alias topology mismatch/,
@@ -271,12 +258,12 @@ test("candidate mode still rejects every alias a served prior now tolerates", ()
 test("candidate mode accepts a fresh skip-domain candidate without the base alias", () => {
   // `vercel deploy --prod --skip-domain` leaves the generated project alias on
   // the still-serving prior until `vercel promote` moves it.
-  for (const aliases of [[], [creatorAlias("governance")]]) {
+  for (const aliases of [[], [creatorAlias("reserve")]]) {
     assert.deepEqual(
       assertOnlyExpectedProductionGeneratedAliases({
         aliases,
         creatorUsername: CREATOR_USERNAME,
-        logicalTarget: "governance",
+        logicalTarget: "reserve",
         mode: PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.CANDIDATE,
       }),
       aliases,
@@ -285,7 +272,7 @@ test("candidate mode accepts a fresh skip-domain candidate without the base alia
 });
 
 test("candidate mode rejects non-candidate generated aliases", () => {
-  const contract = PRODUCTION_GENERATED_ALIAS_CONTRACTS.governance;
+  const contract = PRODUCTION_GENERATED_ALIAS_CONTRACTS.reserve;
   for (const [name, aliases] of [
     ["git-main only", [contract.generatedGitMainAlias]],
     ["project-default only", [contract.generatedProjectDefaultAlias]],
@@ -306,16 +293,13 @@ test("candidate mode rejects non-candidate generated aliases", () => {
     ],
     [
       "custom",
-      [
-        contract.generatedProjectAlias,
-        "governance-preview.mento.org",
-      ].toSorted(),
+      [contract.generatedProjectAlias, "reserve-preview.mento.org"].toSorted(),
     ],
     [
       "wrong target",
       [
         contract.generatedProjectAlias,
-        PRODUCTION_GENERATED_ALIAS_CONTRACTS.reserve.generatedProjectAlias,
+        PRODUCTION_GENERATED_ALIAS_CONTRACTS.ui.generatedProjectAlias,
       ].toSorted(),
     ],
     [
@@ -331,7 +315,7 @@ test("candidate mode rejects non-candidate generated aliases", () => {
         assertOnlyExpectedProductionGeneratedAliases({
           aliases,
           creatorUsername: CREATOR_USERNAME,
-          logicalTarget: "governance",
+          logicalTarget: "reserve",
           mode: PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.CANDIDATE,
         }),
       /generated-alias topology mismatch/,
@@ -341,15 +325,15 @@ test("candidate mode rejects non-candidate generated aliases", () => {
 });
 
 test("reused-candidate mode rejects aliases outside the finite candidate set", () => {
-  const contract = PRODUCTION_GENERATED_ALIAS_CONTRACTS.governance;
+  const contract = PRODUCTION_GENERATED_ALIAS_CONTRACTS.reserve;
   for (const [name, aliases] of [
     ["git-main", [contract.generatedGitMainAlias]],
     ["project-default", [contract.generatedProjectDefaultAlias]],
-    ["protected", ["governance.mento.org"]],
-    ["unknown", ["governance-preview.mento.org"]],
+    ["protected", ["reserve.mento.org"]],
+    ["unknown", ["reserve-preview.mento.org"]],
     [
       "wrong target",
-      [PRODUCTION_GENERATED_ALIAS_CONTRACTS.reserve.generatedProjectAlias],
+      [PRODUCTION_GENERATED_ALIAS_CONTRACTS.ui.generatedProjectAlias],
     ],
     [
       "creator near miss",
@@ -363,7 +347,7 @@ test("reused-candidate mode rejects aliases outside the finite candidate set", (
         assertOnlyExpectedProductionGeneratedAliases({
           aliases,
           creatorUsername: CREATOR_USERNAME,
-          logicalTarget: "governance",
+          logicalTarget: "reserve",
           mode: PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.REUSED_CANDIDATE,
         }),
       /reused-candidate generated-alias topology mismatch/,
@@ -373,13 +357,13 @@ test("reused-candidate mode rejects aliases outside the finite candidate set", (
 });
 
 test("creator aliases remain unavailable when creator identity cannot safely name them", () => {
-  const contract = PRODUCTION_GENERATED_ALIAS_CONTRACTS.governance;
+  const contract = PRODUCTION_GENERATED_ALIAS_CONTRACTS.reserve;
   for (const creatorUsername of [null, "git-main", "env-v3", "a".repeat(63)]) {
     assert.deepEqual(
       assertOnlyExpectedProductionGeneratedAliases({
         aliases: [contract.generatedProjectAlias],
         creatorUsername,
-        logicalTarget: "governance",
+        logicalTarget: "reserve",
         mode: PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.CANDIDATE,
       }),
       [contract.generatedProjectAlias],

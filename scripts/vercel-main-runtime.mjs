@@ -28,12 +28,6 @@ export const MAIN_RUNTIME_TARGETS = Object.freeze({
     finalPath: "/swap/celo",
     interaction: "real-production-wallet-list",
   }),
-  governance: Object.freeze({
-    publicUrl: "https://governance.mento.org/",
-    landingPath: "/",
-    finalPath: "/voting-power",
-    interaction: "governance-voting-power-navigation",
-  }),
   reserve: Object.freeze({
     publicUrl: "https://reserve.mento.org/",
     landingPath: "/",
@@ -82,7 +76,7 @@ function exactTarget(value) {
   const target = boundedText(value, "Main runtime target", 32);
   invariant(
     Object.hasOwn(MAIN_RUNTIME_TARGETS, target),
-    "Main runtime target must be app, governance, reserve, or ui",
+    "Main runtime target must be app, reserve, or ui",
   );
   return target;
 }
@@ -351,19 +345,6 @@ async function interactWithApp(page) {
   await assertProductionWalletFlagsAbsent(page);
 }
 
-async function interactWithGovernance(page, origin) {
-  await page
-    .getByRole("heading", { name: "Mento Governance", exact: true })
-    .waitFor({ state: "visible" });
-  await page
-    .getByRole("link", { name: "My Voting Power", exact: true })
-    .click();
-  await page.waitForURL(new URL("/voting-power", origin).toString());
-  await page
-    .getByRole("heading", { name: "Your voting power", exact: true })
-    .waitFor({ state: "visible" });
-}
-
 async function interactWithReserve(page, origin) {
   const overview = page.getByRole("tab", { name: "Overview", exact: true });
   await overview.waitFor({ state: "visible" });
@@ -431,7 +412,6 @@ async function runTargetInteraction(
   timeoutMs,
 ) {
   if (target === "app") return interactWithApp(page);
-  if (target === "governance") return interactWithGovernance(page, origin);
   if (target === "reserve") return interactWithReserve(page, origin);
   return interactWithUi(page, origin, deploymentIdentityMonitor, timeoutMs);
 }

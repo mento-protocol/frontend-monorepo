@@ -12,13 +12,6 @@ export const PRODUCTION_GENERATED_ALIAS_CONTRACTS = Object.freeze({
     generatedProjectSlug: "appmentoorg",
     generatedScopeSlug: "mentolabs",
   }),
-  governance: Object.freeze({
-    generatedGitMainAlias: "governancementoorg-git-main-mentolabs.vercel.app",
-    generatedProjectDefaultAlias: "governancementoorg.vercel.app",
-    generatedProjectAlias: "governancementoorg-mentolabs.vercel.app",
-    generatedProjectSlug: "governancementoorg",
-    generatedScopeSlug: "mentolabs",
-  }),
   reserve: Object.freeze({
     generatedGitMainAlias: "reservementoorg-git-main-mentolabs.vercel.app",
     generatedProjectDefaultAlias: "reservementoorg.vercel.app",

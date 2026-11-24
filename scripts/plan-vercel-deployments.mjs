@@ -5,11 +5,10 @@ import process from "node:process";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const VERCEL_DEPLOYMENTS = ["app", "governance", "reserve", "ui"];
+export const VERCEL_DEPLOYMENTS = ["app", "reserve", "ui"];
 
 const PACKAGE_TO_DEPLOYMENT = new Map([
   ["app.mento.org", "app"],
-  ["governance.mento.org", "governance"],
   ["reserve.mento.org", "reserve"],
   ["ui.mento.org", "ui"],
 ]);
@@ -35,10 +34,14 @@ const PROVEN_NON_RUNTIME_EXACT_PATHS = new Set(
   VERCEL_PROVEN_NON_RUNTIME_EXACT_PATHS,
 );
 
+// `apps/governance.mento.org/` is listed whole because that app is no longer a
+// Vercel deployment target (ADR 0017). It still builds and tests in CI, but no
+// path under it can change a deployed runtime, so a governance-only diff plans
+// no deployment instead of failing closed to every target.
 const PROVEN_NON_RUNTIME_DIRECTORIES = [
   "docs/",
   "apps/app.mento.org/e2e/",
-  "apps/governance.mento.org/e2e/",
+  "apps/governance.mento.org/",
   "apps/ui.mento.org/e2e/",
 ];
 

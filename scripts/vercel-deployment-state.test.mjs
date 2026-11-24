@@ -99,7 +99,7 @@ function activeReleaseManifest({
   rollbackOnly = false,
   stagedTargets,
 }) {
-  const targets = ["app", "governance", "reserve", "ui"];
+  const targets = ["app", "reserve", "ui"];
   const plannedTargets =
     stagedTargets === undefined
       ? targets
@@ -195,15 +195,6 @@ function activeStateSpec({ rollbackOnly = false } = {}) {
       target: "production",
       customEnvironmentSlug: null,
     },
-    governance: {
-      projectId: "prj_governanceactive123",
-      projectName: "governance.mento.org",
-      expectedDisposition: "githubPrebuilt",
-      deploymentId: "dpl_governanceactive123",
-      deploymentUrl: "https://governance-active-immutable.vercel.app",
-      target: "production",
-      customEnvironmentSlug: null,
-    },
     reserve: {
       projectId: "prj_reserveactive123",
       projectName: "reserve.mento.org",
@@ -237,12 +228,11 @@ function activeStateSpec({ rollbackOnly = false } = {}) {
     }),
     mainOwnershipMode: {
       app: "github",
-      governance: "github",
       reserve: "github",
       ui: "github",
     },
-    stagedTargets: ["app", "governance", "reserve", "ui"],
-    activeTargets: ["app", "governance", "reserve", "ui"],
+    stagedTargets: ["app", "reserve", "ui"],
+    activeTargets: ["app", "reserve", "ui"],
     shadowTargets: [],
     projects,
   };
@@ -256,8 +246,8 @@ function activeStateSpecWithInactiveUi() {
     deploymentId: null,
     deploymentUrl: null,
   };
-  spec.stagedTargets = ["app", "governance", "reserve"];
-  spec.activeTargets = ["app", "governance", "reserve"];
+  spec.stagedTargets = ["app", "reserve"];
+  spec.activeTargets = ["app", "reserve"];
   spec.releaseManifest = activeReleaseManifest({
     deploySha: spec.deploySha,
     projects: spec.projects,
@@ -280,7 +270,7 @@ test("a selected App state requires its exact staged candidate", () => {
     () =>
       createActiveDeploymentStateProof({
         spec,
-        deployments: { app: [], governance: [], reserve: [], ui: [] },
+        deployments: { app: [], reserve: [], ui: [] },
       }),
     /app planned active deployment ID is missing or malformed/,
   );
@@ -395,12 +385,12 @@ test("ordinary production fixture emits only canonical allowlisted state", () =>
   const state = canonicalizeFixture(fixture("valid-production.json"));
   assert.deepEqual(Object.keys(state), CANONICAL_STATE_KEYS);
   assert.deepEqual(state, {
-    alias: "governance.mento.org",
-    deploymentId: "dpl_governance123",
-    deploymentUrl: "https://governance-immutable.vercel.app",
+    alias: "reserve.mento.org",
+    deploymentId: "dpl_reserve123",
+    deploymentUrl: "https://reserve-immutable.vercel.app",
     creatorUsername: "chapati",
-    projectId: "prj_governance123",
-    projectName: "governance.mento.org",
+    projectId: "prj_reserve123",
+    projectName: "reserve.mento.org",
     readyState: "READY",
     target: "production",
     customEnvironmentSlug: null,
@@ -410,10 +400,7 @@ test("ordinary production fixture emits only canonical allowlisted state", () =>
       ref: "main",
       sha: "0123456789abcdef0123456789abcdef01234567",
     },
-    aliases: [
-      "governance.mento.org",
-      "governancementoorg-mentolabs.vercel.app",
-    ],
+    aliases: ["reserve.mento.org", "reservementoorg-mentolabs.vercel.app"],
   });
 });
 
@@ -534,7 +521,7 @@ test("main planning capture keeps every non-Git activation-state check strict", 
     {
       label: "name",
       mutate(value) {
-        value.deploymentResponse.name = "reserve.mento.org";
+        value.deploymentResponse.name = "ui.mento.org";
       },
     },
     {
@@ -575,10 +562,7 @@ test("main planning capture keeps every non-Git activation-state check strict", 
 
 test("main planning snapshot preserves cross-alias valid Git conflicts for planner classification", async () => {
   const base = canonicalizePlanningFixture(fixture("valid-production.json"));
-  const aliases = [
-    "governance.mento.org",
-    "governancementoorg-mentolabs.vercel.app",
-  ];
+  const aliases = ["reserve.mento.org", "reservementoorg-mentolabs.vercel.app"];
   const states = await captureMainPlanningSnapshot(
     {
       mainPlanningAliasState: async (entry) => ({
@@ -607,10 +591,7 @@ test("main planning snapshot preserves cross-alias valid Git conflicts for plann
 test("main planning snapshot rejects rollback, alias-set, and mapping-race ambiguity", async () => {
   const production = fixture("valid-production.json");
   const base = canonicalizePlanningFixture(production);
-  const aliases = [
-    "governance.mento.org",
-    "governancementoorg-mentolabs.vercel.app",
-  ];
+  const aliases = ["reserve.mento.org", "reservementoorg-mentolabs.vercel.app"];
   const spec = aliases.map((alias) => ({
     alias,
     ...production.expected,
@@ -640,7 +621,7 @@ test("main planning snapshot rejects rollback, alias-set, and mapping-race ambig
             aliases:
               entry.alias === aliases[0]
                 ? base.aliases
-                : ["governancementoorg-mentolabs.vercel.app"],
+                : ["reservementoorg-mentolabs.vercel.app"],
           }),
         },
         spec,
@@ -659,7 +640,7 @@ test("main planning snapshot rejects rollback, alias-set, and mapping-race ambig
   client.resolveAlias = async (alias) => ({
     ...production.aliasResponse,
     alias,
-    deploymentId: ++lookups === 1 ? "dpl_governance123" : "dpl_concurrent123",
+    deploymentId: ++lookups === 1 ? "dpl_reserve123" : "dpl_concurrent123",
   });
   client.inspectDeployment = async () => production.deploymentResponse;
   client.listDeploymentAliases = async () => production.aliasesResponse;
@@ -675,10 +656,10 @@ test("main planning snapshot rejects rollback, alias-set, and mapping-race ambig
           mainPlanningAliasState: async (entry) => ({
             ...base,
             alias: entry.alias,
-            aliases: ["governancementoorg-mentolabs.vercel.app"],
+            aliases: ["reservementoorg-mentolabs.vercel.app"],
           }),
         },
-        [{ alias: "governance.mento.org", ...production.expected }],
+        [{ alias: "reserve.mento.org", ...production.expected }],
       ),
     /omits a reviewed protected alias/,
   );
@@ -742,16 +723,16 @@ test("main planning snapshot requires a production App prior and rejects the ret
           mainPlanningAliasState: async (entry) => ({
             ...appBase,
             alias: entry.alias,
-            projectId: "prj_governance123",
-            projectName: "governance.mento.org",
-            aliases: ["governance.mento.org"],
+            projectId: "prj_reserve123",
+            projectName: "reserve.mento.org",
+            aliases: ["reserve.mento.org"],
           }),
         },
         [
           {
-            alias: "governance.mento.org",
-            projectId: "prj_governance123",
-            projectName: "governance.mento.org",
+            alias: "reserve.mento.org",
+            projectId: "prj_reserve123",
+            projectName: "reserve.mento.org",
             target: "production",
             customEnvironmentSlug: null,
             git: {
@@ -800,16 +781,16 @@ test("planning capture rejects the retired v3 App prior for every project", () =
         aliasResponse: appFixture.aliasResponse,
         deploymentResponse: {
           ...appFixture.deploymentResponse,
-          name: "governance.mento.org",
+          name: "reserve.mento.org",
           project: {
             ...appFixture.deploymentResponse.project,
-            name: "governance.mento.org",
+            name: "reserve.mento.org",
           },
         },
         aliasesResponse: appFixture.aliasesResponse,
         expected: {
           ...productionExpectation,
-          projectName: "governance.mento.org",
+          projectName: "reserve.mento.org",
         },
       }),
     /Unexpected deployment target/,
@@ -826,22 +807,22 @@ test("planning capture rejects the retired v3 App prior for every project", () =
 test("minimal alias mapping exposes only read-only drift fields", () => {
   const production = fixture("valid-production.json");
   const mapping = canonicalizeAliasMapping({
-    alias: "governance.mento.org",
+    alias: "reserve.mento.org",
     aliasResponse: production.aliasResponse,
     deploymentResponse: {
       ...production.deploymentResponse,
       meta: {
         ...production.deploymentResponse.meta,
-        mentoTransaction: "123-1-governance",
+        mentoTransaction: "123-1-reserve",
         buildEnv: { SECRET: "test-value-not-printed" },
       },
     },
   });
   assert.deepEqual(mapping, {
-    alias: "governance.mento.org",
-    deploymentId: "dpl_governance123",
-    deploymentUrl: "https://governance-immutable.vercel.app",
-    projectId: "prj_governance123",
+    alias: "reserve.mento.org",
+    deploymentId: "dpl_reserve123",
+    deploymentUrl: "https://reserve-immutable.vercel.app",
+    projectId: "prj_reserve123",
   });
   assert.doesNotMatch(
     JSON.stringify(mapping),
@@ -852,12 +833,7 @@ test("minimal alias mapping exposes only read-only drift fields", () => {
 test("active alias mapping set captures exactly every protected alias", () => {
   const spec = {
     schema: ACTIVE_ALIAS_MAPPING_SET_SCHEMA,
-    aliases: [
-      "app.mento.org",
-      "governance.mento.org",
-      "reserve.mento.org",
-      "ui.mento.org",
-    ],
+    aliases: ["app.mento.org", "reserve.mento.org", "ui.mento.org"],
   };
   assert.equal(assertActiveAliasMappingSet(spec), spec);
   const mappings = assertActiveAliasMappings(
@@ -867,7 +843,7 @@ test("active alias mapping set captures exactly every protected alias", () => {
       deploymentUrl: `https://active-${index}.vercel.app`,
     })),
   );
-  assert.equal(mappings.length, 4);
+  assert.equal(mappings.length, 3);
   // Neither the retired legacy App topology nor the retiring custom
   // environment may re-enter the protected set.
   for (const retired of [
@@ -909,9 +885,9 @@ test("dynamic active alias mapping spec binds every capture to its exact project
         target: "app",
       },
       {
-        alias: "governance.mento.org",
-        projectId: "prj_governance123",
-        target: "governance",
+        alias: "reserve.mento.org",
+        projectId: "prj_reserve123",
+        target: "reserve",
       },
     ],
   };
@@ -955,12 +931,12 @@ test("dynamic active alias mapping spec binds every capture to its exact project
       },
     ],
     [
-      "governance.mento.org",
+      "reserve.mento.org",
       {
-        alias: "governance.mento.org",
-        deploymentId: "dpl_governanceCurrent123",
-        deploymentUrl: "https://governance-current.vercel.app",
-        projectId: "prj_governance123",
+        alias: "reserve.mento.org",
+        deploymentId: "dpl_reserveCurrent123",
+        deploymentUrl: "https://reserve-current.vercel.app",
+        projectId: "prj_reserve123",
       },
     ],
   ]);
@@ -982,9 +958,9 @@ test("dynamic active alias mapping spec binds every capture to its exact project
       deploymentUrl: "https://app-current.vercel.app",
     },
     {
-      alias: "governance.mento.org",
-      deploymentId: "dpl_governanceCurrent123",
-      deploymentUrl: "https://governance-current.vercel.app",
+      alias: "reserve.mento.org",
+      deploymentId: "dpl_reserveCurrent123",
+      deploymentUrl: "https://reserve-current.vercel.app",
     },
   ]);
   assert.equal(statSync(outputPath).mode & 0o777, 0o600);
@@ -1009,7 +985,7 @@ test("dynamic active alias mapping spec binds every capture to its exact project
           aliasMapping: async (alias) => ({
             ...mappings.get(alias),
             projectId:
-              alias === "governance.mento.org" ? "prj_wrong123" : "prj_app123",
+              alias === "reserve.mento.org" ? "prj_wrong123" : "prj_app123",
           }),
         }),
       }),
@@ -1021,23 +997,23 @@ test("canonical Vercel state reads retry transient failures and fail closed afte
   const reads = [
     {
       name: "alias lookup",
-      path: "/v4/aliases/governance.mento.org",
-      invoke: (client) => client.resolveAlias("governance.mento.org"),
+      path: "/v4/aliases/reserve.mento.org",
+      invoke: (client) => client.resolveAlias("reserve.mento.org"),
     },
     {
       name: "deployment inspection",
-      path: "/v13/deployments/dpl_governance123",
-      invoke: (client) => client.inspectDeployment("dpl_governance123"),
+      path: "/v13/deployments/dpl_reserve123",
+      invoke: (client) => client.inspectDeployment("dpl_reserve123"),
     },
     {
       name: "deployment alias listing",
-      path: "/v2/deployments/dpl_governance123/aliases",
-      invoke: (client) => client.listDeploymentAliases("dpl_governance123"),
+      path: "/v2/deployments/dpl_reserve123/aliases",
+      invoke: (client) => client.listDeploymentAliases("dpl_reserve123"),
     },
     {
       name: "project inspection",
-      path: "/v9/projects/prj_governance123",
-      invoke: (client) => client.inspectProject("prj_governance123"),
+      path: "/v9/projects/prj_reserve123",
+      invoke: (client) => client.inspectProject("prj_reserve123"),
     },
   ];
 
@@ -1089,8 +1065,8 @@ test("direct deployment verification binds both exact ID and immutable URL", () 
       ...production,
       expected: {
         ...production.expected,
-        deployment: "dpl_governance123",
-        deploymentUrl: "https://governance-immutable.vercel.app",
+        deployment: "dpl_reserve123",
+        deploymentUrl: "https://reserve-immutable.vercel.app",
       },
     }),
   );
@@ -1101,7 +1077,7 @@ test("direct deployment verification binds both exact ID and immutable URL", () 
         expected: {
           ...production.expected,
           deployment: "dpl_other123",
-          deploymentUrl: "https://governance-immutable.vercel.app",
+          deploymentUrl: "https://reserve-immutable.vercel.app",
         },
       }),
     /Unexpected deployment ID/,
@@ -1112,7 +1088,7 @@ test("direct deployment verification binds both exact ID and immutable URL", () 
         ...production,
         expected: {
           ...production.expected,
-          deployment: "dpl_governance123",
+          deployment: "dpl_reserve123",
           deploymentUrl: "https://different-immutable.vercel.app",
         },
       }),
@@ -1238,29 +1214,29 @@ test("wrong or malformed deployment environments fail closed", () => {
 
 test("aliases are canonicalized, deduplicated, sorted, and validated", () => {
   assert.deepEqual(canonicalizeAliases(fixture("duplicate-aliases.json")), [
-    "governance.mento.org",
-    "governancementoorg-mentolabs.vercel.app",
+    "reserve.mento.org",
+    "reservementoorg-mentolabs.vercel.app",
   ]);
   assert.throws(
     () => canonicalizeAliases(fixture("malformed-aliases.json")),
     /malformed/,
   );
   assert.equal(
-    canonicalizeHostname("HTTPS://Governance.Mento.Org"),
-    "governance.mento.org",
+    canonicalizeHostname("HTTPS://Reserve.Mento.Org"),
+    "reserve.mento.org",
   );
   for (const value of [
-    "http://governance.mento.org",
-    "https://governance.mento.org:8443",
-    "https://governance.mento.org/path",
-    "https://governance.mento.org?token=value",
-    "https://governance.mento.org#fragment",
+    "http://reserve.mento.org",
+    "https://reserve.mento.org:8443",
+    "https://reserve.mento.org/path",
+    "https://reserve.mento.org?token=value",
+    "https://reserve.mento.org#fragment",
   ]) {
     assert.throws(() => canonicalizeHostname(value), /malformed/);
   }
   const credentialedHostname = [
     "https://user",
-    ":secret@governance.mento.org",
+    ":secret@reserve.mento.org",
   ].join("");
   assert.throws(() => canonicalizeHostname(credentialedHostname), /malformed/);
   assert.equal(
@@ -1268,7 +1244,7 @@ test("aliases are canonicalized, deduplicated, sorted, and validated", () => {
     "https://immutable.vercel.app",
   );
   assert.throws(
-    () => canonicalizeDeploymentUrl("https://governance.mento.org"),
+    () => canonicalizeDeploymentUrl("https://reserve.mento.org"),
     /immutable vercel\.app/,
   );
 });
@@ -1421,9 +1397,9 @@ test("canonical output boundary rejects every non-allowlisted field", () => {
 
 test("snapshot specs reject duplicates and non-Mento provenance", () => {
   const base = {
-    alias: "governance.mento.org",
-    projectId: "prj_governance123",
-    projectName: "governance.mento.org",
+    alias: "reserve.mento.org",
+    projectId: "prj_reserve123",
+    projectName: "reserve.mento.org",
     target: "production",
     customEnvironmentSlug: null,
     git: {
@@ -1465,19 +1441,19 @@ test("protected snapshot comparison detects every mapping change", () => {
           {
             ...state,
             deploymentId: "dpl_changed123",
-            deploymentUrl: "https://governance-changed.vercel.app",
+            deploymentUrl: "https://reserve-changed.vercel.app",
           },
         ],
       ),
     (error) => {
       assert.match(error.message, /read-only and attempted no repair/);
-      assert.match(error.message, /dpl_governance123/);
+      assert.match(error.message, /dpl_reserve123/);
       assert.match(error.message, /dpl_changed123/);
-      assert.match(error.message, /governance-immutable\.vercel\.app/);
-      assert.match(error.message, /governance-changed\.vercel\.app/);
+      assert.match(error.message, /reserve-immutable\.vercel\.app/);
+      assert.match(error.message, /reserve-changed\.vercel\.app/);
       assert.match(
         error.message,
-        /"restoreCommand":"vercel alias set https:\/\/governance-immutable\.vercel\.app governance\.mento\.org"/,
+        /"restoreCommand":"vercel alias set https:\/\/reserve-immutable\.vercel\.app reserve\.mento\.org"/,
       );
       assert.doesNotMatch(error.message, /--token|&&|\n/);
       return true;
@@ -1784,15 +1760,15 @@ test("client uses only official read endpoints and never parses error bodies", a
   const production = fixture("valid-production.json");
   const requests = [];
   const responses = new Map([
-    ["/v4/aliases/governance.mento.org", production.aliasResponse],
-    ["/v13/deployments/dpl_governance123", production.deploymentResponse],
-    ["/v2/deployments/dpl_governance123/aliases", production.aliasesResponse],
+    ["/v4/aliases/reserve.mento.org", production.aliasResponse],
+    ["/v13/deployments/dpl_reserve123", production.deploymentResponse],
+    ["/v2/deployments/dpl_reserve123/aliases", production.aliasesResponse],
     [
-      "/v9/projects/prj_governance123",
+      "/v9/projects/prj_reserve123",
       {
-        id: "prj_governance123",
-        name: "governance.mento.org",
-        rootDirectory: "apps/governance.mento.org",
+        id: "prj_reserve123",
+        name: "reserve.mento.org",
+        rootDirectory: "apps/reserve.mento.org",
       },
     ],
   ]);
@@ -1814,24 +1790,24 @@ test("client uses only official read endpoints and never parses error bodies", a
   });
   const states = await captureProtectedSnapshot(client, [
     {
-      alias: "governance.mento.org",
+      alias: "reserve.mento.org",
       ...production.expected,
     },
   ]);
   assert.equal(states.length, 1);
   await client.assertProject({
-    projectId: "prj_governance123",
-    projectName: "governance.mento.org",
-    rootDirectory: "apps/governance.mento.org",
+    projectId: "prj_reserve123",
+    projectName: "reserve.mento.org",
+    rootDirectory: "apps/reserve.mento.org",
   });
   assert.equal(requests.length, 5);
   assert.deepEqual(
     [...new Set(requests.map(({ url }) => url.pathname))].sort(),
     [
-      "/v13/deployments/dpl_governance123",
-      "/v2/deployments/dpl_governance123/aliases",
-      "/v4/aliases/governance.mento.org",
-      "/v9/projects/prj_governance123",
+      "/v13/deployments/dpl_reserve123",
+      "/v2/deployments/dpl_reserve123/aliases",
+      "/v4/aliases/reserve.mento.org",
+      "/v9/projects/prj_reserve123",
     ],
   );
   for (const request of requests) {
@@ -1916,8 +1892,8 @@ test("client direct-deployment lookup preserves the requested deployment ID", as
   client.listDeploymentAliases = async () => production.aliasesResponse;
   await assert.rejects(
     client.canonicalDeploymentState({
-      deployment: "dpl_governance123",
-      deploymentUrl: "https://governance-immutable.vercel.app",
+      deployment: "dpl_reserve123",
+      deploymentUrl: "https://reserve-immutable.vercel.app",
       ...production.expected,
     }),
     /Unexpected deployment ID/,
@@ -1932,7 +1908,7 @@ test("client alias check uses only the minimal redacted mapping path", async () 
     teamId: "team_fixture123",
     fetchImplementation: async (url) => {
       requests.push(url.pathname);
-      if (url.pathname === "/v4/aliases/governance.mento.org") {
+      if (url.pathname === "/v4/aliases/reserve.mento.org") {
         return {
           ok: true,
           status: 200,
@@ -1946,24 +1922,24 @@ test("client alias check uses only the minimal redacted mapping path", async () 
           ...production.deploymentResponse,
           meta: {
             ...production.deploymentResponse.meta,
-            mentoTransaction: "123-1-governance",
+            mentoTransaction: "123-1-reserve",
           },
           buildEnv: { SECRET: "test-value-not-printed" },
         }),
       };
     },
   });
-  const mapping = await client.aliasMapping("governance.mento.org");
+  const mapping = await client.aliasMapping("reserve.mento.org");
   assert.deepEqual(requests, [
-    "/v4/aliases/governance.mento.org",
-    "/v13/deployments/dpl_governance123",
-    "/v4/aliases/governance.mento.org",
+    "/v4/aliases/reserve.mento.org",
+    "/v13/deployments/dpl_reserve123",
+    "/v4/aliases/reserve.mento.org",
   ]);
   assert.deepEqual(mapping, {
-    alias: "governance.mento.org",
-    deploymentId: "dpl_governance123",
-    deploymentUrl: "https://governance-immutable.vercel.app",
-    projectId: "prj_governance123",
+    alias: "reserve.mento.org",
+    deploymentId: "dpl_reserve123",
+    deploymentUrl: "https://reserve-immutable.vercel.app",
+    projectId: "prj_reserve123",
   });
   assert.doesNotMatch(
     JSON.stringify(mapping),
@@ -1978,7 +1954,7 @@ test("client alias check rejects a mapping that changes mid-read", async () => {
     token: "fixture-token",
     teamId: "team_fixture123",
     fetchImplementation: async (url) => {
-      if (url.pathname === "/v4/aliases/governance.mento.org") {
+      if (url.pathname === "/v4/aliases/reserve.mento.org") {
         aliasLookups += 1;
         return {
           ok: true,
@@ -1986,7 +1962,7 @@ test("client alias check rejects a mapping that changes mid-read", async () => {
           json: async () => ({
             ...production.aliasResponse,
             deploymentId:
-              aliasLookups === 1 ? "dpl_governance123" : "dpl_concurrent123",
+              aliasLookups === 1 ? "dpl_reserve123" : "dpl_concurrent123",
           }),
         };
       }
@@ -1998,7 +1974,7 @@ test("client alias check rejects a mapping that changes mid-read", async () => {
     },
   });
   await assert.rejects(
-    () => client.aliasMapping("governance.mento.org"),
+    () => client.aliasMapping("reserve.mento.org"),
     /changed during inspection/,
   );
 });
@@ -2010,7 +1986,7 @@ test("protected snapshot capture rejects an alias mapping race", async () => {
     token: "fixture-token",
     teamId: "team_fixture123",
     fetchImplementation: async (url) => {
-      if (url.pathname === "/v4/aliases/governance.mento.org") {
+      if (url.pathname === "/v4/aliases/reserve.mento.org") {
         aliasLookups += 1;
         return {
           ok: true,
@@ -2018,7 +1994,7 @@ test("protected snapshot capture rejects an alias mapping race", async () => {
           json: async () => ({
             ...production.aliasResponse,
             deploymentId:
-              aliasLookups === 1 ? "dpl_governance123" : "dpl_concurrent123",
+              aliasLookups === 1 ? "dpl_reserve123" : "dpl_concurrent123",
           }),
         };
       }
@@ -2039,7 +2015,7 @@ test("protected snapshot capture rejects an alias mapping race", async () => {
   await assert.rejects(
     () =>
       captureProtectedSnapshot(client, [
-        { alias: "governance.mento.org", ...production.expected },
+        { alias: "reserve.mento.org", ...production.expected },
       ]),
     /changed during inspection/,
   );
@@ -2053,7 +2029,7 @@ test("reviewed protected aliases must converge on one immutable deployment", asy
       ...base,
       alias: entry.alias,
       deploymentId:
-        entry.alias === "governance.mento.org"
+        entry.alias === "reserve.mento.org"
           ? base.deploymentId
           : "dpl_other123",
     }),
@@ -2061,9 +2037,9 @@ test("reviewed protected aliases must converge on one immutable deployment", asy
   await assert.rejects(
     () =>
       captureProtectedSnapshot(client, [
-        { alias: "governance.mento.org", ...expected },
+        { alias: "reserve.mento.org", ...expected },
         {
-          alias: "governancementoorg-mentolabs.vercel.app",
+          alias: "reservementoorg-mentolabs.vercel.app",
           ...expected,
         },
       ]),
@@ -2074,10 +2050,7 @@ test("reviewed protected aliases must converge on one immutable deployment", asy
 test("every reviewed protected alias must be carried by its deployment", async () => {
   const base = canonicalizeFixture(fixture("valid-production.json"));
   const expected = fixture("valid-production.json").expected;
-  const aliases = [
-    "governance.mento.org",
-    "governancementoorg-mentolabs.vercel.app",
-  ];
+  const aliases = ["reserve.mento.org", "reservementoorg-mentolabs.vercel.app"];
   const client = {
     canonicalAliasState: async (entry) => ({ ...base, alias: entry.alias }),
   };
@@ -2451,9 +2424,9 @@ test("first-cutover proof accepts source-free candidates and the exact same-SHA 
     for (const priorSource of [undefined, "git", "cli", "redeploy"]) {
       const spec = activeStateSpec({ rollbackOnly: true });
       const deployments = activeDeploymentInspections(spec);
-      deployments.governance[0].response.source = candidateSource;
-      const prior = spec.releaseManifest.originalPriors.governance;
-      const priorResponse = activeDeploymentResponse(spec, "governance", {
+      deployments.reserve[0].response.source = candidateSource;
+      const prior = spec.releaseManifest.originalPriors.reserve;
+      const priorResponse = activeDeploymentResponse(spec, "reserve", {
         deploymentId: prior.deploymentId,
         deploymentUrl: prior.deploymentUrl,
         source: priorSource,
@@ -2461,7 +2434,7 @@ test("first-cutover proof accepts source-free candidates and the exact same-SHA 
       for (const key of Object.keys(priorResponse.meta)) {
         if (key.startsWith("mento")) delete priorResponse.meta[key];
       }
-      deployments.governance.push({
+      deployments.reserve.push({
         deploymentId: prior.deploymentId,
         response: priorResponse,
       });
@@ -2474,23 +2447,23 @@ test("first-cutover proof accepts source-free candidates and the exact same-SHA 
         "proven",
         `candidate=${candidateSource} prior=${priorSource}`,
       );
-      assert.deepEqual(proof.projects.governance.ids.nativeGitDuplicates, [
+      assert.deepEqual(proof.projects.reserve.ids.nativeGitDuplicates, [
         prior.deploymentId,
       ]);
       assert.equal(
-        proof.projects.governance.records.githubPrebuilt[0]
+        proof.projects.reserve.records.githubPrebuilt[0]
           .workflowMetadataMatches,
         true,
       );
       assert.equal(
-        proof.projects.governance.priorDeploymentId,
+        proof.projects.reserve.priorDeploymentId,
         prior.deploymentId,
       );
       assert.equal(
-        proof.projects.governance.priorDeploymentUrl,
+        proof.projects.reserve.priorDeploymentUrl,
         prior.deploymentUrl,
       );
-      assert.equal(proof.projects.governance.priorServedSha, spec.deploySha);
+      assert.equal(proof.projects.reserve.priorServedSha, spec.deploySha);
     }
   }
 
@@ -2548,8 +2521,8 @@ test("first-cutover proof accepts source-free candidates and the exact same-SHA 
   ];
   for (const telemetryCase of gitTelemetryCases) {
     const spec = activeStateSpec({ rollbackOnly: true });
-    const prior = spec.releaseManifest.originalPriors.governance;
-    const priorResponse = activeDeploymentResponse(spec, "governance", {
+    const prior = spec.releaseManifest.originalPriors.reserve;
+    const priorResponse = activeDeploymentResponse(spec, "reserve", {
       deploymentId: prior.deploymentId,
       deploymentUrl: prior.deploymentUrl,
     });
@@ -2558,7 +2531,7 @@ test("first-cutover proof accepts source-free candidates and the exact same-SHA 
     }
     telemetryCase.mutate(priorResponse, spec);
     const deployments = activeDeploymentInspections(spec);
-    deployments.governance.push({
+    deployments.reserve.push({
       deploymentId: prior.deploymentId,
       response: priorResponse,
     });
@@ -2568,7 +2541,7 @@ test("first-cutover proof accepts source-free candidates and the exact same-SHA 
     });
     assert.equal(proof.outcome, "proven", telemetryCase.label);
     assert.deepEqual(
-      proof.projects.governance.records.nativeGitDuplicates[0].git,
+      proof.projects.reserve.records.nativeGitDuplicates[0].git,
       {
         ...telemetryCase.expectedPriorGit,
         sha: spec.deploySha,
@@ -2577,31 +2550,31 @@ test("first-cutover proof accepts source-free candidates and the exact same-SHA 
     );
 
     const candidateDeployments = activeDeploymentInspections(spec);
-    telemetryCase.mutate(candidateDeployments.governance[0].response, spec);
+    telemetryCase.mutate(candidateDeployments.reserve[0].response, spec);
     const candidateProof = createActiveDeploymentStateProof({
       spec,
       deployments: candidateDeployments,
     });
     assert.equal(candidateProof.outcome, "unproven", telemetryCase.label);
     assert.deepEqual(
-      candidateProof.projects.governance.ids.githubPrebuilt,
+      candidateProof.projects.reserve.ids.githubPrebuilt,
       [],
       telemetryCase.label,
     );
     assert.deepEqual(
-      candidateProof.projects.governance.ids.manualDuplicates,
-      [spec.projects.governance.deploymentId],
+      candidateProof.projects.reserve.ids.manualDuplicates,
+      [spec.projects.reserve.deploymentId],
       telemetryCase.label,
     );
   }
 
   const spec = activeStateSpec({ rollbackOnly: true });
   const deployments = activeDeploymentInspections(spec);
-  deployments.governance.push({
-    deploymentId: "dpl_governanceSpoofedPrior123",
-    response: activeDeploymentResponse(spec, "governance", {
-      deploymentId: "dpl_governanceSpoofedPrior123",
-      deploymentUrl: "https://governance-spoofed-prior.vercel.app",
+  deployments.reserve.push({
+    deploymentId: "dpl_reserveSpoofedPrior123",
+    response: activeDeploymentResponse(spec, "reserve", {
+      deploymentId: "dpl_reserveSpoofedPrior123",
+      deploymentUrl: "https://reserve-spoofed-prior.vercel.app",
       source: "git",
     }),
   });
@@ -2610,15 +2583,15 @@ test("first-cutover proof accepts source-free candidates and the exact same-SHA 
     deployments,
   });
   assert.equal(proof.outcome, "unproven");
-  assert.deepEqual(proof.projects.governance.ids.manualDuplicates, [
-    "dpl_governanceSpoofedPrior123",
+  assert.deepEqual(proof.projects.reserve.ids.manualDuplicates, [
+    "dpl_reserveSpoofedPrior123",
   ]);
 });
 
 test("active deployment proof accepts a stable candidate from an earlier audit attempt", () => {
   const spec = activeStateSpec();
   const deployments = activeDeploymentInspections(spec);
-  const response = deployments.governance[0].response;
+  const response = deployments.reserve[0].response;
   for (const key of Object.keys(response.meta)) {
     if (key.startsWith("mento")) delete response.meta[key];
   }
@@ -2626,14 +2599,14 @@ test("active deployment proof accepts a stable candidate from an earlier audit a
     response.meta,
     createMainCandidateVercelMetadata({
       intent: createMainCandidateIntent({
-        target: "governance",
+        target: "reserve",
         deploySha: spec.deploySha,
         upstreamRunId: spec.releaseManifest.upstreamRunId,
         originRunId: "12344",
         originAttempt: "1",
         originTransactionId: "main-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-        projectId: spec.projects.governance.projectId,
-        projectName: spec.projects.governance.projectName,
+        projectId: spec.projects.reserve.projectId,
+        projectName: spec.projects.reserve.projectName,
         releaseManifest: spec.releaseManifest,
       }),
     }),
@@ -2645,8 +2618,8 @@ test("active deployment proof accepts a stable candidate from an earlier audit a
   });
 
   assert.equal(proof.outcome, "proven");
-  assert.deepEqual(proof.projects.governance.ids.githubPrebuilt, [
-    spec.projects.governance.deploymentId,
+  assert.deepEqual(proof.projects.reserve.ids.githubPrebuilt, [
+    spec.projects.reserve.deploymentId,
   ]);
 });
 
@@ -2654,16 +2627,16 @@ test("active deployment proof rejects retired and mismatched candidate metadata"
   const spec = activeStateSpec();
   const classify = (mutate) => {
     const deployments = activeDeploymentInspections(spec);
-    const entry = deployments.governance[0];
+    const entry = deployments.reserve[0];
     mutate(entry.response);
     const proof = createActiveDeploymentStateProof({
       spec,
       deployments,
     });
     assert.equal(proof.outcome, "unproven");
-    assert.deepEqual(proof.projects.governance.ids.githubPrebuilt, []);
-    assert.deepEqual(proof.projects.governance.ids.manualDuplicates, [
-      spec.projects.governance.deploymentId,
+    assert.deepEqual(proof.projects.reserve.ids.githubPrebuilt, []);
+    assert.deepEqual(proof.projects.reserve.ids.manualDuplicates, [
+      spec.projects.reserve.deploymentId,
     ]);
   };
 
@@ -2671,7 +2644,7 @@ test("active deployment proof rejects retired and mismatched candidate metadata"
     for (const key of Object.keys(response.meta)) {
       if (key.startsWith("mento")) delete response.meta[key];
     }
-    response.meta.mentoTransaction = `${spec.runId}-${spec.runAttempt}-governance`;
+    response.meta.mentoTransaction = `${spec.runId}-${spec.runAttempt}-reserve`;
   });
   classify((response) => {
     response.meta.mentoReleaseId = "mr-000000000000000000000000";
@@ -2683,19 +2656,19 @@ test("active deployment proof rejects retired and mismatched candidate metadata"
     for (const key of Object.keys(response.meta)) {
       if (key.startsWith("mento")) delete response.meta[key];
     }
-    const reserve = spec.projects.reserve;
+    const ui = spec.projects.ui;
     Object.assign(
       response.meta,
       createMainCandidateVercelMetadata({
         intent: createMainCandidateIntent({
-          target: "reserve",
+          target: "ui",
           deploySha: spec.deploySha,
           upstreamRunId: spec.releaseManifest.upstreamRunId,
           originRunId: spec.runId,
           originAttempt: spec.runAttempt,
           originTransactionId: spec.transactionId,
-          projectId: reserve.projectId,
-          projectName: reserve.projectName,
+          projectId: ui.projectId,
+          projectName: ui.projectName,
           releaseManifest: spec.releaseManifest,
         }),
       }),
@@ -2703,23 +2676,15 @@ test("active deployment proof rejects retired and mismatched candidate metadata"
   });
 
   const wrongManifestProject = structuredClone(spec);
-  wrongManifestProject.releaseManifest.originalPriors.governance.projectId =
+  wrongManifestProject.releaseManifest.originalPriors.reserve.projectId =
     "prj_wrongproject123";
   assert.throws(
     () => assertActiveDeploymentStateSpec(wrongManifestProject),
     /conflicts/,
   );
   const wrongManifestTarget = structuredClone(spec);
-  wrongManifestTarget.releaseManifest.stagedTargets = [
-    "governance",
-    "reserve",
-    "ui",
-  ];
-  wrongManifestTarget.releaseManifest.activeTargets = [
-    "governance",
-    "reserve",
-    "ui",
-  ];
+  wrongManifestTarget.releaseManifest.stagedTargets = ["reserve", "ui"];
+  wrongManifestTarget.releaseManifest.activeTargets = ["reserve", "ui"];
   assert.throws(
     () => assertActiveDeploymentStateSpec(wrongManifestTarget),
     /release manifest conflicts with state identity/,
@@ -2835,7 +2800,7 @@ test("active deployment state validation rejects ambiguity and noncanonical or e
   );
   const collidingUrl = structuredClone(proof);
   collidingUrl.projects.ui.expectedDeploymentUrl =
-    proof.projects.governance.expectedDeploymentUrl;
+    proof.projects.reserve.expectedDeploymentUrl;
   assert.throws(
     () => assertActiveDeploymentStateProof(collidingUrl),
     /proof is malformed/,
@@ -3129,7 +3094,6 @@ test("active deployment capture rejects a changing paginated set and otherwise e
   );
   assert.deepEqual(Object.fromEntries(listCalls), {
     app: 3,
-    governance: 3,
     reserve: 3,
     ui: 3,
   });
@@ -3165,8 +3129,8 @@ test("active deployment capture verifies detail-only Git source SHA fields once"
   responses[spec.projects.app.deploymentId].gitSource = {
     sha: spec.deploySha,
   };
-  delete responses[spec.projects.governance.deploymentId].meta.githubCommitSha;
-  responses[spec.projects.governance.deploymentId].gitRepo = {
+  delete responses[spec.projects.reserve.deploymentId].meta.githubCommitSha;
+  responses[spec.projects.reserve.deploymentId].gitRepo = {
     sha: spec.deploySha,
   };
   const inspectionCalls = new Map();
@@ -3334,16 +3298,16 @@ test("active-proof CLI writes canonical duplicate evidence before failing unprov
   const specPath = join(directory, "active-spec.json");
   const outputPath = join(directory, "unproven-proof.json");
   writeFileSync(specPath, JSON.stringify(spec), { mode: 0o600 });
-  const duplicateId = "dpl_governancenative999";
+  const duplicateId = "dpl_reservenative999";
   const responses = Object.fromEntries(
     Object.keys(spec.projects).map((logicalTarget) => [
       spec.projects[logicalTarget].deploymentId,
       activeDeploymentResponse(spec, logicalTarget),
     ]),
   );
-  responses[duplicateId] = activeDeploymentResponse(spec, "governance", {
+  responses[duplicateId] = activeDeploymentResponse(spec, "reserve", {
     deploymentId: duplicateId,
-    deploymentUrl: "https://governance-native-duplicate.vercel.app",
+    deploymentUrl: "https://reserve-native-duplicate.vercel.app",
     source: "git",
     meta: {
       protectionBypass: "raw-secret-never-output",
@@ -3365,8 +3329,8 @@ test("active-proof CLI writes canonical duplicate evidence before failing unprov
             const logicalTarget = Object.keys(spec.projects).find(
               (target) => spec.projects[target].projectId === projectId,
             );
-            return logicalTarget === "governance"
-              ? [spec.projects.governance.deploymentId, duplicateId].sort()
+            return logicalTarget === "reserve"
+              ? [spec.projects.reserve.deploymentId, duplicateId].sort()
               : [spec.projects[logicalTarget].deploymentId];
           },
           inspectDeployment: async (deploymentId) => responses[deploymentId],
@@ -3377,9 +3341,7 @@ test("active-proof CLI writes canonical duplicate evidence before failing unprov
   const proofText = readFileSync(outputPath, "utf8");
   const proof = JSON.parse(proofText);
   assert.equal(proof.outcome, "unproven");
-  assert.deepEqual(proof.projects.governance.ids.manualDuplicates, [
-    duplicateId,
-  ]);
+  assert.deepEqual(proof.projects.reserve.ids.manualDuplicates, [duplicateId]);
   assert.equal(statSync(outputPath).mode & 0o777, 0o600);
   assert.equal(stdout, "");
   assert.doesNotMatch(

@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 
 import { assertHtmlDocumentDeploymentIdentity } from "./vercel-html-deployment-identity.mjs";
 
-export const PREVIEW_SMOKE_TARGETS = ["app", "governance", "reserve", "ui"];
+export const PREVIEW_SMOKE_TARGETS = ["app", "reserve", "ui"];
 
 const REPOSITORY = "mento-protocol/frontend-monorepo";
 const VERCEL_ACTOR = Object.freeze({
@@ -31,11 +31,6 @@ const TARGET_CONTRACTS = Object.freeze({
     hostPattern: /^appmento-[a-z0-9]{6,64}-mentolabs\.vercel\.app$/,
     nativeEnvironment: "Preview – app.mento.org",
     documentMarkers: ["Mento App", "Mento"],
-  }),
-  governance: Object.freeze({
-    hostPattern: /^governancemento-[a-z0-9]{6,64}-mentolabs\.vercel\.app$/,
-    nativeEnvironment: "Preview – governance.mento.org",
-    documentMarkers: ["Mento Governance", "Governance"],
   }),
   reserve: Object.freeze({
     hostPattern: /^reservemento-[a-z0-9]{6,64}-mentolabs\.vercel\.app$/,
@@ -216,8 +211,8 @@ function validateControllerTuple(values, common) {
 
 function validateNativeTuple(values, common) {
   invariant(
-    common.logicalTarget === "app" || common.logicalTarget === "governance",
-    "Native adapter smoke supports only App and Governance",
+    common.logicalTarget === "app",
+    "Native adapter smoke supports only App",
   );
   const contract = TARGET_CONTRACTS[common.logicalTarget];
   invariant(
@@ -325,8 +320,7 @@ function runtimeHasExactVercelActor(runtime) {
 function nativeTargetFromEnvironment(environment) {
   return Object.entries(TARGET_CONTRACTS).find(
     ([target, contract]) =>
-      (target === "app" || target === "governance") &&
-      contract.nativeEnvironment === environment,
+      target === "app" && contract.nativeEnvironment === environment,
   )?.[0];
 }
 
@@ -344,7 +338,7 @@ export function classifyNativePreviewEvent(event, runtime) {
     if (!target || status.state !== "success") {
       return {
         eligible: false,
-        reason: "not-app-governance-native-preview-success",
+        reason: "not-app-native-preview-success",
       };
     }
     const contract = TARGET_CONTRACTS[target];
@@ -619,7 +613,7 @@ export async function smokePreviewHttp({
   );
   if (
     tuple.nextDeploymentId &&
-    ["governance", "reserve", "ui"].includes(tuple.logicalTarget)
+    ["reserve", "ui"].includes(tuple.logicalTarget)
   ) {
     requireCustomHtmlDeploymentIdentity(
       tuple.logicalTarget,

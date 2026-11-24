@@ -2,7 +2,6 @@
   "mode": "shadow",
   "mainOwnershipMode": {
     "app": "shadow",
-    "governance": "shadow",
     "reserve": "shadow",
     "ui": "shadow"
   },
@@ -10,7 +9,6 @@
   "firstParent": "cccccccccccccccccccccccccccccccccccccccc",
   "projectIds": {
     "app": "prj_app123",
-    "governance": "prj_governance123",
     "reserve": "prj_reserve123",
     "ui": "prj_ui123"
   },
@@ -39,34 +37,6 @@
             "appmentoorg-git-main-mentolabs.vercel.app",
             "appmentoorg-mentolabs.vercel.app",
             "appmentoorg.vercel.app"
-          ]
-        }
-      ]
-    },
-    "governance": {
-      "health": "passed",
-      "states": [
-        {
-          "alias": "governance.mento.org",
-          "deploymentId": "dpl_governanceB123",
-          "deploymentUrl": "https://governance-main-b.vercel.app",
-          "creatorUsername": "fixture-author",
-          "projectId": "prj_governance123",
-          "projectName": "governance.mento.org",
-          "readyState": "READY",
-          "target": "production",
-          "customEnvironmentSlug": null,
-          "git": {
-            "org": "mento-protocol",
-            "repo": "frontend-monorepo",
-            "ref": "main",
-            "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-          },
-          "aliases": [
-            "governance.mento.org",
-            "governancementoorg-git-main-mentolabs.vercel.app",
-            "governancementoorg-mentolabs.vercel.app",
-            "governancementoorg.vercel.app"
           ]
         }
       ]

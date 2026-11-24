@@ -1,10 +1,10 @@
 name: Native Vercel Preview Smoke Adapter
 
 # Transition bridge: before App cutover, it smokes App's still-native shadow
-# previews; Governance enters only during bounded target-local rollback. After
-# App cutover, both App and Governance enter only during such rollbacks. Every
-# exact qualifying Vercel success runs the full secretless reusable smoke; no
-# prior status is trusted for dedupe.
+# previews. After App cutover, App enters only during bounded target-local
+# rollback. Governance is no longer a deployment target (ADR 0017), so the
+# adapter is App-only. Every exact qualifying Vercel success runs the full
+# secretless reusable smoke; no prior status is trusted for dedupe.
 on:
   deployment_status:
 
@@ -73,34 +73,9 @@ jobs:
       metadata_actor_id: ${{ needs.classify.outputs.metadata_actor_id }}
       metadata_actor_type: ${{ needs.classify.outputs.metadata_actor_type }}
 
-  smoke-governance:
-    name: Smoke native Governance preview
-    needs: classify
-    if: needs.classify.outputs.eligible == 'true' && needs.classify.outputs.logical_target == 'governance'
-    permissions:
-      contents: read
-    uses: ./.github/workflows/_vercel-preview-smoke.yml
-    with:
-      logical_target: governance
-      deployment_url: ${{ needs.classify.outputs.deployment_url }}
-      expected_sha: ${{ needs.classify.outputs.expected_sha }}
-      github_deployment_id: ${{ needs.classify.outputs.github_deployment_id }}
-      verification_mode: ${{ needs.classify.outputs.verification_mode }}
-      verification_key: ${{ needs.classify.outputs.verification_key }}
-      metadata_logical_target: governance
-      metadata_target: ${{ needs.classify.outputs.metadata_target }}
-      metadata_repository: ${{ needs.classify.outputs.metadata_repository }}
-      metadata_ref: ${{ needs.classify.outputs.metadata_ref }}
-      metadata_sha: ${{ needs.classify.outputs.metadata_sha }}
-      metadata_url: ${{ needs.classify.outputs.metadata_url }}
-      metadata_environment: ${{ needs.classify.outputs.metadata_environment }}
-      metadata_actor_login: ${{ needs.classify.outputs.metadata_actor_login }}
-      metadata_actor_id: ${{ needs.classify.outputs.metadata_actor_id }}
-      metadata_actor_type: ${{ needs.classify.outputs.metadata_actor_type }}
-
   record-native-result:
     name: Record run-bound native smoke evidence
-    needs: [classify, smoke-app, smoke-governance]
+    needs: [classify, smoke-app]
     if: always() && needs.classify.outputs.eligible == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -114,14 +89,11 @@ jobs:
           DEPLOYMENT_ENVIRONMENT: ${{ needs.classify.outputs.metadata_environment }}
           DEPLOYMENT_URL: ${{ needs.classify.outputs.deployment_url }}
           GITHUB_DEPLOYMENT_ID: ${{ needs.classify.outputs.github_deployment_id }}
-          GOVERNANCE_RESULT: ${{ needs.smoke-governance.result }}
           LOGICAL_TARGET: ${{ needs.classify.outputs.logical_target }}
         with:
           script: |
             const target = process.env.LOGICAL_TARGET;
-            const result = target === "app"
-              ? process.env.APP_RESULT
-              : process.env.GOVERNANCE_RESULT;
+            const result = target === "app" ? process.env.APP_RESULT : "";
             const state = result === "success"
               ? "success"
               : result === "failure"

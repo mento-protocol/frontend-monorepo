@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { assertVercelCliRuntimeContract } from "./vercel-cli-runtime-contract.mjs";
 
 export const CUSTOM_DEPLOYMENT_ID_ENV = "MENTO_NEXT_DEPLOYMENT_ID";
-export const VERCEL_TARGETS = ["app", "governance", "reserve", "ui"];
+export const VERCEL_TARGETS = ["app", "reserve", "ui"];
 
 const DEPLOYMENT_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 const REPOSITORY_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;

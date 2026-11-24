@@ -139,11 +139,7 @@ export const MAIN_OWNERSHIP_MODES = Object.freeze({
   GITHUB: "github",
   SHADOW: "shadow",
 });
-export const MAIN_ORDINARY_TARGETS = Object.freeze([
-  "governance",
-  "reserve",
-  "ui",
-]);
+export const MAIN_ORDINARY_TARGETS = Object.freeze(["reserve", "ui"]);
 // Every main target promotes and rolls back through the activation
 // transaction.
 export const MAIN_PROMOTABLE_TARGETS = Object.freeze([
@@ -164,7 +160,6 @@ const JOB_RESULTS = new Set(["success", "failure", "cancelled", "skipped"]);
 const FINAL_JOB_KEYS = Object.freeze([
   "waitForCi",
   "plan",
-  "stageGovernance",
   "stageReserve",
   "stageUi",
   "coordinator",
@@ -185,7 +180,7 @@ const UPSTREAM_KEYS = Object.freeze([
   "runUrl",
   "buildAndTestJobUrl",
 ]);
-const PROJECT_KEYS = Object.freeze(["app", "governance", "reserve", "ui"]);
+const PROJECT_KEYS = Object.freeze(["app", "reserve", "ui"]);
 const PRIOR_KEYS = Object.freeze(["deploymentId", "deploymentUrl", "aliases"]);
 const STAGE_KEYS = Object.freeze([
   "schema",
@@ -214,12 +209,7 @@ export const MAIN_ACTIVE_MAX_RECOVERY_TRANSITIONS =
 const MAX_JSON_BYTES = 256 * 1024;
 export const MAIN_ACTIVE_JOURNAL_HISTORY_MAX_JSON_BYTES = 1024 * 1024;
 export const MAIN_ACTIVE_TERMINAL_PROOFS_MAX_JSON_BYTES = 1024 * 1024;
-const CANONICAL_MAPPING_TARGETS = Object.freeze([
-  "governance",
-  "reserve",
-  "ui",
-  "app",
-]);
+const CANONICAL_MAPPING_TARGETS = Object.freeze(["reserve", "ui", "app"]);
 const CLI_COMMAND_OPTIONS = Object.freeze({
   "active-event-authorize": Object.freeze([
     "current-mappings",
@@ -324,7 +314,6 @@ const CLI_COMMAND_OPTIONS = Object.freeze({
   "active-recovery-public-smokes": Object.freeze([
     "app",
     "execution",
-    "governance",
     "output",
     "reserve",
     "ui",
@@ -332,7 +321,6 @@ const CLI_COMMAND_OPTIONS = Object.freeze({
   "active-public-smokes": Object.freeze([
     "app",
     "execution",
-    "governance",
     "output",
     "reserve",
     "stage-barrier",
@@ -993,7 +981,7 @@ export function assertMainStageResult(
   requireString(
     value.transactionKey,
     "Stage transaction key",
-    /^[1-9][0-9]*-[1-9][0-9]*-(?:governance|reserve|ui)$/,
+    /^[1-9][0-9]*-[1-9][0-9]*-(?:reserve|ui)$/,
   );
   if (expectedRunId !== undefined || expectedRunAttempt !== undefined) {
     const expectedKey = `${requirePositiveId(
@@ -1085,7 +1073,7 @@ export function validateMainStageJobs({ plan, jobs, runId, runAttempt }) {
 
 function releaseManifestFromHandoff(handoff) {
   const originalPriors = Object.fromEntries(
-    ["governance", "reserve", "ui", "app"].map((target) => {
+    ["reserve", "ui", "app"].map((target) => {
       const planned = handoff.planning.priors.find(
         (entry) => entry.target === target,
       );
@@ -1151,7 +1139,7 @@ function releaseManifestFromHandoff(handoff) {
 
 function startMappingsFromPrior(prior) {
   return Object.fromEntries(
-    ["app", "governance", "reserve", "ui"].map((target) => [
+    ["app", "reserve", "ui"].map((target) => [
       target,
       prior[target].aliases.map((alias) => ({
         alias,
@@ -1234,7 +1222,6 @@ export function createMainTransactionInputs({
   );
   const prior = {
     app: priorByTarget.app,
-    governance: priorByTarget.governance,
     reserve: priorByTarget.reserve,
     ui: priorByTarget.ui,
   };
@@ -1285,7 +1272,6 @@ export function createMainTransactionInputs({
   }
   const candidates = {
     app: appCandidate,
-    governance: stages.governance?.candidate ?? null,
     reserve: stages.reserve?.candidate ?? null,
     ui: stages.ui?.candidate ?? null,
   };
@@ -1356,12 +1342,7 @@ export function createPreparedMainActiveJournal(options) {
   });
 }
 
-const STAGE_BARRIER_TARGETS = Object.freeze([
-  "app",
-  "governance",
-  "reserve",
-  "ui",
-]);
+const STAGE_BARRIER_TARGETS = Object.freeze(["app", "reserve", "ui"]);
 
 function currentAttemptIdentity({ execution, runId, runAttempt }) {
   const canonical = assertMainReleaseExecution(execution);
@@ -1663,9 +1644,9 @@ function currentStateProject({ current, barrier, target, candidate }) {
 }
 
 function currentStateProjection(current) {
-  // Release execution is canonical in activation order (Governance, Reserve,
-  // UI, App). Active deployment-state artifacts use the public-state order
-  // (App, Governance, Reserve, UI), so project the already-validated
+  // Release execution is canonical in activation order (Reserve, UI, App).
+  // Active deployment-state artifacts use the public-state order (App,
+  // Reserve, UI), so project the already-validated
   // execution partitions into that contract order at this boundary.
   return {
     stagedTargets: STAGE_BARRIER_TARGETS.filter((target) =>
@@ -1835,7 +1816,6 @@ export function createMainCurrentReleaseVerifiedAliasMappingSpec({
   });
   return createMainCanonicalAliasMappingSpec({
     aliasesByTarget: {
-      governance: current.execution.manifest.originalPriors.governance.aliases,
       reserve: current.execution.manifest.originalPriors.reserve.aliases,
       ui: current.execution.manifest.originalPriors.ui.aliases,
       app: current.execution.manifest.originalPriors.app.aliases,
@@ -1870,7 +1850,7 @@ export function createMainActiveRecoveryMappingSpec({
   const release = assertMainReleaseManifest(highest.release);
   const bindings = [];
   const aliases = new Set();
-  for (const target of ["app", "governance", "reserve", "ui"]) {
+  for (const target of ["app", "reserve", "ui"]) {
     const releaseTarget = release.originalPriors[target];
     const prior = highest.prior[target];
     if (
@@ -2101,14 +2081,12 @@ const ACTIVE_RUNTIME_RESULT_KEYS = Object.freeze([
 
 const ACTIVE_RECOVERY_RUNTIME_FINAL_PATHS = Object.freeze({
   app: "/swap/celo",
-  governance: "/voting-power",
   reserve: "/?tab=stablecoins",
   ui: "/form-components",
 });
 
 const ACTIVE_RECOVERY_RUNTIME_INTERACTIONS = Object.freeze({
   app: "real-production-wallet-list",
-  governance: "governance-voting-power-navigation",
   reserve: "reserve-overview-data-and-supply-tab",
   ui: "ui-search-navigation-and-checkbox",
 });
@@ -3329,7 +3307,7 @@ function riderAliasEvidenceFromStates(
   ownedDeployments = null,
 ) {
   // Emit keys in canonical deployment-target order. Callers pass promote
-  // order (governance, reserve, ui, app), but the evidence validator only
+  // order (reserve, ui, app), but the evidence validator only
   // admits a canonical ordered subset, so a release that promoted App plus any
   // other target could not publish its terminal evidence.
   const ordered = MAIN_DEPLOYMENT_TARGETS.filter((target) =>
@@ -3721,7 +3699,6 @@ export function createMainDeploymentEvidence({
 
 const ACTIVE_PUBLIC_URLS = Object.freeze({
   app: "https://app.mento.org/",
-  governance: "https://governance.mento.org/",
   reserve: "https://reserve.mento.org/",
   ui: "https://ui.mento.org/",
 });
@@ -3799,7 +3776,7 @@ function canonicalFinalMappings(journal, value, { exact = true } = {}) {
     throw new Error("Active final mappings must be an array");
   }
   const expectedByAlias = new Map();
-  for (const target of ["app", "governance", "reserve", "ui"]) {
+  for (const target of ["app", "reserve", "ui"]) {
     const mapping =
       journal.candidates[target] === null
         ? journal.prior[target]
@@ -4811,12 +4788,7 @@ export function assertMainFinalResults({
     throw new Error("A required main deployment job did not succeed");
   }
   for (const target of MAIN_ORDINARY_TARGETS) {
-    const jobName =
-      target === "governance"
-        ? "stageGovernance"
-        : target === "reserve"
-          ? "stageReserve"
-          : "stageUi";
+    const jobName = target === "reserve" ? "stageReserve" : "stageUi";
     const expected = handoff.planning.stagedTargets.includes(target)
       ? "success"
       : "skipped";
@@ -4878,12 +4850,7 @@ export function evaluateMainActiveFinalResults({
     return result("failure", "admission-or-plan-failed");
   }
   for (const target of MAIN_ORDINARY_TARGETS) {
-    const jobName =
-      target === "governance"
-        ? "stageGovernance"
-        : target === "reserve"
-          ? "stageReserve"
-          : "stageUi";
+    const jobName = target === "reserve" ? "stageReserve" : "stageUi";
     const expected = planning.stagedTargets.includes(target)
       ? "success"
       : "skipped";
@@ -4993,12 +4960,7 @@ export function createMainActiveSafeNoopEvidence({
       planning.stagedTargets.length > 0 &&
       planning.activeTargets.length === 0);
   const stagesMatch = MAIN_ORDINARY_TARGETS.every((target) => {
-    const jobName =
-      target === "governance"
-        ? "stageGovernance"
-        : target === "reserve"
-          ? "stageReserve"
-          : "stageUi";
+    const jobName = target === "reserve" ? "stageReserve" : "stageUi";
     return (
       canonicalJobs[jobName] ===
       (planning.stagedTargets.includes(target) ? "success" : "skipped")
@@ -5385,7 +5347,7 @@ function canonicalTerminalProviderMappings(value) {
   if (value.schema !== "vercel-main-canonical-mappings:v1") {
     throw new Error("Terminal canonical mapping schema is unsupported");
   }
-  const targets = ["governance", "reserve", "ui", "app"];
+  const targets = ["reserve", "ui", "app"];
   assertExactKeys(value.mappings, targets, "Terminal canonical mappings");
   return targets.flatMap((target) => {
     if (!Array.isArray(value.mappings[target])) {
@@ -5584,7 +5546,7 @@ function canonicalTerminalAffectedOperations(value) {
     );
     if (
       !["promote", "ordinary_rollback"].includes(operation.type) ||
-      !["app", "governance", "reserve", "ui"].includes(operation.target) ||
+      !["app", "reserve", "ui"].includes(operation.target) ||
       !["started", "command_returned", "verified"].includes(operation.state) ||
       ![null, "success", "unknown"].includes(operation.commandOutcome) ||
       ![
@@ -5731,9 +5693,6 @@ function terminalJobs(execution, outcome) {
   return {
     waitForCi: "success",
     plan: "success",
-    stageGovernance: execution.projection.stagedTargets.includes("governance")
-      ? "success"
-      : "skipped",
     stageReserve: execution.projection.stagedTargets.includes("reserve")
       ? "success"
       : "skipped",
@@ -7165,12 +7124,7 @@ export function assertMainActiveTerminalEvidenceArtifact(
       throw new Error("Nested active safe-noop evidence is inconsistent");
     }
     for (const target of MAIN_ORDINARY_TARGETS) {
-      const key =
-        target === "governance"
-          ? "stageGovernance"
-          : target === "reserve"
-            ? "stageReserve"
-            : "stageUi";
+      const key = target === "reserve" ? "stageReserve" : "stageUi";
       const expected = planning.stagedTargets.includes(target)
         ? "success"
         : "skipped";
@@ -7654,7 +7608,6 @@ export function parseMainDeploymentArguments(argv) {
 function projectIdsFromEnvironment(values) {
   return {
     app: values.VERCEL_PROJECT_ID_APP,
-    governance: values.VERCEL_PROJECT_ID_GOVERNANCE,
     reserve: values.VERCEL_PROJECT_ID_RESERVE,
     ui: values.VERCEL_PROJECT_ID_UI,
   };
@@ -7663,13 +7616,6 @@ function projectIdsFromEnvironment(values) {
 function stageJobsFromEnvironment(values) {
   const parseOptional = (raw, label) => (raw ? parseJson(raw, label) : null);
   return {
-    governance: {
-      result: values.STAGE_GOVERNANCE_RESULT,
-      handoff: parseOptional(
-        values.STAGE_GOVERNANCE_HANDOFF,
-        "Governance stage handoff",
-      ),
-    },
     reserve: {
       result: values.STAGE_RESERVE_RESULT,
       handoff: parseOptional(
@@ -7688,7 +7634,6 @@ function finalJobsFromEnvironment(values) {
   return {
     waitForCi: values.WAIT_FOR_CI_RESULT,
     plan: values.PLAN_RESULT,
-    stageGovernance: values.STAGE_GOVERNANCE_RESULT,
     stageReserve: values.STAGE_RESERVE_RESULT,
     stageUi: values.STAGE_UI_RESULT,
     coordinator: values.COORDINATOR_RESULT,
@@ -9092,7 +9037,7 @@ export async function runMainDeploymentCli({
       currentMappings: {
         schema: "vercel-main-canonical-mappings:v1",
         mappings: Object.fromEntries(
-          ["governance", "reserve", "ui", "app"].map((target) => [
+          ["reserve", "ui", "app"].map((target) => [
             target,
             preparedJournal.startMappings[target],
           ]),

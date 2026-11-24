@@ -4,6 +4,7 @@ import { deflateRawSync, inflateRawSync } from "node:zlib";
 
 import {
   assertBridgeEraReleaseManifest,
+  assertGovernanceEraReleaseManifest,
   assertMainReleaseManifest,
 } from "./vercel-main-release-reconciliation.mjs";
 import { generateVercelMainCandidateDeploymentId } from "./vercel-prebuilt.mjs";
@@ -21,12 +22,7 @@ export const MAIN_CANDIDATE_MAX_MANIFEST_CHUNKS = 12;
 const MAIN_CANDIDATE_MAX_MANIFEST_BYTES = 16_384;
 export const MAIN_CANDIDATE_MAX_METADATA_BYTES = 8192;
 const MAIN_CANDIDATE_RECEIPT_MAX_ENCODED_BYTES = 32 * 1024;
-const MAIN_CANDIDATE_TARGETS = Object.freeze([
-  "app",
-  "governance",
-  "reserve",
-  "ui",
-]);
+const MAIN_CANDIDATE_TARGETS = Object.freeze(["app", "reserve", "ui"]);
 
 const SHA_PATTERN = /^[a-f0-9]{40}$/;
 const POSITIVE_ID_PATTERN = /^[1-9][0-9]*$/;
@@ -213,7 +209,7 @@ function canonicalStableContext(
   const canonicalTarget = requireString(
     target,
     "Main candidate target",
-    /^(?:app|governance|reserve|ui)$/,
+    /^(?:app|reserve|ui)$/,
   );
   const canonicalDeploySha = requireCanonicalSha(
     deploySha,
@@ -622,6 +618,30 @@ export function isBridgeEraCandidateMetadata(metadata, context) {
       metadata,
       context,
       assertBridgeEraReleaseManifest,
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// True only for metadata that is a complete, internally consistent candidate
+// seal whose embedded release manifest is governance-era: sealed against the
+// retired four-target universe that still listed `governance` (ADR 0017). It
+// is held to exactly the checks `isBridgeEraCandidateMetadata` applies — the
+// same schema, key allowlist, size bound, manifest structure, stable
+// release/candidate identity, digest, and audit origin — with the single
+// permitted difference being that universe. The sealed target itself must
+// still be a current main target, so a Governance deployment's own seal is
+// never admitted. A corrupt seal fails one of those checks and is not admitted
+// here, so it still reaches the ordinary assertion path and fails the run
+// closed. Seals are immutable, so this admission is permanent.
+export function isGovernanceEraCandidateMetadata(metadata, context) {
+  try {
+    canonicalizeCandidateMetadata(
+      metadata,
+      context,
+      assertGovernanceEraReleaseManifest,
     );
     return true;
   } catch {

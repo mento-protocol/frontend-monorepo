@@ -13,8 +13,8 @@ import { createMainReleaseManifest } from "./vercel-main-release-reconciliation.
 
 const SHA = "a".repeat(40);
 const PRIOR_SHA = "b".repeat(40);
-const TARGETS = ["app", "governance", "reserve", "ui"];
-const RELEASE_ORDER = ["governance", "reserve", "ui", "app"];
+const TARGETS = ["app", "reserve", "ui"];
+const RELEASE_ORDER = ["reserve", "ui", "app"];
 const UPSTREAM_RUN_ID = "123";
 const IDENTITY = Object.freeze({ runId: "800", runAttempt: "3" });
 
@@ -134,7 +134,7 @@ function priorMappings(releaseExecution) {
 }
 
 function emptyReceipts() {
-  return { app: null, governance: null, reserve: null, ui: null };
+  return { app: null, reserve: null, ui: null };
 }
 
 function forwardJournal(overrides = {}) {
@@ -148,26 +148,15 @@ function forwardJournal(overrides = {}) {
   });
 }
 
-test("forward journal binds exactly the four reviewed protected targets", () => {
+test("forward journal binds exactly the three reviewed protected targets", () => {
   const journal = forwardJournal();
-  assert.deepEqual(Object.keys(journal.prior), [
-    "app",
-    "governance",
-    "reserve",
-    "ui",
-  ]);
+  assert.deepEqual(Object.keys(journal.prior), ["app", "reserve", "ui"]);
   assert.deepEqual(Object.keys(journal.startMappings), [
     "app",
-    "governance",
     "reserve",
     "ui",
   ]);
-  assert.deepEqual(Object.keys(journal.candidates), [
-    "app",
-    "governance",
-    "reserve",
-    "ui",
-  ]);
+  assert.deepEqual(Object.keys(journal.candidates), ["app", "reserve", "ui"]);
   assert.equal(journal.status, "prepared");
   assert.equal(journal.sequence, 0);
   assert.equal(journal.deploySha, SHA);
@@ -178,7 +167,7 @@ test("forward journal binds exactly the four reviewed protected targets", () => 
 test("prior state copies each target's exact manifest prior identity", () => {
   const releaseExecution = execution();
   const journal = forwardJournal({ execution: releaseExecution });
-  for (const target of ["app", "governance", "reserve", "ui"]) {
+  for (const target of ["app", "reserve", "ui"]) {
     const prior = releaseExecution.manifest.originalPriors[target];
     assert.deepEqual(journal.prior[target], {
       deploymentId: prior.deploymentId,
@@ -197,7 +186,7 @@ test("prior state copies each target's exact manifest prior identity", () => {
 });
 
 // MGP-18 retired the legacy App deployment. The canonical mapping set is
-// exactly the four release targets; a fifth key can never re-enter it.
+// exactly the three release targets; a retired target can never re-enter it.
 test("canonical mappings reject a retired legacy target, extra keys, and gaps", () => {
   const releaseExecution = execution();
   const base = priorMappings(releaseExecution);
@@ -218,6 +207,24 @@ test("canonical mappings reject a retired legacy target, extra keys, and gaps", 
     /mapping targets contains forbidden or missing fields/,
   );
 
+  // Governance left the release universe (ADR 0017); its key is now foreign.
+  const withGovernance = structuredClone(base);
+  withGovernance.mappings.governance = [
+    {
+      alias: "governance.mento.org",
+      deploymentId: "dpl_governancePrior123",
+      deploymentUrl: "https://governance-prior.vercel.app",
+    },
+  ];
+  assert.throws(
+    () =>
+      forwardJournal({
+        execution: releaseExecution,
+        currentMappings: withGovernance,
+      }),
+    /mapping targets contains forbidden or missing fields/,
+  );
+
   const missingTarget = structuredClone(base);
   delete missingTarget.mappings.ui;
   assert.throws(
@@ -232,10 +239,7 @@ test("canonical mappings reject a retired legacy target, extra keys, and gaps", 
   const reordered = {
     schema: base.schema,
     mappings: Object.fromEntries(
-      ["app", "governance", "reserve", "ui"].map((target) => [
-        target,
-        base.mappings[target],
-      ]),
+      ["app", "reserve", "ui"].map((target) => [target, base.mappings[target]]),
     ),
   };
   assert.throws(
@@ -305,14 +309,14 @@ test("canonical mappings reject incomplete alias coverage and noncanonical order
   );
 
   const malformedId = structuredClone(base);
-  malformedId.mappings.governance[0].deploymentId = "governance-prior";
+  malformedId.mappings.reserve[0].deploymentId = "reserve-prior";
   assert.throws(
     () =>
       forwardJournal({
         execution: releaseExecution,
         currentMappings: malformedId,
       }),
-    /governance deployment ID is malformed/,
+    /reserve deployment ID is malformed/,
   );
 });
 
@@ -331,9 +335,8 @@ test("forward journal rejects a receipt for an unselected target", () => {
       forwardJournal({
         execution: releaseExecution,
         candidateReceipts: {
-          governance: null,
-          app: null,
           reserve: null,
+          app: null,
           ui: null,
         },
       }),

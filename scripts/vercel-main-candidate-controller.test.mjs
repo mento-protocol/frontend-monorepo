@@ -20,7 +20,7 @@ const fixtureUrl = new URL(
 
 function intent() {
   const input = JSON.parse(readFileSync(fixtureUrl, "utf8"));
-  for (const target of ["app", "governance", "reserve", "ui"]) {
+  for (const target of ["app", "reserve", "ui"]) {
     for (const state of input.priorStates[target].states) {
       state.git.sha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     }
@@ -40,12 +40,12 @@ function intent() {
     runPlanner: ({ base, head }) => ({
       base,
       head,
-      deployments: ["app", "governance", "reserve", "ui"],
+      deployments: ["app", "reserve", "ui"],
       reason: "global-build-input",
     }),
   });
   const originalPriors = Object.fromEntries(
-    ["governance", "reserve", "ui", "app"].map((target) => {
+    ["reserve", "ui", "app"].map((target) => {
       const state = input.priorStates[target].states[0];
       const prior = plan.priors.find((entry) => entry.target === target);
       return [
@@ -112,7 +112,7 @@ function mappingsFromManifest(manifest) {
 
 function projectIdsFromManifest(manifest) {
   return Object.fromEntries(
-    ["app", "governance", "reserve", "ui"].map((target) => [
+    ["app", "reserve", "ui"].map((target) => [
       target,
       manifest.originalPriors[target].projectId,
     ]),
@@ -196,10 +196,10 @@ test("pre-plan discovery expands mapped release metadata into exact staged candi
   const currentIntent = intent();
   const manifest = currentIntent.releaseManifest;
   const currentMappings = mappingsFromManifest(manifest);
-  currentMappings.governance = currentMappings.governance.map((mapping) => ({
+  currentMappings.reserve = currentMappings.reserve.map((mapping) => ({
     ...mapping,
-    deploymentId: "dpl_governanceCandidate123",
-    deploymentUrl: "governance-candidate.vercel.app",
+    deploymentId: "dpl_reserveCandidate123",
+    deploymentUrl: "reserve-candidate.vercel.app",
   }));
   const inspections = [];
   const resolutions = [];
@@ -212,7 +212,7 @@ test("pre-plan discovery expands mapped release metadata into exact staged candi
         return {
           canonicalState: {},
           metadata:
-            deploymentId === "dpl_governanceCandidate123"
+            deploymentId === "dpl_reserveCandidate123"
               ? { releaseManifest: manifest }
               : null,
         };
@@ -230,7 +230,7 @@ test("pre-plan discovery expands mapped release metadata into exact staged candi
     },
   });
   assert.equal(result.schema, "vercel-main-preplan-candidate-discovery:v2");
-  assert.deepEqual(result.rollbackOnlyTargets, ["app", "reserve", "ui"]);
+  assert.deepEqual(result.rollbackOnlyTargets, ["app", "ui"]);
   assert.equal(result.candidateReleases.length, 1);
   assert.deepEqual(
     Object.keys(result.candidateReleases[0].candidates),
@@ -264,11 +264,6 @@ test("pre-plan discovery marks every fully native mapping rollback-only", async 
     },
   });
   assert.deepEqual(result.candidateReleases, []);
-  assert.deepEqual(result.rollbackOnlyTargets, [
-    "app",
-    "governance",
-    "reserve",
-    "ui",
-  ]);
+  assert.deepEqual(result.rollbackOnlyTargets, ["app", "reserve", "ui"]);
   assert.equal(resolutions, 0);
 });

@@ -55,18 +55,12 @@ const OPERATION_ID_PATTERN = /^op-[0-9]{4}$/;
 const TRANSACTION_ID_PATTERN = /^main-[a-f0-9]{32}$/;
 const MAX_JOURNAL_BYTES = 256 * 1024;
 const PROMOTABLE_TARGETS = MAIN_ACTIVE_PROMOTABLE_TARGETS;
-const DEPLOYMENT_TARGETS = Object.freeze([
-  "app",
-  "governance",
-  "reserve",
-  "ui",
-]);
-const PROTECTED_TARGETS = Object.freeze(["app", "governance", "reserve", "ui"]);
+const DEPLOYMENT_TARGETS = Object.freeze(["app", "reserve", "ui"]);
+const PROTECTED_TARGETS = Object.freeze(["app", "reserve", "ui"]);
 const FORWARD_TYPES = new Set(["promote"]);
 const RECOVERY_TYPES = new Set(["ordinary_rollback"]);
 const PUBLIC_URLS = Object.freeze({
   app: "https://app.mento.org/",
-  governance: "https://governance.mento.org/",
   reserve: "https://reserve.mento.org/",
   ui: "https://ui.mento.org/",
 });
@@ -83,13 +77,11 @@ const ACTIVE_RUNTIME_RESULT_KEYS = Object.freeze([
 ]);
 const ACTIVE_RUNTIME_FINAL_PATHS = Object.freeze({
   app: "/swap/celo",
-  governance: "/voting-power",
   reserve: "/?tab=stablecoins",
   ui: "/form-components",
 });
 const ACTIVE_RUNTIME_INTERACTIONS = Object.freeze({
   app: "real-production-wallet-list",
-  governance: "governance-voting-power-navigation",
   reserve: "reserve-overview-data-and-supply-tab",
   ui: "ui-search-navigation-and-checkbox",
 });
@@ -1330,10 +1322,7 @@ function releaseMappingsFromJournal(journal, currentMappings) {
     throw new Error("Fresh release mappings are required");
   }
   return Object.fromEntries(
-    ["governance", "reserve", "ui", "app"].map((target) => [
-      target,
-      currentMappings[target],
-    ]),
+    ["reserve", "ui", "app"].map((target) => [target, currentMappings[target]]),
   );
 }
 
@@ -1404,7 +1393,7 @@ export async function censusFreshMainActiveRelease({
 
 function releasePriorFromManifest(manifest) {
   return Object.fromEntries(
-    ["app", "governance", "reserve", "ui"].map((target) => {
+    ["app", "reserve", "ui"].map((target) => {
       const prior = manifest.originalPriors[target];
       return [
         target,

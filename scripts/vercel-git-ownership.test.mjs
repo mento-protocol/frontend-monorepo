@@ -238,7 +238,7 @@ test("active ownership disables every native branch for every target", () => {
   }
   assert.equal(
     PREVIEW_TARGET_CONFIG.app.activeVercelConfiguration,
-    PREVIEW_TARGET_CONFIG.governance.activeVercelConfiguration,
+    PREVIEW_TARGET_CONFIG.reserve.activeVercelConfiguration,
   );
 });
 
@@ -252,7 +252,7 @@ test("main-shadow rollback keeps previews GitHub-owned and main native", () => {
   }
   assert.equal(
     PREVIEW_TARGET_CONFIG.app.mainShadowVercelConfiguration,
-    PREVIEW_TARGET_CONFIG.governance.mainShadowVercelConfiguration,
+    PREVIEW_TARGET_CONFIG.reserve.mainShadowVercelConfiguration,
   );
 });
 
@@ -266,7 +266,7 @@ test("preview-shadow rollback keeps native previews and GitHub-owned main indepe
   }
   assert.equal(
     PREVIEW_TARGET_CONFIG.app.previewShadowVercelConfiguration,
-    PREVIEW_TARGET_CONFIG.governance.previewShadowVercelConfiguration,
+    PREVIEW_TARGET_CONFIG.reserve.previewShadowVercelConfiguration,
   );
 });
 
@@ -280,7 +280,7 @@ test("full native rollback keeps only the Dependabot exclusion", () => {
   }
   assert.equal(
     PREVIEW_TARGET_CONFIG.app.nativeVercelConfiguration,
-    PREVIEW_TARGET_CONFIG.governance.nativeVercelConfiguration,
+    PREVIEW_TARGET_CONFIG.reserve.nativeVercelConfiguration,
   );
 });
 
