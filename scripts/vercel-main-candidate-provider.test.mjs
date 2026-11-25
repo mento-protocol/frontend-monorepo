@@ -3,7 +3,7 @@ import { Buffer } from "node:buffer";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { deflateRawSync } from "node:zlib";
+import { deflateRawSync, inflateRawSync } from "node:zlib";
 
 import {
   MAIN_CANDIDATE_MANIFEST_CHUNK_BYTES,
@@ -11,16 +11,21 @@ import {
   createMainCandidateReceipt,
   createMainCandidateVercelMetadata,
   isBridgeEraCandidateMetadata,
+  isGovernanceEraCandidateMetadata,
 } from "./vercel-main-candidate.mjs";
 import {
   assertMainCandidateHandoff,
   assertMainServedPriorCandidateHandoff,
+  discoverMainPreplanCandidateReleases,
   preflightMainCandidateProvider,
   resolveMainCandidateHandoff,
   resolveMainServedPriorCandidateHandoff,
 } from "./vercel-main-candidate-controller.mjs";
 import { createMainCandidateVercelProvider } from "./vercel-main-candidate-provider.mjs";
-import { createMainReleaseManifest } from "./vercel-main-release-reconciliation.mjs";
+import {
+  createMainReleaseManifest,
+  decideMainPreplanReconciliation,
+} from "./vercel-main-release-reconciliation.mjs";
 import {
   MAIN_TARGET_CONTRACTS,
   planMainDeployments,
@@ -36,7 +41,7 @@ const fixtureUrl = new URL(
 function releaseManifest() {
   const input = JSON.parse(readFileSync(fixtureUrl, "utf8"));
   const priorSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-  for (const target of ["app", "governance", "reserve", "ui"]) {
+  for (const target of ["app", "reserve", "ui"]) {
     for (const state of input.priorStates[target].states)
       state.git.sha = priorSha;
   }
@@ -55,12 +60,12 @@ function releaseManifest() {
     runPlanner: ({ base, head }) => ({
       base,
       head,
-      deployments: ["app", "governance", "reserve", "ui"],
+      deployments: ["app", "reserve", "ui"],
       reason: "global-build-input",
     }),
   });
   const originalPriors = Object.fromEntries(
-    ["governance", "reserve", "ui", "app"].map((target) => {
+    ["reserve", "ui", "app"].map((target) => {
       const state = input.priorStates[target].states[0];
       const prior = plan.priors.find((entry) => entry.target === target);
       return [
@@ -334,7 +339,7 @@ test("unbound provider callbacks resolve a raw-metadata candidate without artifa
 });
 
 test("automatic ordinary candidate finalization permits the base and the exact creator alias", async () => {
-  for (const target of ["governance", "reserve", "ui"]) {
+  for (const target of ["reserve", "ui"]) {
     const contract = PRODUCTION_GENERATED_ALIAS_CONTRACTS[target];
     for (const aliases of [
       [contract.generatedProjectAlias],
@@ -352,7 +357,7 @@ test("automatic ordinary candidate finalization permits the base and the exact c
 });
 
 test("a later attempt reuses a detached ordinary candidate after recovery moved its generated aliases", async () => {
-  for (const target of ["governance", "reserve", "ui"]) {
+  for (const target of ["reserve", "ui"]) {
     const contract = PRODUCTION_GENERATED_ALIAS_CONTRACTS[target];
     for (const aliases of subsets([
       contract.generatedProjectAlias,
@@ -385,7 +390,7 @@ test("a later attempt reuses a detached ordinary candidate after recovery moved 
 });
 
 test("a later attempt still rejects unreviewed aliases on a detached ordinary candidate", async () => {
-  for (const target of ["governance", "reserve", "ui"]) {
+  for (const target of ["reserve", "ui"]) {
     const contract = PRODUCTION_GENERATED_ALIAS_CONTRACTS[target];
     for (const [name, aliases] of [
       ["git-main", [contract.generatedGitMainAlias]],
@@ -410,7 +415,7 @@ test("a later attempt still rejects unreviewed aliases on a detached ordinary ca
 test("a fresh skip-domain candidate finalizes before Vercel moves the generated alias to it", async () => {
   // Vercel leaves the generated project alias on the still-serving prior until
   // `vercel promote`, so a fresh candidate legitimately carries none.
-  for (const target of ["app", "governance", "reserve", "ui"]) {
+  for (const target of ["app", "reserve", "ui"]) {
     for (const aliases of [[], [generatedCreatorAlias(target)]]) {
       const handoff = await resolveHandoff(target, aliases);
       assert.equal(handoff.action, "reuse");
@@ -421,9 +426,9 @@ test("a fresh skip-domain candidate finalizes before Vercel moves the generated 
 });
 
 test("automatic ordinary candidate finalization rejects non-candidate alias topologies", async () => {
-  for (const target of ["governance", "reserve", "ui"]) {
+  for (const target of ["reserve", "ui"]) {
     const contract = PRODUCTION_GENERATED_ALIAS_CONTRACTS[target];
-    const otherTarget = target === "governance" ? "reserve" : "governance";
+    const otherTarget = target === "reserve" ? "ui" : "reserve";
     for (const [
       name,
       aliases,
@@ -489,9 +494,9 @@ test("automatic ordinary candidate finalization rejects non-candidate alias topo
 });
 
 test("automatic inherited ordinary finalization requires its protected alias and accepts every generated residual subset", async () => {
-  for (const target of ["governance", "reserve", "ui"]) {
+  for (const target of ["reserve", "ui"]) {
     const contract = PRODUCTION_GENERATED_ALIAS_CONTRACTS[target];
-    const otherTarget = target === "governance" ? "reserve" : "governance";
+    const otherTarget = target === "reserve" ? "ui" : "reserve";
     const protectedAlias = MAIN_TARGET_CONTRACTS[target].aliases[0];
     let validHandoff;
     for (const residualAliases of subsets([
@@ -565,7 +570,7 @@ test("automatic inherited ordinary finalization requires its protected alias and
 });
 
 test("automatic ordinary finalization keeps the immutable hostname outside generated aliases", async () => {
-  for (const target of ["governance", "reserve", "ui"]) {
+  for (const target of ["reserve", "ui"]) {
     const generatedProjectAlias =
       PRODUCTION_GENERATED_ALIAS_CONTRACTS[target].generatedProjectAlias;
     await assert.rejects(
@@ -580,7 +585,7 @@ test("automatic ordinary finalization keeps the immutable hostname outside gener
 });
 
 test("deserialized ordinary candidate handoffs recheck the exact alias topology", async () => {
-  for (const target of ["governance", "reserve", "ui"]) {
+  for (const target of ["reserve", "ui"]) {
     const contract = PRODUCTION_GENERATED_ALIAS_CONTRACTS[target];
     const handoff = await resolveHandoff(target, [
       contract.generatedProjectAlias,
@@ -622,7 +627,7 @@ test("deserialized ordinary candidate handoffs recheck the exact alias topology"
 });
 
 test("deserialized ordinary handoffs reject mutable generated aliases as the immutable hostname", async () => {
-  for (const target of ["governance", "reserve", "ui"]) {
+  for (const target of ["reserve", "ui"]) {
     const generatedProjectAlias =
       PRODUCTION_GENERATED_ALIAS_CONTRACTS[target].generatedProjectAlias;
     const handoff = await resolveHandoff(target, [generatedProjectAlias]);
@@ -736,8 +741,50 @@ const PRE_CONVERSION_APP_ALIASES = Object.freeze([
   "appmentoorg-env-v3-mentolabs.vercel.app",
 ]);
 
+// Decodes the release manifest a genuine seal carries, exactly as sealed.
+function sealedManifest(metadata) {
+  const encoded = Array.from(
+    { length: Number(metadata.mentoReleaseManifestChunkCount) },
+    (_, index) => metadata[`mentoReleaseManifestChunk${index}`],
+  ).join("");
+  return JSON.parse(
+    inflateRawSync(Buffer.from(encoded, "base64url")).toString("utf8"),
+  );
+}
+
+// Every seal written before ADR 0017 retired `governance` carries a
+// four-target manifest: the retired activation order, the retired ownership
+// key order, and a Governance prior. This rebuilds a current three-target
+// manifest in that universe, with Governance following Reserve's ownership and
+// selection and a structurally valid prior taken from a genuine
+// governance-era seal, so the result is exactly what that era sealed. It
+// rewrites the manifest in place, which keeps its top-level key order.
+function toGovernanceEraManifest(manifest) {
+  const governancePrior = sealedManifest(
+    HISTORICAL_SEALS.governanceEra.seals.app.deployment.meta,
+  ).originalPriors.governance;
+  const followReserve = (targets) =>
+    targets.includes("reserve") ? ["governance", ...targets] : targets;
+  manifest.mainOwnershipMode = {
+    app: manifest.mainOwnershipMode.app,
+    governance: manifest.mainOwnershipMode.reserve,
+    reserve: manifest.mainOwnershipMode.reserve,
+    ui: manifest.mainOwnershipMode.ui,
+  };
+  manifest.stagedTargets = followReserve(manifest.stagedTargets);
+  manifest.activeTargets = followReserve(manifest.activeTargets);
+  manifest.originalPriors = {
+    governance: governancePrior,
+    ...manifest.originalPriors,
+  };
+  return manifest;
+}
+
+// The bridge era ended long before Governance was retired, so every
+// bridge-era manifest is four-target as well.
 function applyBridgeEraAppTopology(aliases) {
-  return (manifest) => {
+  return (currentManifest) => {
+    const manifest = toGovernanceEraManifest(currentManifest);
     const prior = manifest.originalPriors.app;
     prior.target = null;
     prior.customEnvironmentSlug = "v3";
@@ -865,25 +912,28 @@ const HISTORICAL_SEALS = JSON.parse(
   ),
 );
 
+function genuineSealResponse(deployment) {
+  const response = {
+    ...deployment,
+    customEnvironment:
+      deployment.customEnvironmentSlug === null
+        ? undefined
+        : { slug: deployment.customEnvironmentSlug },
+    meta: { ...deployment.meta },
+  };
+  delete response.customEnvironmentSlug;
+  return response;
+}
+
 test("pre-planning classifies a genuine historical seal as rollback-only", async () => {
   for (const [era, target] of [
     ["bridgeEra", "app"],
-    ["bridgeEra", "governance"],
-    ["preConversion", "governance"],
+    ["governanceEra", "app"],
+    ["governanceEra", "reserve"],
+    ["governanceEra", "ui"],
   ]) {
     const { deployment } = HISTORICAL_SEALS[era].seals[target];
-    const response = {
-      ...deployment,
-      customEnvironment:
-        deployment.customEnvironmentSlug === null
-          ? undefined
-          : { slug: deployment.customEnvironmentSlug },
-      meta: {
-        ...deployment.meta,
-        githubCommitSha: deployment.meta.githubCommitSha,
-      },
-    };
-    delete response.customEnvironmentSlug;
+    const response = genuineSealResponse(deployment);
     const mapped = await mappedProvider(response).inspectMappedCandidate({
       deploymentId: response.id,
       target,
@@ -904,7 +954,7 @@ test("pre-planning classifies a genuine historical seal as rollback-only", async
 
 test("a mapping sealed during or before the bridge era is admitted as rollback-only", async () => {
   for (const aliases of [BRIDGE_ERA_APP_ALIASES, PRE_CONVERSION_APP_ALIASES]) {
-    for (const target of ["governance", "reserve", "ui", "app"]) {
+    for (const target of ["reserve", "ui", "app"]) {
       const oldIntent = intent(target);
       const response = deploymentResponse(oldIntent);
       response.meta = {
@@ -1069,7 +1119,7 @@ test("only the two exact bridge-era App topologies are admitted", async () => {
     [
       "a current-contract manifest that is merely unreadable",
       (manifest) => {
-        manifest.originalPriors.governance.aliases = ["app.mento.org"];
+        manifest.originalPriors.reserve.aliases = ["app.mento.org"];
         return manifest;
       },
     ],
@@ -1077,9 +1127,11 @@ test("only the two exact bridge-era App topologies are admitted", async () => {
       // The retired environment may only ever appear on the App prior.
       "the retired environment on an ordinary prior",
       (manifest) => {
-        manifest.originalPriors.governance.target = null;
-        manifest.originalPriors.governance.customEnvironmentSlug = "v3";
-        for (const leaf of manifest.originalPriors.governance.planningLeaves) {
+        const prior =
+          toGovernanceEraManifest(manifest).originalPriors.governance;
+        prior.target = null;
+        prior.customEnvironmentSlug = "v3";
+        for (const leaf of prior.planningLeaves) {
           leaf.target = null;
           leaf.customEnvironmentSlug = "v3";
         }
@@ -1220,7 +1272,7 @@ test("mapped inspection binds its observed project to the manifest rollback prio
 });
 
 test("mapped inspection admits unmarked priors regardless of optional provider source", async () => {
-  for (const target of ["governance", "reserve", "ui", "app"]) {
+  for (const target of ["reserve", "ui", "app"]) {
     for (const source of [undefined, "git", "cli", "redeploy"]) {
       const oldIntent = intent(target);
       const response = deploymentResponse(oldIntent);
@@ -1256,7 +1308,7 @@ test("mapped inspection admits unmarked priors regardless of optional provider s
 
 test("unmarked mappings that self-report the reviewed SHA remain rollback-only", async () => {
   const reviewedSha = "e".repeat(40);
-  for (const target of ["governance", "reserve", "ui", "app"]) {
+  for (const target of ["reserve", "ui", "app"]) {
     for (const source of [undefined, "git", "cli", "redeploy"]) {
       const oldIntent = intent(target);
       const response = deploymentResponse(oldIntent);
@@ -1483,4 +1535,274 @@ test("mapped inspection requires the actual custom Next deployment ID", async ()
       /metadata/,
     );
   }
+});
+
+// ADR 0017 retired `governance` as a main target while every reviewed domain
+// was served by a deployment sealed against the four-target universe. The
+// first release after the retirement must therefore meet only governance-era
+// seals, classify each one as an unmarked rollback-only prior, capture a new
+// baseline, and force-select every current target, rather than deadlock on an
+// unreadable manifest. End-to-end proof against seals produced by the REAL
+// modules at 982342ad.
+test("the first release after the Governance retirement captures a new baseline", async () => {
+  const seals = HISTORICAL_SEALS.governanceEra.seals;
+  const targets = ["reserve", "ui", "app"];
+  const responses = new Map(
+    targets.map((target) => [
+      seals[target].deployment.id,
+      genuineSealResponse(seals[target].deployment),
+    ]),
+  );
+  const provider = createMainCandidateVercelProvider({
+    client: {
+      requestWithRetry: async () =>
+        assert.fail("a rollback-only mapping is never resolved as a release"),
+      inspectDeployment: async (id) => responses.get(id),
+      listDeploymentAliases: async () => ({ aliases: [] }),
+    },
+  });
+  const currentMappings = Object.fromEntries(
+    targets.map((target) => [
+      target,
+      [
+        {
+          alias: `${target}.mento.org`,
+          deploymentId: seals[target].deployment.id,
+          deploymentUrl: seals[target].deployment.url,
+        },
+      ],
+    ]),
+  );
+  const projectIds = {
+    app: seals.app.deployment.projectId,
+    reserve: seals.reserve.deployment.projectId,
+    ui: seals.ui.deployment.projectId,
+  };
+  const discovery = await discoverMainPreplanCandidateReleases({
+    currentMappings,
+    projectIds,
+    provider,
+  });
+  assert.deepEqual(discovery.rollbackOnlyTargets, ["app", "reserve", "ui"]);
+  assert.deepEqual(discovery.candidateReleases, []);
+
+  const nextDeploySha = "e".repeat(40);
+  const decision = decideMainPreplanReconciliation({
+    nextDeploySha,
+    nextUpstreamRunId: "701",
+    candidateReleases: discovery.candidateReleases,
+    currentMappings,
+    rollbackOnlyTargets: discovery.rollbackOnlyTargets,
+  });
+  assert.equal(decision.decision, "capture-new-baseline");
+  assert.equal(decision.reason, "no-mapped-release-metadata");
+  assert.deepEqual(decision.rollbackOnlyTargets, ["app", "reserve", "ui"]);
+  assert.equal(decision.reconciliation, null);
+  assert.equal(decision.rollbackAuthorization, null);
+
+  const input = JSON.parse(readFileSync(fixtureUrl, "utf8"));
+  for (const target of targets) {
+    for (const state of input.priorStates[target].states) {
+      state.deploymentId = seals[target].deployment.id;
+      state.deploymentUrl = `https://${seals[target].deployment.url}`;
+      state.git.sha = seals[target].context.deploySha;
+    }
+  }
+  const plannerCalls = [];
+  const plan = planMainDeployments({
+    mode: "active",
+    mainOwnershipMode: { app: "github", reserve: "github", ui: "github" },
+    deploySha: nextDeploySha,
+    projectIds,
+    priorStates: input.priorStates,
+    rollbackOnlyTargets: decision.rollbackOnlyTargets,
+    gitAdapter: {
+      firstParent: () => input.firstParent,
+      isAncestor: () => true,
+      resolveCommit: (sha) => sha,
+    },
+    runPlanner: ({ base, head }) => {
+      plannerCalls.push({ base, head });
+      return { base, head, deployments: [], reason: "non-runtime-only" };
+    },
+  });
+  assert.deepEqual(plan.stagedTargets, ["app", "reserve", "ui"]);
+  assert.deepEqual(plan.activeTargets, ["app", "reserve", "ui"]);
+  assert.deepEqual(
+    plan.reasons.map(({ target, reason }) => ({ target, reason })),
+    ["app", "reserve", "ui"].map((target) => ({
+      target,
+      reason: "served-mapping-rollback-only",
+    })),
+  );
+  assert.equal(plannerCalls.length, 0);
+});
+
+// The governance-era universe is an allowance, never a bypass: a four-target
+// seal that is corrupt anywhere else, or that is not exactly the retired
+// contract, is not a governance-era mapping and must still fail the run closed
+// rather than be downgraded to a rollback-only prior.
+test("a corrupt governance-era seal still fails closed", async () => {
+  const oldIntent = intent("reserve");
+  const context = {
+    target: "reserve",
+    projectId: oldIntent.projectId,
+    projectName: oldIntent.projectName,
+    deploySha: oldIntent.deploySha,
+  };
+  // The uncorrupted rebuild is genuinely admitted, so each case below
+  // isolates exactly one corruption.
+  assert.equal(
+    isGovernanceEraCandidateMetadata(
+      sealedMetadata(oldIntent, toGovernanceEraManifest),
+      context,
+    ),
+    true,
+  );
+  for (const [name, mutate, overrides = {}] of [
+    [
+      "Governance prior aliases",
+      (manifest) => {
+        toGovernanceEraManifest(manifest);
+        manifest.originalPriors.governance.aliases = ["app.mento.org"];
+        return manifest;
+      },
+    ],
+    [
+      "Governance prior project",
+      (manifest) => {
+        toGovernanceEraManifest(manifest);
+        manifest.originalPriors.governance.projectName = "reserve.mento.org";
+        return manifest;
+      },
+    ],
+    [
+      "Governance prior environment",
+      (manifest) => {
+        const prior =
+          toGovernanceEraManifest(manifest).originalPriors.governance;
+        prior.target = null;
+        prior.customEnvironmentSlug = "v3";
+        for (const leaf of prior.planningLeaves) {
+          leaf.target = null;
+          leaf.customEnvironmentSlug = "v3";
+        }
+        return manifest;
+      },
+    ],
+    [
+      "Governance prior missing",
+      (manifest) => {
+        toGovernanceEraManifest(manifest);
+        delete manifest.originalPriors.governance;
+        return manifest;
+      },
+    ],
+    [
+      "current activation order",
+      (manifest) => {
+        const { governance, ...rest } =
+          toGovernanceEraManifest(manifest).originalPriors;
+        manifest.originalPriors = { ...rest, governance };
+        return manifest;
+      },
+    ],
+    [
+      "ownership key order",
+      (manifest) => {
+        const { governance, ...rest } =
+          toGovernanceEraManifest(manifest).mainOwnershipMode;
+        manifest.mainOwnershipMode = { ...rest, governance };
+        return manifest;
+      },
+    ],
+    [
+      "ownership without Governance",
+      (manifest) => {
+        toGovernanceEraManifest(manifest);
+        delete manifest.mainOwnershipMode.governance;
+        return manifest;
+      },
+    ],
+    [
+      "a fifth target",
+      (manifest) => {
+        toGovernanceEraManifest(manifest);
+        manifest.mainOwnershipMode.docs = "github";
+        return manifest;
+      },
+    ],
+    [
+      "staged targets out of the retired order",
+      (manifest) => {
+        toGovernanceEraManifest(manifest);
+        manifest.stagedTargets = [...manifest.stagedTargets].reverse();
+        return manifest;
+      },
+    ],
+    [
+      "release ID",
+      (manifest) => {
+        toGovernanceEraManifest(manifest);
+        manifest.releaseId = `mr-${"0".repeat(24)}`;
+        return manifest;
+      },
+    ],
+    [
+      "stable intent digest",
+      toGovernanceEraManifest,
+      { mentoStableIntentDigest: "0".repeat(64) },
+    ],
+    ["audit origin", toGovernanceEraManifest, { mentoOriginRunId: undefined }],
+  ]) {
+    const metadata = sealedMetadata(oldIntent, mutate, overrides);
+    assert.equal(
+      isGovernanceEraCandidateMetadata(metadata, context),
+      false,
+      name,
+    );
+    assert.equal(isBridgeEraCandidateMetadata(metadata, context), false, name);
+    const response = deploymentResponse(oldIntent);
+    response.meta = { ...response.meta, ...metadata };
+    if (Object.hasOwn(overrides, "mentoOriginRunId")) {
+      delete response.meta.mentoOriginRunId;
+    }
+    await assert.rejects(
+      () =>
+        mappedProvider(response).inspectMappedCandidate({
+          deploymentId: response.id,
+          target: "reserve",
+          projectId: oldIntent.projectId,
+        }),
+      /Main (?:release manifest|candidate)/,
+      name,
+    );
+  }
+  // A genuine governance-era seal rebound to another observed deployment is
+  // not that mapping either.
+  const { deployment } = HISTORICAL_SEALS.governanceEra.seals.reserve;
+  const rebound = genuineSealResponse(deployment);
+  rebound.meta.githubCommitSha = "b".repeat(40);
+  await assert.rejects(
+    () =>
+      mappedProvider(rebound).inspectMappedCandidate({
+        deploymentId: rebound.id,
+        target: "reserve",
+        projectId: deployment.projectId,
+      }),
+    /Main (?:release manifest|candidate)/,
+  );
+  // A Governance deployment is no longer a mapped target at all.
+  const governance = genuineSealResponse(
+    HISTORICAL_SEALS.governanceEra.seals.governance.deployment,
+  );
+  await assert.rejects(
+    () =>
+      mappedProvider(governance).inspectMappedCandidate({
+        deploymentId: governance.id,
+        target: "governance",
+        projectId: governance.projectId,
+      }),
+    /Main mapped candidate target is malformed/,
+  );
 });

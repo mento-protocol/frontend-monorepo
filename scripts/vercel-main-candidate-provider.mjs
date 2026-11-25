@@ -5,6 +5,7 @@ import {
   canonicalizeMainCandidateVercelMetadata,
   createMainCandidateIntent,
   isBridgeEraCandidateMetadata,
+  isGovernanceEraCandidateMetadata,
 } from "./vercel-main-candidate.mjs";
 import { generateVercelMainCandidateDeploymentId } from "./vercel-prebuilt.mjs";
 import { assertMainReleaseManifest } from "./vercel-main-release-reconciliation.mjs";
@@ -181,7 +182,7 @@ export function createMainCandidateVercelProvider({ client, intent }) {
     projectId,
     projectName = `${target}.mento.org`,
   }) {
-    if (!/^(?:app|governance|reserve|ui)$/.test(target)) {
+    if (!/^(?:app|reserve|ui)$/.test(target)) {
       throw new Error("Main mapped candidate target is malformed");
     }
     const expected = {
@@ -201,25 +202,33 @@ export function createMainCandidateVercelProvider({ client, intent }) {
     // a current seal is, before it earns that classification. Seals are
     // immutable and an operator may roll back to such a deployment at any
     // time, so this classification is permanent.
-    if (
-      isBridgeEraCandidateMetadata(rawMetadata, {
-        target,
-        projectId: state.projectId,
-        projectName: state.projectName,
-        deploySha: state.git.sha,
-      })
-    ) {
+    const sealContext = {
+      target,
+      projectId: state.projectId,
+      projectName: state.projectName,
+      deploySha: state.git.sha,
+    };
+    if (isBridgeEraCandidateMetadata(rawMetadata, sealContext)) {
+      return { canonicalState: state, metadata: null };
+    }
+    // A mapping sealed while `governance` was still a main target carries a
+    // four-target release manifest (ADR 0017). No attempt of a current release
+    // can reconcile or resume that release either, so the mapping is an
+    // unmarked rollback-only prior, exactly like a bridge-era one, and the
+    // first release after the retirement captures a fresh baseline. The seal
+    // is validated in full against the observed deployment before it earns
+    // that classification, and the classification is permanent for the same
+    // reason.
+    if (isGovernanceEraCandidateMetadata(rawMetadata, sealContext)) {
       return { canonicalState: state, metadata: null };
     }
     if (rawMetadata.mentoCandidateSchema === undefined) {
       throw new Error("Main mapped candidate metadata is partial");
     }
-    const metadata = canonicalizeMainCandidateVercelMetadata(rawMetadata, {
-      target,
-      projectId: state.projectId,
-      projectName: state.projectName,
-      deploySha: state.git.sha,
-    });
+    const metadata = canonicalizeMainCandidateVercelMetadata(
+      rawMetadata,
+      sealContext,
+    );
     return { canonicalState: state, metadata };
   }
 
@@ -231,7 +240,7 @@ export function createMainCandidateVercelProvider({ client, intent }) {
   }) {
     const release = assertMainReleaseManifest(manifest);
     if (
-      !/^(?:app|governance|reserve|ui)$/.test(target) ||
+      !/^(?:app|reserve|ui)$/.test(target) ||
       !release.stagedTargets.includes(target)
     ) {
       throw new Error("Main release candidate target is not staged");

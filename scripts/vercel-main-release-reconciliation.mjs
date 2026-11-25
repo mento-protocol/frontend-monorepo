@@ -13,6 +13,7 @@ import {
   canonicalizeHostname,
 } from "./vercel-deployment-url.mjs";
 import { generateVercelMainReleaseId } from "./vercel-prebuilt.mjs";
+import { MAIN_OWNERSHIP_MODES } from "./vercel-preview-targets.mjs";
 
 const MAIN_RELEASE_MANIFEST_SCHEMA = "vercel-main-release-manifest:v2";
 const MAIN_RELEASE_RECONCILIATION_SCHEMA =
@@ -20,7 +21,6 @@ const MAIN_RELEASE_RECONCILIATION_SCHEMA =
 const MAIN_PREPLAN_RECONCILIATION_SCHEMA =
   "vercel-main-preplan-reconciliation:v2";
 export const MAIN_RELEASE_ACTIVATION_ORDER = Object.freeze([
-  "governance",
   "reserve",
   "ui",
   "app",
@@ -100,6 +100,96 @@ const PREPLAN_KEYS = Object.freeze([
   "rollbackAuthorization",
 ]);
 
+// The set of targets, their activation order, and their reviewed contracts
+// that a release manifest is validated against. Every manifest this code
+// writes, resumes, or reconciles is held to the current universe.
+const CURRENT_RELEASE_TARGET_UNIVERSE = Object.freeze({
+  activationOrder: MAIN_RELEASE_ACTIVATION_ORDER,
+  deploymentTargets: MAIN_DEPLOYMENT_TARGETS,
+  contracts: MAIN_TARGET_CONTRACTS,
+  acceptsPriorEnvironment,
+  partitionOwnership: partitionMainOwnership,
+});
+
+// A candidate seal is immutable, so every manifest sealed while `governance`
+// was still a main target (ADR 0017) stays readable forever: an operator may
+// re-map such a deployment by rolling back at any time, and the first release
+// after the retirement finds every reviewed domain served by one. This frozen
+// universe reproduces exactly the four-target contract those manifests were
+// sealed against: the retired activation order, the retired ownership key
+// order, and the retired Governance contract. It only ever classifies a seal
+// as a rollback-only prior; no release is created, resumed, or reconciled
+// against it. Removing it would deadlock pre-planning on the served mappings.
+const GOVERNANCE_ERA_RELEASE_TARGET_UNIVERSE = Object.freeze({
+  activationOrder: Object.freeze(["governance", "reserve", "ui", "app"]),
+  deploymentTargets: Object.freeze(["app", "governance", "reserve", "ui"]),
+  contracts: Object.freeze({
+    app: MAIN_TARGET_CONTRACTS.app,
+    governance: Object.freeze({
+      aliases: Object.freeze(["governance.mento.org"]),
+      customEnvironmentSlug: null,
+      projectName: "governance.mento.org",
+      target: "production",
+    }),
+    reserve: MAIN_TARGET_CONTRACTS.reserve,
+    ui: MAIN_TARGET_CONTRACTS.ui,
+  }),
+  acceptsPriorEnvironment: (target, environment) =>
+    acceptsContractEnvironment(
+      GOVERNANCE_ERA_RELEASE_TARGET_UNIVERSE.contracts[target],
+      environment,
+    ),
+  partitionOwnership: partitionGovernanceEraOwnership,
+});
+
+function acceptsContractEnvironment(contract, environment) {
+  return (
+    contract !== undefined &&
+    environment?.target === contract.target &&
+    environment?.customEnvironmentSlug === contract.customEnvironmentSlug
+  );
+}
+
+// The retired four-target counterpart of `partitionMainOwnership`, with the
+// same mode, key, value, and global-shadow rules.
+function partitionGovernanceEraOwnership({ mode, mainOwnershipMode }) {
+  const { deploymentTargets } = GOVERNANCE_ERA_RELEASE_TARGET_UNIVERSE;
+  if (!["active", "shadow"].includes(mode)) {
+    throw new Error("Main deployment mode must be shadow or active");
+  }
+  if (
+    !mainOwnershipMode ||
+    typeof mainOwnershipMode !== "object" ||
+    Array.isArray(mainOwnershipMode) ||
+    JSON.stringify(Object.keys(mainOwnershipMode).toSorted()) !==
+      JSON.stringify([...deploymentTargets].toSorted())
+  ) {
+    throw new Error(
+      "Main ownership mode must contain exactly the four governance-era targets",
+    );
+  }
+  const canonicalMap = {};
+  for (const target of deploymentTargets) {
+    const ownershipMode = mainOwnershipMode[target];
+    if (!Object.values(MAIN_OWNERSHIP_MODES).includes(ownershipMode)) {
+      throw new Error(`${target} main ownership mode must be github or shadow`);
+    }
+    canonicalMap[target] = ownershipMode;
+  }
+  const githubTargets = deploymentTargets.filter(
+    (target) => canonicalMap[target] === MAIN_OWNERSHIP_MODES.GITHUB,
+  );
+  const shadowTargets = deploymentTargets.filter(
+    (target) => canonicalMap[target] === MAIN_OWNERSHIP_MODES.SHADOW,
+  );
+  if (mode === "shadow" && githubTargets.length > 0) {
+    throw new Error(
+      "Global shadow mode requires all four targets to use shadow ownership",
+    );
+  }
+  return { mainOwnershipMode: canonicalMap, githubTargets, shadowTargets };
+}
+
 function assertExactKeys(value, keys, label) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error(`${label} is malformed`);
@@ -120,16 +210,21 @@ function requireString(value, label, pattern) {
   return value;
 }
 
-function canonicalTargets(value, label, { allowEmpty = false } = {}) {
+function canonicalTargets(
+  value,
+  label,
+  { allowEmpty = false } = {},
+  universe = CURRENT_RELEASE_TARGET_UNIVERSE,
+) {
   if (
     !Array.isArray(value) ||
     (!allowEmpty && value.length === 0) ||
-    value.some((target) => !MAIN_RELEASE_ACTIVATION_ORDER.includes(target)) ||
+    value.some((target) => !universe.activationOrder.includes(target)) ||
     new Set(value).size !== value.length
   ) {
     throw new Error(`${label} is malformed`);
   }
-  const canonical = MAIN_RELEASE_ACTIVATION_ORDER.filter((target) =>
+  const canonical = universe.activationOrder.filter((target) =>
     value.includes(target),
   );
   if (JSON.stringify(value) !== JSON.stringify(canonical)) {
@@ -138,15 +233,19 @@ function canonicalTargets(value, label, { allowEmpty = false } = {}) {
   return canonical;
 }
 
-function canonicalRollbackOnlyTargets(value, label) {
+function canonicalRollbackOnlyTargets(
+  value,
+  label,
+  universe = CURRENT_RELEASE_TARGET_UNIVERSE,
+) {
   if (
     !Array.isArray(value) ||
-    value.some((target) => !MAIN_DEPLOYMENT_TARGETS.includes(target)) ||
+    value.some((target) => !universe.deploymentTargets.includes(target)) ||
     new Set(value).size !== value.length
   ) {
     throw new Error(`${label} is malformed`);
   }
-  const canonical = MAIN_DEPLOYMENT_TARGETS.filter((target) =>
+  const canonical = universe.deploymentTargets.filter((target) =>
     value.includes(target),
   );
   if (JSON.stringify(value) !== JSON.stringify(canonical)) {
@@ -166,13 +265,17 @@ function assertFreshRollbackCoverage(manifest, rollbackOnlyTargets) {
   }
 }
 
-function canonicalOwnership(mode, mainOwnershipMode) {
+function canonicalOwnership(
+  mode,
+  mainOwnershipMode,
+  universe = CURRENT_RELEASE_TARGET_UNIVERSE,
+) {
   assertExactKeys(
     mainOwnershipMode,
-    MAIN_DEPLOYMENT_TARGETS,
+    universe.deploymentTargets,
     "Main release manifest ownership",
   );
-  const ownership = partitionMainOwnership({ mode, mainOwnershipMode });
+  const ownership = universe.partitionOwnership({ mode, mainOwnershipMode });
   return {
     mode,
     mainOwnershipMode: ownership.mainOwnershipMode,
@@ -200,10 +303,10 @@ const BRIDGE_ERA_APP_ALIAS_TOPOLOGIES = Object.freeze([
   Object.freeze(["app.mento.org", "appmentoorg-env-v3-mentolabs.vercel.app"]),
 ]);
 
-function reviewedAliasContract(target, bridgeEraAppAliases) {
+function reviewedAliasContract(target, bridgeEraAppAliases, universe) {
   return target === "app" && bridgeEraAppAliases !== null
     ? bridgeEraAppAliases
-    : MAIN_TARGET_CONTRACTS[target].aliases;
+    : universe.contracts[target].aliases;
 }
 
 function isBridgeEraAppPriorEnvironment(target, value) {
@@ -215,14 +318,20 @@ function isBridgeEraAppPriorEnvironment(target, value) {
   );
 }
 
-function canonicalAliases(value, target, label, bridgeEraAppAliases = null) {
+function canonicalAliases(
+  value,
+  target,
+  label,
+  bridgeEraAppAliases = null,
+  universe = CURRENT_RELEASE_TARGET_UNIVERSE,
+) {
   if (!Array.isArray(value) || value.length === 0) {
     throw new Error(`${label} is malformed`);
   }
   const aliases = value.map(canonicalizeHostname);
   const canonical = [...new Set(aliases)].sort();
   const expected = [
-    ...reviewedAliasContract(target, bridgeEraAppAliases),
+    ...reviewedAliasContract(target, bridgeEraAppAliases, universe),
   ].sort();
   if (
     JSON.stringify(value) !== JSON.stringify(canonical) ||
@@ -319,6 +428,7 @@ function canonicalPlanningLeaves(
   prior,
   label,
   bridgeEraAppAliases = null,
+  universe = CURRENT_RELEASE_TARGET_UNIVERSE,
 ) {
   if (!Array.isArray(value) || value.length === 0) {
     throw new Error(`${label} is malformed`);
@@ -332,6 +442,7 @@ function canonicalPlanningLeaves(
       target,
       `${leafLabel} aliases`,
       bridgeEraAppAliases,
+      universe,
     );
     if (
       leaf.deploymentId !== prior.deploymentId ||
@@ -368,14 +479,20 @@ function canonicalPlanningLeaves(
   return leaves;
 }
 
-function canonicalPrior(value, target, label, bridgeEraAppAliases = null) {
+function canonicalPrior(
+  value,
+  target,
+  label,
+  bridgeEraAppAliases = null,
+  universe = CURRENT_RELEASE_TARGET_UNIVERSE,
+) {
   assertExactKeys(value, PRIOR_KEYS, label);
-  const contract = MAIN_TARGET_CONTRACTS[target];
+  const contract = universe.contracts[target];
   // Every prior is held to the same production environment contract as a
   // candidate, except an App prior inside a bridge-era manifest, which carries
   // the retired custom environment the reviewed domain served from back then.
   const accepted =
-    acceptsPriorEnvironment(target, value) ||
+    universe.acceptsPriorEnvironment(target, value) ||
     (bridgeEraAppAliases !== null &&
       isBridgeEraAppPriorEnvironment(target, value));
   const environment = accepted
@@ -400,6 +517,7 @@ function canonicalPrior(value, target, label, bridgeEraAppAliases = null) {
       target,
       `${label} aliases`,
       bridgeEraAppAliases,
+      universe,
     ),
     projectId: requireString(
       value.projectId,
@@ -427,6 +545,7 @@ function canonicalPrior(value, target, label, bridgeEraAppAliases = null) {
     prior,
     `${label} planning leaves`,
     bridgeEraAppAliases,
+    universe,
   );
   const planningGit = classifyPlanningGitEvidence(planningLeaves);
   if (planningGit.servedSha !== servedSha) {
@@ -540,7 +659,11 @@ export function createMainReleaseManifest({
   };
 }
 
-function assertReleaseManifest(value, bridgeEraAppAliases) {
+function assertReleaseManifest(
+  value,
+  bridgeEraAppAliases,
+  universe = CURRENT_RELEASE_TARGET_UNIVERSE,
+) {
   assertExactKeys(value, MANIFEST_KEYS, "Main release manifest");
   if (
     value.schema !== MAIN_RELEASE_MANIFEST_SCHEMA ||
@@ -561,11 +684,16 @@ function assertReleaseManifest(value, bridgeEraAppAliases) {
   if (!["active", "shadow"].includes(value.mode)) {
     throw new Error("Main release manifest mode is malformed");
   }
-  const ownership = canonicalOwnership(value.mode, value.mainOwnershipMode);
+  const ownership = canonicalOwnership(
+    value.mode,
+    value.mainOwnershipMode,
+    universe,
+  );
   const stagedTargets = canonicalTargets(
     value.stagedTargets,
     "Main release manifest staged targets",
     { allowEmpty: true },
+    universe,
   );
   if (!Array.isArray(value.activeTargets)) {
     throw new Error("Main release manifest active targets are malformed");
@@ -576,6 +704,8 @@ function assertReleaseManifest(value, bridgeEraAppAliases) {
       : canonicalTargets(
           value.activeTargets,
           "Main release manifest active targets",
+          {},
+          universe,
         );
   if (activeTargets.some((target) => !stagedTargets.includes(target))) {
     throw new Error("Main release manifest active targets were not staged");
@@ -586,6 +716,7 @@ function assertReleaseManifest(value, bridgeEraAppAliases) {
   const rollbackOnlyTargets = canonicalRollbackOnlyTargets(
     value.rollbackOnlyTargets,
     "Main release manifest rollback-only targets",
+    universe,
   );
   if (
     activeTargets.some((target) => !ownership.githubTargets.includes(target)) ||
@@ -596,17 +727,18 @@ function assertReleaseManifest(value, bridgeEraAppAliases) {
   }
   assertExactKeys(
     value.originalPriors,
-    MAIN_RELEASE_ACTIVATION_ORDER,
+    universe.activationOrder,
     "Main release manifest original priors",
   );
   const originalPriors = Object.fromEntries(
-    MAIN_RELEASE_ACTIVATION_ORDER.map((target) => [
+    universe.activationOrder.map((target) => [
       target,
       canonicalPrior(
         value.originalPriors[target],
         target,
         `Main release manifest ${target} prior`,
         bridgeEraAppAliases,
+        universe,
       ),
     ]),
   );
@@ -641,9 +773,11 @@ export function assertMainReleaseManifest(value) {
   return assertReleaseManifest(value, null);
 }
 
-// Admits a manifest that is a structurally valid current manifest in every
-// respect except its App prior, which carries the retired `v3` custom
+// Admits a manifest that is a structurally valid governance-era manifest in
+// every respect except its App prior, which carries the retired `v3` custom
 // environment and one of the two alias topologies that environment ever had.
+// The bridge era ended long before Governance was retired, so every bridge-era
+// manifest is also four-target and is validated against that frozen universe.
 // A candidate seal is immutable, so this stays reachable permanently: rolling
 // a reviewed domain back to a deployment sealed during or before the bridge
 // era re-maps such a manifest. The caller treats the result as an unmarked
@@ -654,7 +788,11 @@ export function assertBridgeEraReleaseManifest(value) {
   for (const aliases of BRIDGE_ERA_APP_ALIAS_TOPOLOGIES) {
     let manifest;
     try {
-      manifest = assertReleaseManifest(value, aliases);
+      manifest = assertReleaseManifest(
+        value,
+        aliases,
+        GOVERNANCE_ERA_RELEASE_TARGET_UNIVERSE,
+      );
     } catch (error) {
       lastError = error;
       continue;
@@ -670,6 +808,22 @@ export function assertBridgeEraReleaseManifest(value) {
   }
   throw (
     lastError ?? new Error("Main release manifest is not a bridge-era manifest")
+  );
+}
+
+// Admits a manifest that is a structurally valid manifest of the retired
+// four-target universe, sealed after the bridge era and before Governance was
+// retired (ADR 0017). Every field of every prior, including the Governance
+// prior, is validated by the same machinery a current manifest is, so a
+// corrupt manifest is never mistaken for a governance-era one. A bridge-era
+// App prior is not admitted here; `assertBridgeEraReleaseManifest` owns it.
+// The caller treats the result as an unmarked rollback-only prior, exactly
+// as it treats a bridge-era manifest. This admission is permanent.
+export function assertGovernanceEraReleaseManifest(value) {
+  return assertReleaseManifest(
+    value,
+    null,
+    GOVERNANCE_ERA_RELEASE_TARGET_UNIVERSE,
   );
 }
 

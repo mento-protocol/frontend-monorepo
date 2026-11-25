@@ -734,7 +734,7 @@ test("every controller reconciliation binds selections to its immutable workflow
   }
 });
 
-test("worker is dispatch-only with strict identity inputs and four literal callers", () => {
+test("worker is dispatch-only with strict identity inputs and three literal callers", () => {
   assert.deepEqual(Object.keys(worker.on), ["workflow_dispatch"]);
   assert.deepEqual(Object.keys(worker.on.workflow_dispatch.inputs), [
     "pull_request_number",
@@ -754,22 +754,12 @@ test("worker is dispatch-only with strict identity inputs and four literal calle
 
   const mappings = {
     app: ["app.mento.org", "apps/app.mento.org", "APP"],
-    governance: [
-      "governance.mento.org",
-      "apps/governance.mento.org",
-      "GOVERNANCE",
-    ],
     reserve: ["reserve.mento.org", "apps/reserve.mento.org", "RESERVE"],
     ui: ["ui.mento.org", "apps/ui.mento.org", "UI"],
   };
   assert.deepEqual(
     Object.keys(worker.jobs).filter((name) => name.startsWith("deploy-")),
-    [
-      "deploy-app-preview",
-      "deploy-governance-preview",
-      "deploy-reserve-preview",
-      "deploy-ui-preview",
-    ],
+    ["deploy-app-preview", "deploy-reserve-preview", "deploy-ui-preview"],
   );
   for (const [
     target,
@@ -791,7 +781,6 @@ test("worker is dispatch-only with strict identity inputs and four literal calle
     assert.equal(caller.with.provenance, "preview-controller:v2");
     assert.match(caller.if, new RegExp(`inputs\\.target == '${target}'`));
     assert.deepEqual(Object.keys(caller.secrets), [
-      ...(target === "governance" ? ["etherscan_api_key"] : []),
       "turbo_remote_cache_signature_key",
       "turbo_token",
       "vercel_token",
@@ -800,7 +789,11 @@ test("worker is dispatch-only with strict identity inputs and four literal calle
   }
   const raw = read(workerPath);
   assert.doesNotMatch(raw, /\bmatrix\b|secrets:\s*inherit|SENTRY/);
-  assert.equal((raw.match(/secrets\.ETHERSCAN_API_KEY/g) ?? []).length, 2);
+  // Governance is no longer a deployment target (ADR 0017): the worker names
+  // neither its project nor its explorer secret, and dispatches only the
+  // three remaining literal callers.
+  assert.doesNotMatch(raw, /ETHERSCAN_API_KEY|VERCEL_PROJECT_ID_GOVERNANCE/);
+  assert.doesNotMatch(raw, /governance/i);
 });
 
 test("worker credentials are unreachable until trusted validation and named preflight pass", () => {
@@ -835,7 +828,6 @@ test("worker credentials are unreachable until trusted validation and named pref
 
   const projectSuffixByTarget = {
     app: "APP",
-    governance: "GOVERNANCE",
     reserve: "RESERVE",
     ui: "UI",
   };
@@ -849,12 +841,7 @@ test("worker credentials are unreachable until trusted validation and named pref
     );
     assert.match(preflight.if, new RegExp(`inputs\\.target == '${target}'`));
     assert.equal(Object.hasOwn(preflight, "uses"), false);
-    const preflightRaw = JSON.stringify(preflight);
-    if (target === "governance") {
-      assert.match(preflightRaw, /ETHERSCAN_API_KEY/);
-    } else {
-      assert.doesNotMatch(preflightRaw, /ETHERSCAN_API_KEY/);
-    }
+    assert.doesNotMatch(JSON.stringify(preflight), /ETHERSCAN_API_KEY/);
 
     const caller = worker.jobs[`deploy-${target}-preview`];
     assert.deepEqual(caller.needs, [
@@ -996,7 +983,7 @@ test("automatic workflow creates no implicit or Vercel-owned Deployment", () => 
   for (const job of Object.values(worker.jobs)) {
     assert.equal(Object.hasOwn(job, "environment"), false);
   }
-  for (const target of ["app", "governance", "reserve", "ui"]) {
+  for (const target of ["app", "reserve", "ui"]) {
     assert.match(
       worker.jobs[`deploy-${target}-preview`].with.deployment_idempotency_key,
       /inputs\.controller_key/,

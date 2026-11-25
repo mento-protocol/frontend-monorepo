@@ -56,7 +56,6 @@ test("reusable workflow declares exact inputs, explicit secrets, and evidence ou
     );
   }
   assert.deepEqual(Object.keys(call.secrets), [
-    "etherscan_api_key",
     "vercel_token",
     "turbo_token",
     "turbo_remote_cache_signature_key",
@@ -77,13 +76,15 @@ test("reusable workflow declares exact inputs, explicit secrets, and evidence ou
   assert.doesNotMatch(read(reusablePath), /secrets:\s*inherit/);
 });
 
-test("preview credentials keep Governance explorer access target-local and never expose Sentry", () => {
+// Governance was the only target with a preview explorer secret (ADR 0017), so
+// no preview build step receives one, and every target runs the same
+// runner-side environment validation.
+test("preview credentials carry no explorer secret and never expose Sentry", () => {
   const reusable = workflow(reusablePath);
   const worker = workflow(".github/workflows/vercel-preview-worker.yml");
   const steps = reusable.jobs.prebuilt.steps;
-  const nonGovernance = steps.find(
-    ({ name }) =>
-      name === "Validate runner-owned non-Governance preview build variables",
+  const environmentValidation = steps.find(
+    ({ name }) => name === "Validate runner-owned preview build variables",
   );
   const materialization = steps.find(
     ({ name }) =>
@@ -98,50 +99,36 @@ test("preview credentials keep Governance explorer access target-local and never
     ({ name }) => name === "Build the literal target prebuilt output",
   );
 
-  assert.equal(nonGovernance.if, "inputs.logical_target != 'governance'");
-  assert.equal(Object.hasOwn(nonGovernance.env, "ETHERSCAN_API_KEY"), false);
-  for (const step of [materialization, staging]) {
+  assert.equal(Object.hasOwn(environmentValidation, "if"), false);
+  for (const step of [environmentValidation, materialization, staging, build]) {
     assert.equal(Object.hasOwn(step.env, "ETHERSCAN_API_KEY"), false);
     assert.equal(Object.hasOwn(step.env, "SENTRY_AUTH_TOKEN"), false);
     assert.doesNotMatch(step.run, /ETHERSCAN_API_KEY|SENTRY_AUTH_TOKEN/);
   }
-  assert.equal(
-    build.env.ETHERSCAN_API_KEY,
-    "${{ inputs.logical_target == 'governance' && secrets.etherscan_api_key || '' }}",
-  );
-  assert.match(build.run, /controller_secret_environment=\(\)/);
-  assert.match(build.run, /candidate_secret_environment=\(\)/);
-  assert.match(build.run, /if \[ "\$LOGICAL_TARGET" = "governance" \]; then/);
-  assert.match(
-    build.run,
-    /vercel-build-environment\.mjs" \\\n\s+check --target "\$LOGICAL_TARGET" --environment preview/,
-  );
-  assert.equal(
-    build.env.BUILD_ENVIRONMENT_PATH,
-    "${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-build-environment",
-  );
-  assert.match(build.run, /--project-directory "\$BUILD_ENVIRONMENT_PATH"/);
+  assert.doesNotMatch(build.run, /secret_environment/);
+  assert.doesNotMatch(build.run, /vercel-build-environment\.mjs/);
   assert.doesNotMatch(
-    build.run,
-    /--project-directory "\$SOURCE_PATH\/\$EXPECTED_ROOT_DIRECTORY"/,
-  );
-  assert.match(
-    build.run,
-    /candidate_secret_environment\+=\("ETHERSCAN_API_KEY=\$ETHERSCAN_API_KEY"\)/,
+    read(reusablePath),
+    /ETHERSCAN_API_KEY|etherscan_api_key|governance/i,
   );
   assert.doesNotMatch(
     read(reusablePath),
     /SENTRY_AUTH_TOKEN|secrets:\s*inherit/,
   );
-  assert.deepEqual(Object.keys(worker.jobs["deploy-ui-preview"].secrets), [
-    "turbo_remote_cache_signature_key",
-    "turbo_token",
-    "vercel_token",
-  ]);
-  assert.equal(worker.jobs["deploy-ui-preview"].with.logical_target, "ui");
+  for (const target of ["app", "reserve", "ui"]) {
+    assert.deepEqual(
+      Object.keys(worker.jobs[`deploy-${target}-preview`].secrets),
+      ["turbo_remote_cache_signature_key", "turbo_token", "vercel_token"],
+      target,
+    );
+    assert.equal(
+      worker.jobs[`deploy-${target}-preview`].with.logical_target,
+      target,
+    );
+  }
 });
 
-test("runner-side Governance validation never traverses the distinct candidate identity tree", () => {
+test("runner-side validation never traverses the distinct candidate identity tree", () => {
   const reusable = workflow(reusablePath);
   const steps = reusable.jobs.prebuilt.steps;
   const isolation = steps.find(
@@ -155,14 +142,6 @@ test("runner-side Governance validation never traverses the distinct candidate i
   assert.match(
     isolation.run,
     /if \[ "\$build_uid" = "\$\(id -u\)" \] \|\| \[ "\$build_gid" = "\$\(id -g\)" \]; then/,
-  );
-  assert.equal(
-    build.env.BUILD_ENVIRONMENT_PATH,
-    "${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-build-environment",
-  );
-  assert.match(
-    build.run,
-    /if \[ "\$LOGICAL_TARGET" = "governance" \]; then[\s\S]*--project-directory "\$BUILD_ENVIRONMENT_PATH"/,
   );
   assert.doesNotMatch(
     build.run,
@@ -774,8 +753,7 @@ test("monorepo CLI and trusted env validation use their exact roots", () => {
     ({ name }) => name === "Install frozen dependencies",
   );
   const environmentValidation = steps.find(
-    ({ name }) =>
-      name === "Validate runner-owned non-Governance preview build variables",
+    ({ name }) => name === "Validate runner-owned preview build variables",
   );
   const materialization = steps.find(
     ({ name }) =>
@@ -803,11 +781,11 @@ test("monorepo CLI and trusted env validation use their exact roots", () => {
     environmentValidation.env.BUILD_ENVIRONMENT_PATH,
     "${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-build-environment",
   );
+  assert.match(
+    environmentValidation.run,
+    /check --target "\$LOGICAL_TARGET" --environment preview/,
+  );
   for (const step of [environmentValidation, build]) {
-    assert.match(
-      step.run,
-      /check --target "\$LOGICAL_TARGET" --environment preview/,
-    );
     assert.doesNotMatch(
       step.run,
       /\$\{\{ inputs\.(?:logical_target|expected_root_directory) \}\}/,
@@ -817,11 +795,7 @@ test("monorepo CLI and trusted env validation use their exact roots", () => {
     environmentValidation.run,
     /--project-directory "\$BUILD_ENVIRONMENT_PATH"/,
   );
-  assert.match(build.run, /--project-directory "\$BUILD_ENVIRONMENT_PATH"/);
-  assert.equal(
-    build.env.BUILD_ENVIRONMENT_PATH,
-    "${{ env.VERCEL_ISOLATION_ROOT }}/mento-vercel-build-environment",
-  );
+  assert.equal(Object.hasOwn(build.env, "BUILD_ENVIRONMENT_PATH"), false);
   assert.doesNotMatch(
     build.run,
     /--project-directory "\$SOURCE_PATH\/\$EXPECTED_ROOT_DIRECTORY"/,
@@ -835,7 +809,7 @@ test("monorepo CLI and trusted env validation use their exact roots", () => {
     steps.filter(({ run }) =>
       run?.includes("scripts/vercel-build-environment.mjs"),
     ),
-    [environmentValidation, build],
+    [environmentValidation],
   );
   assert.ok(
     names.indexOf("Assert isolated runner-owned Vercel pull result") <
@@ -847,14 +821,10 @@ test("monorepo CLI and trusted env validation use their exact roots", () => {
   );
   assert.ok(
     names.indexOf("Assert isolated allowlisted preview build environment") <
-      names.indexOf(
-        "Validate runner-owned non-Governance preview build variables",
-      ),
+      names.indexOf("Validate runner-owned preview build variables"),
   );
   assert.ok(
-    names.indexOf(
-      "Validate runner-owned non-Governance preview build variables",
-    ) <
+    names.indexOf("Validate runner-owned preview build variables") <
       names.indexOf(
         "Stage project settings and allowlisted environment into candidate source",
       ),

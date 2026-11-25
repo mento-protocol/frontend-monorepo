@@ -21,7 +21,6 @@ import {
 const SHA = "0123456789abcdef0123456789abcdef01234567";
 const ACTUAL_LANDING_PATHS = Object.freeze({
   app: "/pools",
-  governance: "/",
   reserve: "/",
   ui: "/basic-components",
 });
@@ -78,10 +77,6 @@ class FakeLocator {
     this.page.calls.push(["click", this.kind, this.name]);
     if (this.kind === "button" && this.name === "Connect") {
       this.page.walletOpened = true;
-      return;
-    }
-    if (this.kind === "link" && this.name === "My Voting Power") {
-      this.page.navigate("/voting-power");
       return;
     }
     if (this.kind === "tab" && this.name === "Supply") {
@@ -393,7 +388,7 @@ test("requires the exact deployment SHA and complete security-header contract", 
   assert.throws(() => assertMainRuntimeSecurityHeaders(null, SHA), /malformed/);
 });
 
-test("runs the literal interaction contract for all four public targets", async () => {
+test("runs the literal interaction contract for all three public targets", async () => {
   for (const target of Object.keys(MAIN_RUNTIME_TARGETS)) {
     const page = new FakePage(target);
     const fake = fakeChromium(page);
@@ -730,12 +725,12 @@ test("rejects wrong landing, final location, SHA header, and browser policy", as
       pattern: /public landing URL mismatch/,
     },
     {
-      page: new FakePage("governance", {
+      page: new FakePage("ui", {
         afterInteraction(currentPage) {
           currentPage.navigate("/");
         },
       }),
-      target: "governance",
+      target: "ui",
       pattern: /public interaction URL mismatch/,
     },
     {
@@ -797,15 +792,15 @@ test("environment entrypoint writes canonical outputs and summary", async () => 
   writeFileSync(output, "");
   writeFileSync(summary, "");
   try {
-    const page = new FakePage("governance");
+    const page = new FakePage("ui");
     const result = await runMainRuntimeSmokeFromEnvironment({
       chromium: fakeChromium(page).chromium,
       environment: {
         DEPLOY_SHA: SHA,
         GITHUB_OUTPUT: output,
         GITHUB_STEP_SUMMARY: summary,
-        LOGICAL_TARGET: "governance",
-        PUBLIC_URL: MAIN_RUNTIME_TARGETS.governance.publicUrl,
+        LOGICAL_TARGET: "ui",
+        PUBLIC_URL: MAIN_RUNTIME_TARGETS.ui.publicUrl,
       },
     });
     const outputText = readFileSync(output, "utf8");

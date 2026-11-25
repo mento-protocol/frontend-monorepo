@@ -13,8 +13,8 @@ import { createMainReleaseManifest } from "./vercel-main-release-reconciliation.
 
 const SHA = "a".repeat(40);
 const PRIOR_SHA = "b".repeat(40);
-const TARGETS = ["app", "governance", "reserve", "ui"];
-const RELEASE_ORDER = ["governance", "reserve", "ui", "app"];
+const TARGETS = ["app", "reserve", "ui"];
+const RELEASE_ORDER = ["reserve", "ui", "app"];
 
 function plan(stagedTargets = TARGETS) {
   const selected = TARGETS.filter((target) => stagedTargets.includes(target));
@@ -124,16 +124,15 @@ function execution(stagedTargets = TARGETS) {
 }
 
 test("release execution derives its entire operational projection from the stable manifest", () => {
-  const value = execution(["governance", "app"]);
+  const value = execution(["reserve", "app"]);
   assert.deepEqual(value.projection, {
     projectIds: {
-      governance: "prj_governance",
       reserve: "prj_reserve",
       ui: "prj_ui",
       app: "prj_app",
     },
-    stagedTargets: ["governance", "app"],
-    activeTargets: ["governance", "app"],
+    stagedTargets: ["reserve", "app"],
+    activeTargets: ["reserve", "app"],
     shadowTargets: [],
     noTarget: false,
   });
@@ -200,14 +199,14 @@ test("execution rejects an altered projection, selection, or current upstream", 
 });
 
 test("execution selection binds discovery, projects, manifest, and ownership", () => {
-  const value = execution(["governance"]);
+  const value = execution(["reserve"]);
   for (const selection of [
     { ...value.selection, providerDiscoveryDigest: "invalid" },
     {
       ...value.selection,
       projectIds: {
         ...value.selection.projectIds,
-        governance: "prj_other",
+        reserve: "prj_other",
       },
     },
     {
@@ -237,7 +236,7 @@ test("execution selection binds discovery, projects, manifest, and ownership", (
 });
 
 test("execution rechecks fresh rollback-only coverage for reuse", () => {
-  const value = execution(["governance"]);
+  const value = execution(["reserve"]);
   for (const [decision, reason] of [
     [
       "resume-existing-release",
@@ -265,15 +264,15 @@ test("execution rechecks fresh rollback-only coverage for reuse", () => {
       ...value,
       selection: {
         ...value.selection,
-        rollbackOnlyTargets: ["governance"],
+        rollbackOnlyTargets: ["reserve"],
       },
     }).selection.rollbackOnlyTargets,
-    ["governance"],
+    ["reserve"],
   );
 });
 
 test("capture-new execution binds the fresh rollback-only set exactly", () => {
-  const value = execution(["governance"]);
+  const value = execution(["reserve"]);
   assert.throws(
     () =>
       assertMainReleaseExecution({
@@ -282,7 +281,7 @@ test("capture-new execution binds the fresh rollback-only set exactly", () => {
         reason: "no-mapped-release-metadata",
         selection: {
           ...value.selection,
-          rollbackOnlyTargets: ["governance"],
+          rollbackOnlyTargets: ["reserve"],
         },
       }),
     /manifest conflicts with fresh rollback-only targets/,
@@ -290,7 +289,7 @@ test("capture-new execution binds the fresh rollback-only set exactly", () => {
 });
 
 test("execution binds both upstream URLs to the exact repository run and attempt", () => {
-  const value = execution(["governance"]);
+  const value = execution(["reserve"]);
   for (const upstream of [
     {
       ...value.upstream,

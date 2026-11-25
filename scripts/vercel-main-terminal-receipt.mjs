@@ -18,7 +18,7 @@ const PRODUCER_JOBS = new Set([
   "activate-and-verify",
   "recover-main-deployment",
 ]);
-const TARGETS = Object.freeze(["governance", "reserve", "ui", "app"]);
+const TARGETS = Object.freeze(["reserve", "ui", "app"]);
 const OPERATION_TARGETS = Object.freeze([...TARGETS]);
 const OPERATION_TYPES = Object.freeze(["promote", "ordinary_rollback"]);
 const OPERATION_STATES = Object.freeze([

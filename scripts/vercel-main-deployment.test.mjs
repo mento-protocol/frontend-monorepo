@@ -211,11 +211,11 @@ function upstream() {
 }
 
 function plan({
-  deployments = ["app", "governance", "reserve", "ui"],
+  deployments = ["app", "reserve", "ui"],
   mode = MAIN_DEPLOYMENT_MODE,
   snapshot = planningSnapshot(),
   mainOwnershipMode = Object.fromEntries(
-    ["app", "governance", "reserve", "ui"].map((target) => [
+    ["app", "reserve", "ui"].map((target) => [
       target,
       mode === MAIN_ACTIVE_DEPLOYMENT_MODE
         ? MAIN_OWNERSHIP_MODES.GITHUB
@@ -248,7 +248,7 @@ function activePlan(options = {}) {
 
 function releaseManifestForPlan(deploymentPlan) {
   const originalPriors = Object.fromEntries(
-    ["governance", "reserve", "ui", "app"].map((target) => {
+    ["reserve", "ui", "app"].map((target) => {
       const planned = deploymentPlan.planning.priors.find(
         (entry) => entry.target === target,
       );
@@ -304,7 +304,7 @@ function releaseExecutionForPlan(deploymentPlan) {
     planningSnapshotDigest: "e".repeat(64),
     rollbackOnlyTargets: manifest.rollbackOnlyTargets,
     projectIds: Object.fromEntries(
-      ["governance", "reserve", "ui", "app"].map((target) => [
+      ["reserve", "ui", "app"].map((target) => [
         target,
         manifest.originalPriors[target].projectId,
       ]),
@@ -388,7 +388,7 @@ function currentCanonicalMappings(deploymentPlan) {
   for (const state of deploymentPlan.protectedSnapshot.states) {
     for (const alias of state.aliases) byAlias.set(alias, state);
   }
-  const targets = ["governance", "reserve", "ui", "app"];
+  const targets = ["reserve", "ui", "app"];
   return {
     schema: "vercel-main-canonical-mappings:v1",
     mappings: Object.fromEntries(
@@ -415,7 +415,6 @@ function currentCanonicalMappings(deploymentPlan) {
 function ownership(overrides = {}) {
   return {
     app: MAIN_OWNERSHIP_MODES.GITHUB,
-    governance: MAIN_OWNERSHIP_MODES.GITHUB,
     reserve: MAIN_OWNERSHIP_MODES.GITHUB,
     ui: MAIN_OWNERSHIP_MODES.GITHUB,
     ...overrides,
@@ -424,7 +423,6 @@ function ownership(overrides = {}) {
 
 function stagedState(target) {
   const generated = {
-    governance: "governancementoorg-mentolabs.vercel.app",
     reserve: "reservementoorg-mentolabs.vercel.app",
     ui: "uimentoorg-mentolabs.vercel.app",
   };
@@ -463,7 +461,7 @@ function stageResult(target, deploymentPlan = plan()) {
 
 function stageJobs(deploymentPlan = plan()) {
   return Object.fromEntries(
-    ["governance", "reserve", "ui"].map((target) => {
+    ["reserve", "ui"].map((target) => {
       const selected = deploymentPlan.planning.stagedTargets.includes(target);
       return [
         target,
@@ -583,13 +581,11 @@ function activeFinalMappings(harness) {
 function runtimeSmoke(target, deploySha = SHA) {
   const finalPaths = {
     app: "https://app.mento.org/pools",
-    governance: "https://governance.mento.org/voting-power",
     reserve: "https://reserve.mento.org/?tab=stablecoins",
     ui: "https://ui.mento.org/form-components",
   };
   const interactions = {
     app: "real-production-wallet-list",
-    governance: "governance-voting-power-navigation",
     reserve: "reserve-overview-data-and-supply-tab",
     ui: "ui-search-navigation-and-checkbox",
   };
@@ -609,7 +605,6 @@ function runtimeSmoke(target, deploySha = SHA) {
 function activePublicSmokes(planning) {
   const urls = {
     app: "https://app.mento.org/",
-    governance: "https://governance.mento.org/",
     reserve: "https://reserve.mento.org/",
     ui: "https://ui.mento.org/",
   };
@@ -640,7 +635,7 @@ function barrierFor(execution, runId = "800", runAttempt = "3") {
   return createMainStageBarrier({
     execution,
     candidateReceipts: Object.fromEntries(
-      ["app", "governance", "reserve", "ui"].map((target) => [
+      ["app", "reserve", "ui"].map((target) => [
         target,
         execution.projection.stagedTargets.includes(target)
           ? currentCandidateReceipt(execution, target)
@@ -731,7 +726,7 @@ function terminalStateProof({ execution, stateProof }) {
   const barrier = createMainStageBarrier({
     execution,
     candidateReceipts: Object.fromEntries(
-      ["app", "governance", "reserve", "ui"].map((target) => [
+      ["app", "reserve", "ui"].map((target) => [
         target,
         execution.projection.activeTargets.includes(target) ||
         execution.projection.shadowTargets.includes(target)
@@ -780,11 +775,6 @@ function activeJobs(deploymentPlan, overrides = {}) {
   return {
     waitForCi: "success",
     plan: "success",
-    stageGovernance: deploymentPlan.planning.stagedTargets.includes(
-      "governance",
-    )
-      ? "success"
-      : "skipped",
     stageReserve: deploymentPlan.planning.stagedTargets.includes("reserve")
       ? "success"
       : "skipped",
@@ -820,7 +810,7 @@ function activeHistoryDocument(journals) {
 function providerMappings(execution, mappings) {
   const byAlias = new Map(mappings.map((entry) => [entry.alias, entry]));
   const grouped = {};
-  for (const target of ["governance", "reserve", "ui", "app"]) {
+  for (const target of ["reserve", "ui", "app"]) {
     grouped[target] = execution.manifest.originalPriors[target].aliases
       .map((alias) => byAlias.get(alias))
       .toSorted((left, right) => left.alias.localeCompare(right.alias));
@@ -833,7 +823,7 @@ function providerMappings(execution, mappings) {
 
 function priorPublicSmokes(execution) {
   return Object.fromEntries(
-    ["app", "governance", "reserve", "ui"].map((target) => [
+    ["app", "reserve", "ui"].map((target) => [
       target,
       {
         publicUrl: `https://${target}.mento.org/`,
@@ -849,19 +839,14 @@ function priorPublicSmokes(execution) {
 }
 
 // MGP-18 retired the legacy App deployment and the v3 custom environment now
-// retires with it. The protected spec is exactly the four reviewed main
+// retires with it. The protected spec is exactly the three reviewed main
 // aliases; nothing may re-admit the legacy or the custom-environment topology.
-test("protected spec binds exactly the four reviewed main aliases", () => {
+test("protected spec binds exactly the three reviewed main aliases", () => {
   const spec = createMainProtectedAliasSpec({ projectIds });
-  assert.equal(spec.length, 4);
+  assert.equal(spec.length, 3);
   assert.deepEqual(
     spec.map((entry) => entry.alias),
-    [
-      "app.mento.org",
-      "governance.mento.org",
-      "reserve.mento.org",
-      "ui.mento.org",
-    ],
+    ["app.mento.org", "reserve.mento.org", "ui.mento.org"],
   );
   assert.equal(
     spec.filter((entry) => entry.projectName === "app.mento.org").length,
@@ -885,14 +870,11 @@ test("protected spec binds exactly the four reviewed main aliases", () => {
       false,
     );
   }
-  assert.equal(MAIN_ACTIVE_MAX_RECOVERY_TRANSITIONS, 4);
+  assert.equal(MAIN_ACTIVE_MAX_RECOVERY_TRANSITIONS, 3);
   // Pin the derivation, not just the number: exactly one rollback slot per
   // promotable target. MGP-18 retired the extra bridge alias-restore slot, so
   // the reviewed App alias count no longer contributes a compensation slot.
-  assert.deepEqual(
-    [...MAIN_PROMOTABLE_TARGETS],
-    ["governance", "reserve", "ui", "app"],
-  );
+  assert.deepEqual([...MAIN_PROMOTABLE_TARGETS], ["reserve", "ui", "app"]);
   assert.deepEqual([...MAIN_TARGET_CONTRACTS.app.aliases], ["app.mento.org"]);
   assert.equal(
     MAIN_ACTIVE_MAX_RECOVERY_TRANSITIONS,
@@ -978,13 +960,13 @@ test("planning holds the App prior to the same production contract as every othe
       /Canonical deployment environment is malformed/,
     ],
     [
-      "v3-shaped governance prior",
+      "v3-shaped reserve prior",
       (states) => {
-        const governance = states.find(
-          ({ alias }) => alias === "governance.mento.org",
+        const reserve = states.find(
+          ({ alias }) => alias === "reserve.mento.org",
         );
-        governance.target = null;
-        governance.customEnvironmentSlug = "v3";
+        reserve.target = null;
+        reserve.customEnvironmentSlug = "v3";
       },
       /Canonical deployment environment is malformed/,
     ],
@@ -994,7 +976,7 @@ test("planning holds the App prior to the same production contract as every othe
       "another target's reviewed domain on the App prior",
       (states) => {
         const app = states.find(({ alias }) => alias === "app.mento.org");
-        app.aliases = [...app.aliases, "governance.mento.org"].toSorted();
+        app.aliases = [...app.aliases, "reserve.mento.org"].toSorted();
       },
       /app/,
     ],
@@ -1240,8 +1222,6 @@ test("controller CLI accepts only each command's exact non-duplicated options", 
       "/tmp/app.json",
       "--execution",
       "/tmp/execution.json",
-      "--governance",
-      "/tmp/governance.json",
       "--output",
       "/tmp/smokes.json",
       "--reserve",
@@ -1502,12 +1482,11 @@ test("controller CLI accepts only each command's exact non-duplicated options", 
 test("run-active CLI dispatches one reducer event and writes one optional journal", async () => {
   const directory = mkdtempSync(join(tmpdir(), "vercel-main-active-cli-"));
   try {
-    const reviewedPlan = activePlan({ deployments: ["governance"] });
+    const reviewedPlan = activePlan({ deployments: ["reserve"] });
     const execution = releaseExecutionForPlan(reviewedPlan);
     const receipts = {
       app: null,
-      governance: currentCandidateReceipt(execution, "governance"),
-      reserve: null,
+      reserve: currentCandidateReceipt(execution, "reserve"),
       ui: null,
     };
     const barrier = createMainStageBarrier({
@@ -1684,7 +1663,6 @@ test("current execution drives one stable candidate identity through the App sta
         execution,
         candidateReceipts: {
           app: null,
-          governance: null,
           reserve: null,
           ui: null,
         },
@@ -1698,7 +1676,6 @@ test("current execution drives one stable candidate identity through the App sta
     execution,
     candidateReceipts: {
       app: receipt,
-      governance: null,
       reserve: null,
       ui: null,
     },
@@ -1903,7 +1880,6 @@ test("current stage barrier partitions receipts and admits no App preparation sl
   const execution = releaseExecutionForPlan(appPlan);
   const emptyReceipts = {
     app: null,
-    governance: null,
     reserve: null,
     ui: null,
   };
@@ -1924,7 +1900,7 @@ test("current stage barrier partitions receipts and admits no App preparation sl
     runId: "800",
     runAttempt: "3",
   });
-  for (const target of ["app", "governance", "reserve", "ui"]) {
+  for (const target of ["app", "reserve", "ui"]) {
     assert.deepEqual(
       Object.keys(barrier.stages[target]).toSorted(),
       ["kind", "receipt"],
@@ -1932,7 +1908,7 @@ test("current stage barrier partitions receipts and admits no App preparation sl
     );
   }
   assert.equal(barrier.stages.app.kind, "receipt");
-  assert.deepEqual(barrier.stages.governance, {
+  assert.deepEqual(barrier.stages.reserve, {
     kind: "not-selected",
     receipt: null,
   });
@@ -1982,7 +1958,7 @@ test("current stage barrier partitions receipts and admits no App preparation sl
       }),
     /candidate|intent|inconsistent/i,
   );
-  const noAppPlan = activePlan({ deployments: ["governance"] });
+  const noAppPlan = activePlan({ deployments: ["reserve"] });
   const noAppExecution = releaseExecutionForPlan(noAppPlan);
   assert.throws(
     () =>
@@ -1990,8 +1966,7 @@ test("current stage barrier partitions receipts and admits no App preparation sl
         execution: noAppExecution,
         candidateReceipts: {
           app: receipt,
-          governance: currentCandidateReceipt(noAppExecution, "governance"),
-          reserve: null,
+          reserve: currentCandidateReceipt(noAppExecution, "reserve"),
           ui: null,
         },
         runId: "800",
@@ -2006,19 +1981,18 @@ test("current stage barrier partitions receipts and admits no App preparation sl
 // never becomes an active-transaction candidate.
 test("current stage barrier admits a shadow App receipt without candidate authority", () => {
   const deploymentPlan = activePlan({
-    deployments: ["app", "governance"],
+    deployments: ["app", "reserve"],
     mainOwnershipMode: ownership({ app: MAIN_OWNERSHIP_MODES.SHADOW }),
   });
   const execution = releaseExecutionForPlan(deploymentPlan);
-  assert.deepEqual(execution.projection.activeTargets, ["governance"]);
+  assert.deepEqual(execution.projection.activeTargets, ["reserve"]);
   assert.deepEqual(execution.projection.shadowTargets, ["app"]);
   const receipt = currentCandidateReceipt(execution, "app");
   const barrier = createMainStageBarrier({
     execution,
     candidateReceipts: {
       app: receipt,
-      governance: currentCandidateReceipt(execution, "governance"),
-      reserve: null,
+      reserve: currentCandidateReceipt(execution, "reserve"),
       ui: null,
     },
     runId: "800",
@@ -2087,7 +2061,7 @@ test("canonical evidence records planning, candidates, timings, cache, journal, 
     runAttempt: "3",
   });
   const stages = Object.fromEntries(
-    ["governance", "reserve", "ui"].map((target, index) => [
+    ["reserve", "ui"].map((target, index) => [
       target,
       {
         handoff: jobs[target].handoff,
@@ -2138,10 +2112,10 @@ test("canonical evidence records planning, candidates, timings, cache, journal, 
   assert.deepEqual(evidence.planning.reasons, deploymentPlan.planning.reasons);
   assert.deepEqual(evidence.planning.plan, deploymentPlan.planning.plan);
   assert.equal(
-    evidence.stages.governance.candidate.deploymentId,
-    jobs.governance.handoff.candidate.deploymentId,
+    evidence.stages.reserve.candidate.deploymentId,
+    jobs.reserve.handoff.candidate.deploymentId,
   );
-  assert.equal(evidence.stages.reserve.metrics.deployDurationMs, "2001");
+  assert.equal(evidence.stages.ui.metrics.deployDurationMs, "2001");
   assert.equal(evidence.app.outcome, "build-only");
   assert.equal(evidence.workflowDefinitionSha, SHA);
   assert.equal(evidence.upstream.buildAndTestConclusion, "success");
@@ -2150,7 +2124,7 @@ test("canonical evidence records planning, candidates, timings, cache, journal, 
   assert.equal(evidence.journal.sequence, 0);
   assert.equal(evidence.journal.status, "prepared");
   assert.equal(Object.hasOwn(evidence, "legacy"), false);
-  assert.deepEqual(evidence.stages.governance.verification, {
+  assert.deepEqual(evidence.stages.reserve.verification, {
     canonicalState: "passed",
     immutableSmoke: "passed",
     protectedMappings: "unchanged",
@@ -2162,10 +2136,9 @@ test("canonical evidence records planning, candidates, timings, cache, journal, 
   });
   assert.deepEqual(evidence.ordinaryRollbackStateTargets, []);
   // Shadow mode promotes nothing, so the rider column is the served-prior
-  // census for all four targets and the caption says exactly that.
+  // census for all three targets and the caption says exactly that.
   assert.deepEqual(Object.keys(evidence.riderAliases), [
     "app",
-    "governance",
     "reserve",
     "ui",
   ]);
@@ -2270,9 +2243,8 @@ test("failure evidence records the complete redacted job graph without parsing p
   const jobs = {
     waitForCi: "success",
     plan: "success",
-    stageGovernance: "failure",
-    stageReserve: "cancelled",
-    stageUi: "skipped",
+    stageReserve: "failure",
+    stageUi: "cancelled",
     coordinator: "skipped",
     recovery: "success",
   };
@@ -2296,7 +2268,7 @@ test("failure evidence records the complete redacted job graph without parsing p
   assert.doesNotMatch(JSON.stringify(evidence), /must-not-be-embedded|token/);
   const summary = renderMainDeploymentFailureEvidence(evidence);
   assert.match(summary, /Vercel main deployment failure evidence/);
-  assert.match(summary, /stageGovernance \| `failure`/);
+  assert.match(summary, /stageReserve \| `failure`/);
   assert.match(summary, /does not authorize activation/);
   assert.match(
     summary,
@@ -2310,7 +2282,6 @@ test("failure evidence records the complete redacted job graph without parsing p
     jobs: {
       waitForCi: "failure",
       plan: "skipped",
-      stageGovernance: "skipped",
       stageReserve: "skipped",
       stageUi: "skipped",
       coordinator: "skipped",
@@ -2364,7 +2335,6 @@ test("canonical evidence accepts no-target and superseded-before-journal outcome
     const evidence = createMainDeploymentEvidence({
       plan: deploymentPlan,
       stages: {
-        governance: null,
         reserve: null,
         ui: null,
       },
@@ -2457,7 +2427,7 @@ test("evidence CLI entrypoint writes canonical run JSON and summary from the exa
       EVIDENCE_APP_TURBO_CACHE_HITS: "5",
       EVIDENCE_APP_TURBO_CACHE_MISSES: "2",
     };
-    for (const [index, target] of ["governance", "reserve", "ui"].entries()) {
+    for (const [index, target] of ["reserve", "ui"].entries()) {
       const prefix = `EVIDENCE_${target.toUpperCase()}`;
       values[`${prefix}_RESULT`] = "success";
       values[`${prefix}_HANDOFF`] = JSON.stringify(jobs[target].handoff);
@@ -2531,7 +2501,6 @@ test("failure-evidence CLI writes one canonical report when the planner output i
           GITHUB_STEP_SUMMARY: summary,
           WAIT_FOR_CI_RESULT: "failure",
           PLAN_RESULT: "skipped",
-          STAGE_GOVERNANCE_RESULT: "skipped",
           STAGE_RESERVE_RESULT: "skipped",
           STAGE_UI_RESULT: "skipped",
           COORDINATOR_RESULT: "skipped",
@@ -2548,7 +2517,6 @@ test("failure-evidence CLI writes one canonical report when the planner output i
     assert.deepEqual(evidence.jobs, {
       waitForCi: "failure",
       plan: "skipped",
-      stageGovernance: "skipped",
       stageReserve: "skipped",
       stageUi: "skipped",
       coordinator: "skipped",
@@ -2567,22 +2535,12 @@ test("plan handoff binds upstream receipt, protected state, and served-SHA plan"
   assert.equal(result.schema, MAIN_DEPLOYMENT_SCHEMA);
   assert.equal(result.mode, "shadow");
   assert.equal(result.deploySha, SHA);
-  assert.deepEqual(result.planning.plan, [
-    "app",
-    "governance",
-    "reserve",
-    "ui",
-  ]);
+  assert.deepEqual(result.planning.plan, ["app", "reserve", "ui"]);
   // One reviewed alias per target: the retiring v3 generated alias is gone.
-  assert.equal(result.protectedSnapshot.states.length, 4);
+  assert.equal(result.protectedSnapshot.states.length, 3);
   assert.deepEqual(
     result.protectedSnapshot.states.map((state) => state.alias),
-    [
-      "app.mento.org",
-      "governance.mento.org",
-      "reserve.mento.org",
-      "ui.mento.org",
-    ],
+    ["app.mento.org", "reserve.mento.org", "ui.mento.org"],
   );
   assert.deepEqual(
     result.planning.priors.find((entry) => entry.target === "app").aliases,
@@ -2656,7 +2614,6 @@ test("plan CLI conservatively selects every rollback-only main target", () => {
           ),
           DEPLOY_SHA: head.stdout.trim(),
           VERCEL_PROJECT_ID_APP: projectIds.app,
-          VERCEL_PROJECT_ID_GOVERNANCE: projectIds.governance,
           VERCEL_PROJECT_ID_RESERVE: projectIds.reserve,
           VERCEL_PROJECT_ID_UI: projectIds.ui,
           UPSTREAM_RUN_ID: "123456",
@@ -2749,7 +2706,6 @@ for (const [name, mutate, reason] of [
       mode: MAIN_DEPLOYMENT_MODE,
       mainOwnershipMode: ownership({
         app: MAIN_OWNERSHIP_MODES.SHADOW,
-        governance: MAIN_OWNERSHIP_MODES.SHADOW,
         reserve: MAIN_OWNERSHIP_MODES.SHADOW,
         ui: MAIN_OWNERSHIP_MODES.SHADOW,
       }),
@@ -2805,7 +2761,6 @@ test("every main target maps exactly one reviewed alias in the protected snapsho
         mode: MAIN_DEPLOYMENT_MODE,
         mainOwnershipMode: ownership({
           app: MAIN_OWNERSHIP_MODES.SHADOW,
-          governance: MAIN_OWNERSHIP_MODES.SHADOW,
           reserve: MAIN_OWNERSHIP_MODES.SHADOW,
           ui: MAIN_OWNERSHIP_MODES.SHADOW,
         }),
@@ -2978,25 +2933,25 @@ test("recovery source proof permits only a newer main descendant of the admitted
 });
 
 test("stage handoffs contain only canonical candidate identity and completed verification", () => {
-  const result = stageResult("governance");
+  const result = stageResult("reserve");
   assert.equal(result.schema, MAIN_STAGE_SCHEMA);
-  assert.equal(result.target, "governance");
-  assert.equal(result.candidate.deploymentId, "dpl_governanceCandidate123");
+  assert.equal(result.target, "reserve");
+  assert.equal(result.candidate.deploymentId, "dpl_reserveCandidate123");
   assert.equal(result.candidate.discovery, null);
   assert.equal(result.verification.immutableSmoke, "passed");
   assert.deepEqual(
     assertMainStageResult(result, {
       plan: plan(),
-      expectedTarget: "governance",
+      expectedTarget: "reserve",
     }),
     result,
   );
   assert.throws(
     () =>
       createMainStageResult({
-        target: "governance",
+        target: "reserve",
         plan: plan(),
-        state: stagedState("governance"),
+        state: stagedState("reserve"),
         runId: "800",
         runAttempt: "3",
         smokePassed: false,
@@ -3007,7 +2962,7 @@ test("stage handoffs contain only canonical candidate identity and completed ver
 });
 
 test("selected stages must succeed and unselected stages must be skipped", () => {
-  const selected = plan({ deployments: ["governance"] });
+  const selected = plan({ deployments: ["reserve"] });
   const selectedValidation = validateMainStageJobs({
     plan: selected,
     jobs: stageJobs(selected),
@@ -3024,7 +2979,7 @@ test("selected stages must succeed and unselected stages must be skipped", () =>
         runAttempt: "3",
         jobs: {
           ...stageJobs(selected),
-          governance: { result: "skipped", handoff: null },
+          reserve: { result: "skipped", handoff: null },
         },
       }),
     /did not succeed/,
@@ -3037,9 +2992,9 @@ test("selected stages must succeed and unselected stages must be skipped", () =>
         runAttempt: "3",
         jobs: {
           ...stageJobs(selected),
-          reserve: {
+          ui: {
             result: "success",
-            handoff: stageResult("reserve", plan()),
+            handoff: stageResult("ui", plan()),
           },
         },
       }),
@@ -3109,11 +3064,11 @@ test("protected rollback identity remains stable while ordinary generated aliase
     }),
   );
   const ordinaryGeneratedAliasesMoved = structuredClone(planningSnapshot());
-  const governance = ordinaryGeneratedAliasesMoved.states.find(
-    (state) => state.alias === "governance.mento.org",
+  const ui = ordinaryGeneratedAliasesMoved.states.find(
+    (state) => state.alias === "ui.mento.org",
   );
-  governance.aliases = ["governance.mento.org"];
-  governance.creatorUsername = null;
+  ui.aliases = ["ui.mento.org"];
+  ui.creatorUsername = null;
   assert.doesNotThrow(() =>
     assertProtectedSnapshotMatchesPlan({
       plan: deploymentPlan,
@@ -3148,12 +3103,12 @@ test("protected rollback identity remains stable while ordinary generated aliase
       state.customEnvironmentSlug = "unexpected";
     },
     (state) => {
-      state.alias = "governance-other.mento.org";
+      state.alias = "ui-other.mento.org";
     },
   ]) {
     const changed = structuredClone(planningSnapshot());
     const state = changed.states.find(
-      (entry) => entry.alias === "governance.mento.org",
+      (entry) => entry.alias === "ui.mento.org",
     );
     mutate(state);
     assert.throws(() =>
@@ -3174,7 +3129,6 @@ test("protected rollback identity remains stable while ordinary generated aliase
       mode: MAIN_DEPLOYMENT_MODE,
       mainOwnershipMode: ownership({
         app: MAIN_OWNERSHIP_MODES.SHADOW,
-        governance: MAIN_OWNERSHIP_MODES.SHADOW,
         reserve: MAIN_OWNERSHIP_MODES.SHADOW,
         ui: MAIN_OWNERSHIP_MODES.SHADOW,
       }),
@@ -3251,25 +3205,10 @@ test("transaction inputs bind ordered priors, release identity, and fresh start 
     runId: "800",
     runAttempt: "3",
   });
-  assert.deepEqual(Object.keys(inputs.prior), [
-    "app",
-    "governance",
-    "reserve",
-    "ui",
-  ]);
-  assert.deepEqual(Object.keys(inputs.candidates), [
-    "app",
-    "governance",
-    "reserve",
-    "ui",
-  ]);
+  assert.deepEqual(Object.keys(inputs.prior), ["app", "reserve", "ui"]);
+  assert.deepEqual(Object.keys(inputs.candidates), ["app", "reserve", "ui"]);
   assert.equal(inputs.release.deploySha, SHA);
-  assert.deepEqual(Object.keys(inputs.startMappings), [
-    "app",
-    "governance",
-    "reserve",
-    "ui",
-  ]);
+  assert.deepEqual(Object.keys(inputs.startMappings), ["app", "reserve", "ui"]);
   assert.equal(
     inputs.startMappings.app[0].deploymentId,
     inputs.prior.app.deploymentId,
@@ -3298,14 +3237,14 @@ test("transaction inputs bind ordered priors, release identity, and fresh start 
         plan: deploymentPlan,
         stageJobs: stageJobs(deploymentPlan),
         appCandidateReceipt: appReceipt(
-          activePlan({ deployments: ["app", "governance", "reserve", "ui"] }),
+          activePlan({ deployments: ["app", "reserve", "ui"] }),
         ),
         runId: "800",
         runAttempt: "3",
       }),
     /App provider candidate receipt differs from the selected deployment/,
   );
-  const unselectedPlan = plan({ deployments: ["governance"] });
+  const unselectedPlan = plan({ deployments: ["reserve"] });
   assert.throws(
     () =>
       createMainTransactionInputs({
@@ -3317,9 +3256,9 @@ test("transaction inputs bind ordered priors, release identity, and fresh start 
       }),
     /Unselected app returned a provider candidate receipt/,
   );
-  for (const transactionKey of ["999-3-governance", "800-4-governance"]) {
+  for (const transactionKey of ["999-3-reserve", "800-4-reserve"]) {
     const staleJobs = structuredClone(stageJobs(deploymentPlan));
-    staleJobs.governance.handoff.transactionKey = transactionKey;
+    staleJobs.reserve.handoff.transactionKey = transactionKey;
     assert.throws(
       () =>
         createMainTransactionInputs({
@@ -3397,7 +3336,7 @@ test("shadow transaction exercises freshness, journal acknowledgment, and recove
   // receipt, and the legacy shadow runner carries no receipt channel, so a
   // shadow run may only cover the ordinary targets.
   const deploymentPlan = plan({
-    deployments: ["governance", "reserve", "ui"],
+    deployments: ["reserve", "ui"],
   });
   const journal = createPreparedMainJournal({
     plan: deploymentPlan,
@@ -3432,7 +3371,6 @@ test("shadow transaction exercises freshness, journal acknowledgment, and recove
   // the App receipt against the selected release.
   assert.deepEqual(appStagedJournal.candidates, {
     app: null,
-    governance: null,
     reserve: null,
     ui: null,
   });
@@ -3517,7 +3455,6 @@ test("shadow recovery remains verify-only and final sentinel accepts only safe P
       jobs: {
         waitForCi: "success",
         plan: "success",
-        stageGovernance: "success",
         stageReserve: "success",
         stageUi: "success",
         coordinator: "success",
@@ -3535,7 +3472,6 @@ test("shadow recovery remains verify-only and final sentinel accepts only safe P
         jobs: {
           waitForCi: "success",
           plan: "success",
-          stageGovernance: "success",
           stageReserve: "success",
           stageUi: "failure",
           coordinator: "success",
@@ -3552,7 +3488,6 @@ test("shadow recovery remains verify-only and final sentinel accepts only safe P
       jobs: {
         waitForCi: "success",
         plan: "success",
-        stageGovernance: "success",
         stageReserve: "success",
         stageUi: "success",
         coordinator: "success",
@@ -3570,7 +3505,6 @@ test("shadow recovery remains verify-only and final sentinel accepts only safe P
         jobs: {
           waitForCi: "success",
           plan: "success",
-          stageGovernance: "success",
           stageReserve: "success",
           stageUi: "success",
           coordinator: "success",
@@ -3585,20 +3519,15 @@ test("shadow recovery remains verify-only and final sentinel accepts only safe P
 
 test("active planning stages shadow-owned targets without making them forward candidates", () => {
   const mainOwnershipMode = ownership({
-    governance: MAIN_OWNERSHIP_MODES.SHADOW,
+    ui: MAIN_OWNERSHIP_MODES.SHADOW,
   });
   const deploymentPlan = activePlan({ mainOwnershipMode });
   const planning = createMainActivePlanning({
     plan: deploymentPlan,
   });
-  assert.deepEqual(planning.stagedTargets, [
-    "app",
-    "governance",
-    "reserve",
-    "ui",
-  ]);
-  assert.deepEqual(planning.activeTargets, ["app", "reserve", "ui"]);
-  assert.deepEqual(planning.shadowTargets, ["governance"]);
+  assert.deepEqual(planning.stagedTargets, ["app", "reserve", "ui"]);
+  assert.deepEqual(planning.activeTargets, ["app", "reserve"]);
+  assert.deepEqual(planning.shadowTargets, ["ui"]);
 
   const inputs = createMainActiveTransactionInputs({
     plan: deploymentPlan,
@@ -3607,7 +3536,7 @@ test("active planning stages shadow-owned targets without making them forward ca
     runId: "800",
     runAttempt: "3",
   });
-  assert.equal(inputs.candidates.governance, null);
+  assert.equal(inputs.candidates.ui, null);
   assert.notEqual(inputs.candidates.reserve, null);
   assert.deepEqual(
     createPreparedMainActiveJournal({
@@ -3670,7 +3599,7 @@ test("active state spec binds the highest journal and exact stage handoffs", asy
       runAttempt: "3",
     });
     assert.equal(expected.schema, "vercel-active-deployment-state-spec:v3");
-    assert.deepEqual(expected.activeTargets, ["app", "governance", "ui"]);
+    assert.deepEqual(expected.activeTargets, ["app", "ui"]);
     assert.deepEqual(expected.shadowTargets, ["reserve"]);
     assert.equal(
       expected.projects.app.deploymentId,
@@ -3696,12 +3625,7 @@ test("active state spec binds the highest journal and exact stage handoffs", asy
         runId: "800",
         runAttempt: "3",
       }).bindings.map(({ alias }) => alias),
-      [
-        "app.mento.org",
-        "governance.mento.org",
-        "reserve.mento.org",
-        "ui.mento.org",
-      ],
+      ["app.mento.org", "reserve.mento.org", "ui.mento.org"],
     );
     // Replaces the retired "pending App candidate" case: an active App whose
     // candidate lost its provider deployment is still rejected.
@@ -3729,14 +3653,10 @@ test("active state spec binds the highest journal and exact stage handoffs", asy
 // active-state artifacts come from the barrier-based producers above.
 test("plan-derived state and mapping specs bind the ordinary stage handoffs", () => {
   const deploymentPlan = activePlan({
-    deployments: ["governance", "reserve", "ui"],
+    deployments: ["reserve", "ui"],
   });
   const jobs = stageJobs(deploymentPlan);
-  assert.deepEqual(Object.keys(jobs).toSorted(), [
-    "governance",
-    "reserve",
-    "ui",
-  ]);
+  assert.deepEqual(Object.keys(jobs).toSorted(), ["reserve", "ui"]);
   assert.equal(deploymentPlan.planning.stagedTargets.includes("app"), false);
   const prepared = createPreparedMainActiveJournal({
     plan: deploymentPlan,
@@ -3752,8 +3672,8 @@ test("plan-derived state and mapping specs bind the ordinary stage handoffs", ()
     runId: "800",
     runAttempt: "3",
   });
-  assert.deepEqual(spec.activeTargets, ["governance", "reserve", "ui"]);
-  for (const target of ["governance", "reserve", "ui"]) {
+  assert.deepEqual(spec.activeTargets, ["reserve", "ui"]);
+  for (const target of ["reserve", "ui"]) {
     assert.equal(
       spec.projects[target].deploymentId,
       jobs[target].handoff.candidate.deploymentId,
@@ -3785,12 +3705,7 @@ test("plan-derived state and mapping specs bind the ordinary stage handoffs", ()
     runId: "800",
     runAttempt: "3",
   });
-  assert.deepEqual(appSpec.activeTargets, [
-    "app",
-    "governance",
-    "reserve",
-    "ui",
-  ]);
+  assert.deepEqual(appSpec.activeTargets, ["app", "reserve", "ui"]);
   assert.equal(appSpec.projects.app.expectedDisposition, "githubPrebuilt");
   assert.equal(
     appSpec.projects.app.deploymentId,
@@ -3805,12 +3720,7 @@ test("plan-derived state and mapping specs bind the ordinary stage handoffs", ()
       runId: "800",
       runAttempt: "3",
     }).bindings.map(({ alias }) => alias),
-    [
-      "app.mento.org",
-      "governance.mento.org",
-      "reserve.mento.org",
-      "ui.mento.org",
-    ],
+    ["app.mento.org", "reserve.mento.org", "ui.mento.org"],
   );
 });
 
@@ -3819,7 +3729,7 @@ test("active public smoke materializer derives exact target records from the pla
     mainOwnershipMode: ownership({ reserve: MAIN_OWNERSHIP_MODES.SHADOW }),
   });
   const targetResults = Object.fromEntries(
-    ["app", "governance", "reserve", "ui"].map((target) => [
+    ["app", "reserve", "ui"].map((target) => [
       target,
       deploymentPlan.planning.activeTargets.includes(target)
         ? { runtime: runtimeSmoke(target), status: "passed", servedSha: SHA }
@@ -3853,8 +3763,8 @@ test("active public smoke materializer derives exact target records from the pla
   );
 });
 
-test("governance-only smoke materialization pipes through finalization and evidence unchanged", async () => {
-  const deploymentPlan = activePlan({ deployments: ["governance"] });
+test("reserve-only smoke materialization pipes through finalization and evidence unchanged", async () => {
+  const deploymentPlan = activePlan({ deployments: ["reserve"] });
   const harness = activeHarness({ deploymentPlan });
   assert.equal(harness.appCandidateReceipt, null);
   assert.equal(harness.inputs.candidates.app, null);
@@ -3875,9 +3785,9 @@ test("governance-only smoke materialization pipes through finalization and evide
   const publicSmokes = createMainActivePublicSmokes({
     plan: deploymentPlan,
     targetResults: Object.fromEntries(
-      ["app", "governance", "reserve", "ui"].map((target) => [
+      ["app", "reserve", "ui"].map((target) => [
         target,
-        target === "governance"
+        target === "reserve"
           ? {
               runtime: runtimeSmoke(target),
               status: "passed",
@@ -3931,7 +3841,7 @@ test("governance-only smoke materialization pipes through finalization and evide
   const boundFinalMappings = activeFinalMappings(harness);
   const finalized = reduceMainActiveTransition({
     preparedJournal: history[0],
-    activeTargets: ["governance"],
+    activeTargets: ["reserve"],
     shadowTargets: [],
     stagedCandidates: harness.inputs.stagedCandidates,
     mainOwnershipMode: harness.ownershipMap,
@@ -3994,13 +3904,12 @@ test("active controller commits exact ordered mutations and emits canonical reda
   });
   assert.equal(result.outcome, "active-committed");
   assert.equal(result.highestJournalStatus, "committed");
-  assert.equal(result.publicServingMutationCommands, 4);
+  assert.equal(result.publicServingMutationCommands, 3);
   assert.deepEqual(
     result.journal.operations
       .filter((operation) => operation.state === "verified")
       .map((operation) => [operation.type, operation.target, operation.alias]),
     [
-      ["promote", "governance", null],
       ["promote", "reserve", null],
       ["promote", "ui", null],
       // The App promote carries `app.mento.org` itself, so no bridge alias
@@ -4057,8 +3966,8 @@ test("active controller commits exact ordered mutations and emits canonical reda
   });
   assert.equal(evidence.schema, MAIN_ACTIVE_EVIDENCE_SCHEMA);
   assert.equal(evidence.journal.highestStatus, "committed");
-  assert.equal(evidence.orderedVerifiedOperations.length, 4);
-  assert.equal(evidence.finalMappings.length, 4);
+  assert.equal(evidence.orderedVerifiedOperations.length, 3);
+  assert.equal(evidence.finalMappings.length, 3);
   assert.equal(
     evidence.stateProofSummary.proofSchema,
     ACTIVE_DEPLOYMENT_STATE_PROOF_SCHEMA,
@@ -4092,16 +4001,16 @@ test("active controller commits exact ordered mutations and emits canonical reda
     Object.keys(evidence.riderAliases),
     evidence.planning.activeTargets,
   );
-  assert.deepEqual(evidence.riderAliases.governance, {
+  assert.deepEqual(evidence.riderAliases.reserve, {
     aliases: [
-      "governancementoorg-git-main-mentolabs.vercel.app",
-      "governancementoorg-mentolabs.vercel.app",
-      "governancementoorg.vercel.app",
+      "reservementoorg-git-main-mentolabs.vercel.app",
+      "reservementoorg-mentolabs.vercel.app",
+      "reservementoorg.vercel.app",
     ],
     omitted: 0,
   });
   const activeSummary = renderMainActiveDeploymentEvidence(evidence);
-  assert.match(activeSummary, /Public-serving mutation commands: `4`/);
+  assert.match(activeSummary, /Public-serving mutation commands: `3`/);
   assert.match(
     activeSummary,
     /- Rider domains moved with `app`: appmentoorg-git-main-mentolabs\.vercel\.app, appmentoorg-mentolabs\.vercel\.app, appmentoorg\.vercel\.app/,
@@ -4143,7 +4052,7 @@ test("active controller commits exact ordered mutations and emits canonical reda
   const unscopedRiders = structuredClone(evidence);
   unscopedRiders.riderAliases = {
     ...evidence.riderAliases,
-    app: { aliases: ["governance.mento.org"], omitted: 0 },
+    app: { aliases: ["reserve.mento.org"], omitted: 0 },
   };
   assert.throws(
     () =>
@@ -4236,7 +4145,7 @@ test("active controller commits exact ordered mutations and emits canonical reda
           runAttempt: "3",
         }),
         rollbackStateTargets: [],
-        publicServingMutationCommands: 4,
+        publicServingMutationCommands: 3,
         recoveryOutcome: "not-required",
         runId: "800",
         runAttempt: "3",
@@ -4246,7 +4155,7 @@ test("active controller commits exact ordered mutations and emits canonical reda
   );
 });
 
-test("production-shaped all-target terminal artifacts cover the four-operation committed journal", async () => {
+test("production-shaped all-target terminal artifacts cover the three-operation committed journal", async () => {
   const harness = activeHarness();
   const transaction = await runMainActiveTransaction({
     plan: harness.plan,
@@ -4302,7 +4211,7 @@ test("production-shaped all-target terminal artifacts cover the four-operation c
     runAttempt: "3",
   });
 
-  assert.equal(transaction.publicServingMutationCommands, 4);
+  assert.equal(transaction.publicServingMutationCommands, 3);
   assert.equal(
     productionJournalHistory.at(-1).sequence,
     productionJournalHistory.length - 1,
@@ -4312,7 +4221,6 @@ test("production-shaped all-target terminal artifacts cover the four-operation c
       .filter((operation) => operation.state === "verified")
       .map((operation) => [operation.type, operation.target, operation.alias]),
     [
-      ["promote", "governance", null],
       ["promote", "reserve", null],
       ["promote", "ui", null],
       // The App promote carries the reviewed App domain itself; the retired
@@ -4322,21 +4230,19 @@ test("production-shaped all-target terminal artifacts cover the four-operation c
   );
   assert.deepEqual(artifacts.evidence.planning.activeTargets, [
     "app",
-    "governance",
     "reserve",
     "ui",
   ]);
   assert.deepEqual(Object.keys(artifacts.evidence.publicSmokes).sort(), [
     "app",
-    "governance",
     "reserve",
     "ui",
   ]);
-  assert.equal(artifacts.evidence.orderedVerifiedOperations.length, 4);
-  assert.equal(artifacts.proofs.mutationCount, 4);
+  assert.equal(artifacts.evidence.orderedVerifiedOperations.length, 3);
+  assert.equal(artifacts.proofs.mutationCount, 3);
   // One prepared snapshot, three journals per promote, and the committed
-  // snapshot: 1 + 4 * 3 + 1.
-  assert.equal(artifacts.proofs.journal.artifact.length, 14);
+  // snapshot: 1 + 3 * 3 + 1.
+  assert.equal(artifacts.proofs.journal.artifact.length, 11);
 
   const evidenceBytes = Buffer.byteLength(
     `${JSON.stringify(artifacts.evidence)}\n`,
@@ -4375,14 +4281,13 @@ test("production-shaped all-target terminal artifacts cover the four-operation c
   assert.deepEqual(recoveryFailedArtifacts.evidence.jobs, {
     waitForCi: "success",
     plan: "success",
-    stageGovernance: "success",
     stageReserve: "success",
     stageUi: "success",
     coordinator: "failure",
     recovery: "failure",
   });
-  assert.equal(recoveryFailedArtifacts.proofs.mutationCount, 4);
-  assert.equal(recoveryFailedArtifacts.proofs.journal.artifact.length, 14);
+  assert.equal(recoveryFailedArtifacts.proofs.mutationCount, 3);
+  assert.equal(recoveryFailedArtifacts.proofs.journal.artifact.length, 11);
 
   const recoveryFailedTerminal = createMainActiveTerminalHandoff({
     activeEvidence: recoveryFailedArtifacts.evidence,
@@ -4426,7 +4331,7 @@ test("production-shaped all-target terminal artifacts cover the four-operation c
 
 test("execution-bound terminal artifacts derive committed and verified-noop proof from provider evidence and the current journal", async () => {
   const committedHarness = activeHarness({
-    deploymentPlan: activePlan({ deployments: ["governance"] }),
+    deploymentPlan: activePlan({ deployments: ["reserve"] }),
   });
   const committed = await runMainActiveTransaction({
     plan: committedHarness.plan,
@@ -4504,8 +4409,8 @@ test("execution-bound terminal artifacts derive committed and verified-noop proo
     /forbidden or missing fields|lacks complete provider proof/,
   );
   const tamperedPriorProof = structuredClone(committedTerminalStateProof);
-  tamperedPriorProof.deploymentStateProof.projects.governance.priorDeploymentId =
-    "dpl_otherGovernancePrior123";
+  tamperedPriorProof.deploymentStateProof.projects.reserve.priorDeploymentId =
+    "dpl_otherReservePrior123";
   assert.throws(
     () =>
       createMainActiveTerminalArtifacts({
@@ -4526,7 +4431,7 @@ test("execution-bound terminal artifacts derive committed and verified-noop proo
     /deployment state proof prior conflicts/,
   );
 
-  const noopPlan = activePlan({ deployments: ["governance"] });
+  const noopPlan = activePlan({ deployments: ["reserve"] });
   const noopExecution = releaseExecutionForPlan(noopPlan);
   const prepared = createPreparedMainActiveJournal({
     plan: noopPlan,
@@ -4568,7 +4473,7 @@ test("execution-bound terminal artifacts derive committed and verified-noop proo
 
   const started = startMainTransactionOperation(prepared, {
     type: "promote",
-    target: "governance",
+    target: "reserve",
   });
   assert.throws(
     () =>
@@ -4652,7 +4557,7 @@ test("execution-bound terminal artifacts derive committed and verified-noop proo
 });
 
 test("execution-bound recovered terminal artifacts prove rollback to every original prior", async () => {
-  const deploymentPlan = activePlan({ deployments: ["governance"] });
+  const deploymentPlan = activePlan({ deployments: ["reserve"] });
   const execution = releaseExecutionForPlan(deploymentPlan);
   const prepared = createPreparedMainActiveJournal({
     plan: deploymentPlan,
@@ -4663,15 +4568,13 @@ test("execution-bound recovered terminal artifacts prove rollback to every origi
   });
   const started = startMainTransactionOperation(prepared, {
     type: "promote",
-    target: "governance",
+    target: "reserve",
   });
   const currentMappings = Object.values(started.prior).flatMap((prior) =>
     prior.aliases.map((alias) =>
       mapping(
         alias,
-        alias === "governance.mento.org"
-          ? started.candidates.governance
-          : prior,
+        alias === "reserve.mento.org" ? started.candidates.reserve : prior,
       ),
     ),
   );
@@ -4729,7 +4632,7 @@ test("execution-bound recovered terminal artifacts prove rollback to every origi
   });
   assert.equal(artifacts.evidence.schema, MAIN_ACTIVE_FAILURE_EVIDENCE_SCHEMA);
   assert.equal(artifacts.evidence.recoveryOutcome, "recovered");
-  assert.deepEqual(artifacts.proofs.rollbackTargets, ["governance"]);
+  assert.deepEqual(artifacts.proofs.rollbackTargets, ["reserve"]);
   assert.equal(artifacts.proofs.journal.status, "recovered");
   assert.throws(
     () =>
@@ -4738,13 +4641,8 @@ test("execution-bound recovered terminal artifacts prove rollback to every origi
         outcome: "recovered",
         journalHistory: activeHistoryDocument(recoveredHistory),
         finalMappings: providerMappings(execution, [
-          ...priorMappings.filter(
-            ({ alias }) => alias !== "governance.mento.org",
-          ),
-          mapping(
-            "governance.mento.org",
-            recovered.journal.candidates.governance,
-          ),
+          ...priorMappings.filter(({ alias }) => alias !== "reserve.mento.org"),
+          mapping("reserve.mento.org", recovered.journal.candidates.reserve),
         ]),
         publicSmokes: priorPublicSmokes(execution),
         stateProof,
@@ -4758,7 +4656,7 @@ test("execution-bound recovered terminal artifacts prove rollback to every origi
 });
 
 test("recovered terminal preserves verified rollback evidence when final provider census is unproven", async () => {
-  const deploymentPlan = activePlan({ deployments: ["governance"] });
+  const deploymentPlan = activePlan({ deployments: ["reserve"] });
   const execution = releaseExecutionForPlan(deploymentPlan);
   const prepared = createPreparedMainActiveJournal({
     plan: deploymentPlan,
@@ -4769,7 +4667,7 @@ test("recovered terminal preserves verified rollback evidence when final provide
   });
   const started = startMainTransactionOperation(prepared, {
     type: "promote",
-    target: "governance",
+    target: "reserve",
   });
   let mappingState = "candidate";
   const recoveredHistory = [prepared, started];
@@ -4783,9 +4681,7 @@ test("recovered terminal preserves verified rollback evidence when final provide
         prior.aliases.map((alias) =>
           mapping(
             alias,
-            alias === "governance.mento.org"
-              ? started.candidates.governance
-              : prior,
+            alias === "reserve.mento.org" ? started.candidates.reserve : prior,
           ),
         ),
       ),
@@ -4831,12 +4727,10 @@ test("recovered terminal preserves verified rollback evidence when final provide
   });
   // The final provider census is unproven; the rider census is a separate
   // read with its own outcome, so a successful one is still reported.
-  assert.deepEqual(Object.keys(artifacts.evidence.riderAliases), [
-    "governance",
-  ]);
+  assert.deepEqual(Object.keys(artifacts.evidence.riderAliases), ["reserve"]);
   assert.match(
     renderMainActiveDeploymentFailureEvidence(artifacts.evidence),
-    /- Rider domains moved with `governance`: governancementoorg-git-main-mentolabs\.vercel\.app/,
+    /- Rider domains moved with `reserve`: reservementoorg-git-main-mentolabs\.vercel\.app/,
   );
   // Both reads can fail independently; a job that lost only the rider census
   // still publishes its unproven-state evidence, and says unknown.
@@ -4897,11 +4791,11 @@ test("recovered terminal preserves verified rollback evidence when final provide
 
 // Regression: a release that promoted App plus any ordinary target and then
 // recovered could not publish recovered-census-unproven evidence. The rider
-// map was keyed in promote order (governance, reserve, ui, app) while the
+// map was keyed in promote order (reserve, ui, app) while the
 // failure-evidence validator admits only the canonical target order, so
 // terminal artifact creation threw and the final job saw no coordinator
 // outcome.
-test("recovered-census-unproven evidence names riders for a full four-target recovery", async () => {
+test("recovered-census-unproven evidence names riders for a full three-target recovery", async () => {
   const deploymentPlan = activePlan();
   const execution = releaseExecutionForPlan(deploymentPlan);
   const prepared = createPreparedMainActiveJournal({
@@ -4913,7 +4807,7 @@ test("recovered-census-unproven evidence names riders for a full four-target rec
   });
   const forwardHistory = [prepared];
   let highest = prepared;
-  for (const target of ["governance", "reserve", "ui", "app"]) {
+  for (const target of ["reserve", "ui", "app"]) {
     const started = startMainTransactionOperation(highest, {
       type: "promote",
       target,
@@ -4932,7 +4826,6 @@ test("recovered-census-unproven evidence names riders for a full four-target rec
   }
   const mappingStates = {
     app: "candidate",
-    governance: "candidate",
     reserve: "candidate",
     ui: "candidate",
   };
@@ -4993,13 +4886,11 @@ test("recovered-census-unproven evidence names riders for a full four-target rec
   assert.equal(artifacts.evidence.errorCode, "RECOVERED_CENSUS_UNPROVEN");
   assert.deepEqual(Object.keys(artifacts.evidence.riderAliases), [
     "app",
-    "governance",
     "reserve",
     "ui",
   ]);
   assert.deepEqual(artifacts.proofs.rollbackTargets.toSorted(), [
     "app",
-    "governance",
     "reserve",
     "ui",
   ]);
@@ -5023,7 +4914,7 @@ test("manual terminal affected operations preserve ordinary, App, mixed, rollbac
     });
   };
 
-  const ordinaryPlan = activePlan({ deployments: ["governance"] });
+  const ordinaryPlan = activePlan({ deployments: ["reserve"] });
   const ordinaryPrepared = createPreparedMainActiveJournal({
     plan: ordinaryPlan,
     stageJobs: stageJobs(ordinaryPlan),
@@ -5034,14 +4925,14 @@ test("manual terminal affected operations preserve ordinary, App, mixed, rollbac
   const ordinaryForward = complete(
     startMainTransactionOperation(ordinaryPrepared, {
       type: "promote",
-      target: "governance",
+      target: "reserve",
     }),
     { mappingState: "candidate" },
   );
   const ordinaryRecovering = startMainTransactionRecovery(ordinaryForward);
   const ordinaryRollbackStarted = startMainTransactionOperation(
     ordinaryRecovering,
-    { type: "ordinary_rollback", target: "governance" },
+    { type: "ordinary_rollback", target: "reserve" },
   );
   const ordinaryRollbackId =
     ordinaryRollbackStarted.operations.at(-1).operationId;
@@ -5075,14 +4966,14 @@ test("manual terminal affected operations preserve ordinary, App, mixed, rollbac
       {
         operationId: "op-0001",
         type: "promote",
-        target: "governance",
+        target: "reserve",
         state: "verified",
         rollbackState: null,
       },
       {
         operationId: "op-0002",
         type: "ordinary_rollback",
-        target: "governance",
+        target: "reserve",
         state: "verified",
         rollbackState: "entered",
       },
@@ -5164,7 +5055,7 @@ test("manual terminal affected operations preserve ordinary, App, mixed, rollbac
     ],
   );
 
-  const mixedPlan = activePlan({ deployments: ["app", "governance"] });
+  const mixedPlan = activePlan({ deployments: ["app", "reserve"] });
   const mixedPrepared = createPreparedMainActiveJournal({
     plan: mixedPlan,
     stageJobs: stageJobs(mixedPlan),
@@ -5175,7 +5066,7 @@ test("manual terminal affected operations preserve ordinary, App, mixed, rollbac
   const mixedOrdinary = complete(
     startMainTransactionOperation(mixedPrepared, {
       type: "promote",
-      target: "governance",
+      target: "reserve",
     }),
     { mappingState: "candidate" },
   );
@@ -5189,7 +5080,7 @@ test("manual terminal affected operations preserve ordinary, App, mixed, rollbac
   assert.deepEqual(
     mixed.map(({ type, target }) => ({ type, target })),
     [
-      { type: "promote", target: "governance" },
+      { type: "promote", target: "reserve" },
       { type: "promote", target: "app" },
     ],
   );
@@ -5206,7 +5097,7 @@ test("manual terminal affected operations preserve ordinary, App, mixed, rollbac
 });
 
 test("manual terminal handoff binds its affected-operation set to the exact current-attempt journal", () => {
-  const deploymentPlan = activePlan({ deployments: ["governance"] });
+  const deploymentPlan = activePlan({ deployments: ["reserve"] });
   const execution = releaseExecutionForPlan(deploymentPlan);
   const prepared = createPreparedMainActiveJournal({
     plan: deploymentPlan,
@@ -5217,7 +5108,7 @@ test("manual terminal handoff binds its affected-operation set to the exact curr
   });
   const started = startMainTransactionOperation(prepared, {
     type: "promote",
-    target: "governance",
+    target: "reserve",
   });
   const recovering = startMainTransactionRecovery(started);
   const manual = finishMainTransactionRecovery(recovering, {
@@ -5251,7 +5142,7 @@ test("manual terminal handoff binds its affected-operation set to the exact curr
   assert.deepEqual(artifacts.proofs.affectedOperations, [
     {
       operationId: "op-0001",
-      target: "governance",
+      target: "reserve",
       type: "promote",
       alias: null,
       state: "started",
@@ -5278,7 +5169,7 @@ test("manual terminal handoff binds its affected-operation set to the exact curr
   );
 
   const tampered = structuredClone(artifacts.proofs);
-  tampered.affectedOperations[0].target = "reserve";
+  tampered.affectedOperations[0].target = "ui";
   assert.throws(
     () =>
       createMainActiveTerminalHandoff({
@@ -5298,7 +5189,7 @@ test("manual terminal handoff binds its affected-operation set to the exact curr
 });
 
 test("recovery-failed terminal artifacts preserve a durable journal without recovery claims", () => {
-  const deploymentPlan = activePlan({ deployments: ["governance"] });
+  const deploymentPlan = activePlan({ deployments: ["reserve"] });
   const execution = releaseExecutionForPlan(deploymentPlan);
   const prepared = createPreparedMainActiveJournal({
     plan: deploymentPlan,
@@ -5309,7 +5200,7 @@ test("recovery-failed terminal artifacts preserve a durable journal without reco
   });
   const started = startMainTransactionOperation(prepared, {
     type: "promote",
-    target: "governance",
+    target: "reserve",
   });
   const returned = recordMainTransactionCommandReturned(started, {
     operationId: started.operations.at(-1).operationId,
@@ -5372,8 +5263,7 @@ test("recovery-failed terminal artifacts preserve a durable journal without reco
       {
         waitForCi: "success",
         plan: "success",
-        stageGovernance: "success",
-        stageReserve: "skipped",
+        stageReserve: "success",
         stageUi: "skipped",
         coordinator: "failure",
         recovery: "failure",
@@ -5486,7 +5376,7 @@ test("recovery-failed terminal artifacts preserve a durable journal without reco
 // unknown. Nothing else about the outcome changes: riders are informational,
 // and the journal, proofs, and receipt keys stay exactly as they were.
 test("a failed recovery names the rider domains its census observed", () => {
-  const deploymentPlan = activePlan({ deployments: ["governance"] });
+  const deploymentPlan = activePlan({ deployments: ["reserve"] });
   const execution = releaseExecutionForPlan(deploymentPlan);
   const prepared = createPreparedMainActiveJournal({
     plan: deploymentPlan,
@@ -5497,7 +5387,7 @@ test("a failed recovery names the rider domains its census observed", () => {
   });
   const started = startMainTransactionOperation(prepared, {
     type: "promote",
-    target: "governance",
+    target: "reserve",
   });
   const inputs = {
     execution,
@@ -5525,14 +5415,12 @@ test("a failed recovery names the rider domains its census observed", () => {
     riderCensus: planningSnapshot(),
   });
   // Scoped to the targets this release promoted, never to every main target.
-  assert.deepEqual(Object.keys(withCensus.evidence.riderAliases), [
-    "governance",
-  ]);
-  assert.deepEqual(withCensus.evidence.riderAliases.governance, {
+  assert.deepEqual(Object.keys(withCensus.evidence.riderAliases), ["reserve"]);
+  assert.deepEqual(withCensus.evidence.riderAliases.reserve, {
     aliases: [
-      "governancementoorg-git-main-mentolabs.vercel.app",
-      "governancementoorg-mentolabs.vercel.app",
-      "governancementoorg.vercel.app",
+      "reservementoorg-git-main-mentolabs.vercel.app",
+      "reservementoorg-mentolabs.vercel.app",
+      "reservementoorg.vercel.app",
     ],
     omitted: 0,
   });
@@ -5541,7 +5429,7 @@ test("a failed recovery names the rider domains its census observed", () => {
   );
   assert.match(
     summary,
-    /- Rider domains moved with `governance`: governancementoorg-git-main-mentolabs\.vercel\.app, governancementoorg-mentolabs\.vercel\.app, governancementoorg\.vercel\.app/,
+    /- Rider domains moved with `reserve`: reservementoorg-git-main-mentolabs\.vercel\.app, reservementoorg-mentolabs\.vercel\.app, reservementoorg\.vercel\.app/,
   );
   assert.doesNotMatch(summary, /Rider domains moved: unknown/);
   // The census adds the rider map and changes nothing else: same outcome, same
@@ -5601,16 +5489,16 @@ test("a failed recovery names the rider domains its census observed", () => {
       createMainActiveTerminalArtifacts({
         ...inputs,
         execution: releaseExecutionForPlan(
-          activePlan({ deployments: ["governance"] }),
+          activePlan({ deployments: ["reserve"] }),
         ),
         riderCensus: {
           ...planningSnapshot(),
           states: planningSnapshot().states.filter(
-            (state) => !state.alias.startsWith("governance."),
+            (state) => !state.alias.startsWith("reserve."),
           ),
         },
       }),
-    /missing the governance served prior/,
+    /missing the reserve served prior/,
   );
 });
 
@@ -5618,7 +5506,7 @@ test("a failed recovery names the rider domains its census observed", () => {
 // a release moved is what its journal actually started, and a rider line that
 // outran the mutation count printed beside it would contradict its own report.
 test("rider evidence is scoped to the promotes a journal actually started", () => {
-  const onePlan = activePlan({ deployments: ["governance"] });
+  const onePlan = activePlan({ deployments: ["reserve"] });
   const oneExecution = releaseExecutionForPlan(onePlan);
   const onePrepared = createPreparedMainActiveJournal({
     plan: onePlan,
@@ -5658,7 +5546,7 @@ test("rider evidence is scoped to the promotes a journal actually started", () =
 
   // A multi-target plan whose journal started only a prefix names only that
   // prefix. The unstarted target is not merely empty — it has no line at all.
-  const twoPlan = activePlan({ deployments: ["governance", "reserve"] });
+  const twoPlan = activePlan({ deployments: ["reserve", "ui"] });
   const twoExecution = releaseExecutionForPlan(twoPlan);
   const twoPrepared = createPreparedMainActiveJournal({
     plan: twoPlan,
@@ -5669,7 +5557,7 @@ test("rider evidence is scoped to the promotes a journal actually started", () =
   });
   const prefixStarted = startMainTransactionOperation(twoPrepared, {
     type: "promote",
-    target: "governance",
+    target: "reserve",
   });
   const prefix = createMainActiveTerminalArtifacts({
     execution: twoExecution,
@@ -5685,17 +5573,14 @@ test("rider evidence is scoped to the promotes a journal actually started", () =
     runId: "800",
     runAttempt: "3",
   });
-  assert.deepEqual(twoExecution.projection.activeTargets, [
-    "governance",
-    "reserve",
-  ]);
+  assert.deepEqual(twoExecution.projection.activeTargets, ["reserve", "ui"]);
   assert.equal(prefix.evidence.publicServingMutationCommands, 1);
-  assert.deepEqual(Object.keys(prefix.evidence.riderAliases), ["governance"]);
+  assert.deepEqual(Object.keys(prefix.evidence.riderAliases), ["reserve"]);
   const prefixSummary = renderMainActiveDeploymentFailureEvidence(
     prefix.evidence,
   );
-  assert.match(prefixSummary, /- Rider domains moved with `governance`: /);
-  assert.doesNotMatch(prefixSummary, /Rider domains moved with `reserve`/);
+  assert.match(prefixSummary, /- Rider domains moved with `reserve`: /);
+  assert.doesNotMatch(prefixSummary, /Rider domains moved with `ui`/);
 
   // And the bound is enforced on read, so a rewritten evidence cannot smuggle
   // movement past the count that contradicts it.
@@ -5716,7 +5601,7 @@ test("rider evidence is scoped to the promotes a journal actually started", () =
 // longer account for. Whatever serves it then is operator-owned, and the
 // domains riding with it are not this release's to claim.
 test("a manual intervention never attributes an unowned deployment's domains", () => {
-  const deploymentPlan = activePlan({ deployments: ["governance"] });
+  const deploymentPlan = activePlan({ deployments: ["reserve"] });
   const execution = releaseExecutionForPlan(deploymentPlan);
   const prepared = createPreparedMainActiveJournal({
     plan: deploymentPlan,
@@ -5727,7 +5612,7 @@ test("a manual intervention never attributes an unowned deployment's domains", (
   });
   const started = startMainTransactionOperation(prepared, {
     type: "promote",
-    target: "governance",
+    target: "reserve",
   });
   const recovering = startMainTransactionRecovery(started);
   const manual = finishMainTransactionRecovery(recovering, {
@@ -5763,12 +5648,12 @@ test("a manual intervention never attributes an unowned deployment's domains", (
   // Baseline: the reviewed domain still on the prior this release captured is
   // attributable, and its riders are named.
   const owned = terminalFor(planningSnapshot());
-  assert.deepEqual(Object.keys(owned.evidence.riderAliases), ["governance"]);
-  assert.deepEqual(owned.evidence.riderAliases.governance, {
+  assert.deepEqual(Object.keys(owned.evidence.riderAliases), ["reserve"]);
+  assert.deepEqual(owned.evidence.riderAliases.reserve, {
     aliases: [
-      "governancementoorg-git-main-mentolabs.vercel.app",
-      "governancementoorg-mentolabs.vercel.app",
-      "governancementoorg.vercel.app",
+      "reservementoorg-git-main-mentolabs.vercel.app",
+      "reservementoorg-mentolabs.vercel.app",
+      "reservementoorg.vercel.app",
     ],
     omitted: 0,
   });
@@ -5779,25 +5664,25 @@ test("a manual intervention never attributes an unowned deployment's domains", (
   const unowned = planningSnapshot();
   let repointed = 0;
   for (const state of unowned.states) {
-    if (!state.alias.startsWith("governance.")) continue;
-    state.deploymentId = "dpl_governanceOperatorOwned";
-    state.deploymentUrl = "https://governance-operator-owned.vercel.app";
+    if (!state.alias.startsWith("reserve.")) continue;
+    state.deploymentId = "dpl_reserveOperatorOwned";
+    state.deploymentUrl = "https://reserve-operator-owned.vercel.app";
     state.aliases = [...state.aliases, "operator-added.mento.org"].sort();
     repointed += 1;
   }
   assert.ok(repointed > 0);
   const artifacts = terminalFor(unowned);
-  assert.deepEqual(artifacts.evidence.riderAliases, { governance: null });
+  assert.deepEqual(artifacts.evidence.riderAliases, { reserve: null });
   const summary = renderMainActiveDeploymentFailureEvidence(artifacts.evidence);
   assert.match(
     summary,
-    /- Rider domains moved with `governance`: not attributed \(deployment this release does not own\)/,
+    /- Rider domains moved with `reserve`: not attributed \(deployment this release does not own\)/,
   );
   // Nothing the operator's deployment carries leaks into the report.
   assert.doesNotMatch(summary, /operator-added\.mento\.org/);
   assert.doesNotMatch(
     JSON.stringify(artifacts.evidence),
-    /operator-added\.mento\.org|governance-operator-owned/,
+    /operator-added\.mento\.org|reserve-operator-owned/,
   );
   // A not-attributed entry still round-trips through the terminal reader.
   assert.deepEqual(
@@ -5812,7 +5697,7 @@ test("a manual intervention never attributes an unowned deployment's domains", (
 
 test("preparation failure terminal artifacts bind exact target results without provider claims", () => {
   const deploymentPlan = activePlan({
-    deployments: ["governance", "reserve"],
+    deployments: ["reserve", "ui"],
   });
   const execution = releaseExecutionForPlan(deploymentPlan);
   const stageResults = {
@@ -5822,9 +5707,8 @@ test("preparation failure terminal artifacts bind exact target results without p
     runAttempt: "3",
     results: {
       app: "skipped",
-      governance: "failure",
-      reserve: "success",
-      ui: "skipped",
+      reserve: "failure",
+      ui: "success",
     },
     coordinatorResult: "success",
   };
@@ -5886,33 +5770,30 @@ test("preparation failure terminal artifacts bind exact target results without p
   for (const scenario of [
     {
       name: "coordinator failure after an ordinary stage succeeds",
-      deployments: ["governance"],
+      deployments: ["reserve"],
       results: {
         app: "skipped",
-        governance: "success",
-        reserve: "skipped",
+        reserve: "success",
         ui: "skipped",
       },
       coordinatorResult: "failure",
     },
     {
       name: "selected ordinary stage cancelled",
-      deployments: ["governance"],
+      deployments: ["reserve"],
       results: {
         app: "skipped",
-        governance: "cancelled",
-        reserve: "skipped",
+        reserve: "cancelled",
         ui: "skipped",
       },
       coordinatorResult: "skipped",
     },
     {
       name: "coordinator skipped after selected ordinary stage succeeds",
-      deployments: ["governance"],
+      deployments: ["reserve"],
       results: {
         app: "skipped",
-        governance: "success",
-        reserve: "skipped",
+        reserve: "success",
         ui: "skipped",
       },
       coordinatorResult: "skipped",
@@ -5956,21 +5837,21 @@ test("preparation failure terminal artifacts bind exact target results without p
     [
       "selected skipped",
       (value) => {
-        value.results.governance = "skipped";
+        value.results.reserve = "skipped";
       },
       /do not prove a pre-journal failure/,
     ],
     [
       "no selected failure",
       (value) => {
-        value.results.governance = "success";
+        value.results.reserve = "success";
       },
       /do not prove a pre-journal failure/,
     ],
     [
       "unselected success",
       (value) => {
-        value.results.ui = "success";
+        value.results.app = "success";
       },
       /Unselected terminal preparation must be skipped/,
     ],
@@ -6011,7 +5892,7 @@ test("preparation failure terminal artifacts bind exact target results without p
     );
   }
   const appSelectedPlan = activePlan({
-    deployments: ["app", "governance"],
+    deployments: ["app", "reserve"],
   });
   const appSelectedExecution = releaseExecutionForPlan(appSelectedPlan);
   assert.throws(
@@ -6032,8 +5913,7 @@ test("preparation failure terminal artifacts bind exact target results without p
           runAttempt: "3",
           results: {
             app: "skipped",
-            governance: "success",
-            reserve: "skipped",
+            reserve: "success",
             ui: "skipped",
           },
           coordinatorResult: "success",
@@ -6085,7 +5965,6 @@ test("terminal evidence restore renders preparation failure evidence", async () 
         runAttempt: "3",
         results: {
           app: "skipped",
-          governance: "failure",
           reserve: "failure",
           ui: "failure",
         },
@@ -6149,7 +6028,7 @@ test("terminal evidence restore renders preparation failure evidence", async () 
       summary,
       /^### Vercel main active preparation failure evidence/m,
     );
-    assert.match(summary, /`governance:failure`/);
+    assert.match(summary, /`reserve:failure`/);
     assert.match(summary, /Public-serving mutation commands: `0`/);
     assert.doesNotMatch(summary, /active deployment failure evidence/);
   } finally {
@@ -6310,8 +6189,12 @@ test("terminal evidence CLI creates a bounded receipt and restores committed evi
     );
     const maximalHistoryJson = `${JSON.stringify(maximalHistoryDocument)}\n`;
     const maximalHistoryBytes = Buffer.byteLength(maximalHistoryJson, "utf8");
+    // Re-pinned for the three-slot topology: retiring Governance (ADR 0017)
+    // removed one promote and one rollback slot, so the maximal history now
+    // fits under the 256 KiB default JSON cap. The dedicated 1 MiB history
+    // budget stays as headroom; this floor catches any further shrinkage.
     assert.ok(
-      maximalHistoryBytes > 256 * 1024,
+      maximalHistoryBytes > 180 * 1024,
       `maximal journal history unexpectedly uses only ${maximalHistoryBytes} bytes`,
     );
     assert.ok(
@@ -6342,16 +6225,13 @@ test("terminal evidence CLI creates a bounded receipt and restores committed evi
     });
     const maximalProofJson = `${JSON.stringify(maximalRecoveryArtifacts.proofs)}\n`;
     const maximalProofBytes = Buffer.byteLength(maximalProofJson, "utf8");
-    // The load-bearing claim is unchanged: the maximal recovery case still
-    // exceeds the 256 KiB default JSON cap, so the 1 MiB proofs budget is
-    // required. Re-pinned for the four-slot topology — MGP-18 retired the
-    // bridge alias-restore slot, which shrank the maximal journal.
+    // Re-pinned for the three-slot topology. MGP-18 retired the bridge
+    // alias-restore slot and ADR 0017 retired the Governance slots, so the
+    // maximal recovery proofs now fit under the 256 KiB default JSON cap. The
+    // dedicated 1 MiB proofs budget stays as headroom; this floor catches any
+    // further shrinkage.
     assert.ok(
-      maximalProofBytes > 256 * 1024,
-      `maximal recovery proofs unexpectedly use only ${maximalProofBytes} bytes`,
-    );
-    assert.ok(
-      maximalProofBytes > 320 * 1024,
+      maximalProofBytes > 190 * 1024,
       `maximal recovery proofs unexpectedly use only ${maximalProofBytes} bytes`,
     );
     assert.ok(
@@ -6745,16 +6625,16 @@ test("terminal evidence preserves every safe-noop outcome", () => {
     },
     {
       reason: "superseded-before-journal",
-      deploymentPlan: activePlan({ deployments: ["governance"] }),
+      deploymentPlan: activePlan({ deployments: ["reserve"] }),
       coordinatorOutcome: "superseded-before-journal",
       statuses: ["superseded", "superseded", "superseded", "not-required"],
     },
     {
       reason: "shadow-prepared",
       deploymentPlan: activePlan({
-        deployments: ["governance"],
+        deployments: ["reserve"],
         mainOwnershipMode: ownership({
-          governance: MAIN_OWNERSHIP_MODES.SHADOW,
+          reserve: MAIN_OWNERSHIP_MODES.SHADOW,
         }),
       }),
       coordinatorOutcome: "shadow-prepared",
@@ -6792,7 +6672,7 @@ test("terminal evidence preserves every safe-noop outcome", () => {
     const unchangedPublicSmokes = createMainActivePublicSmokes({
       plan: deploymentPlan,
       targetResults: Object.fromEntries(
-        ["app", "governance", "reserve", "ui"].map((target) => [
+        ["app", "reserve", "ui"].map((target) => [
           target,
           deploymentPlan.planning.activeTargets.includes(target)
             ? {
@@ -6895,7 +6775,7 @@ test("terminal evidence preserves every safe-noop outcome", () => {
 });
 
 test("terminal failure validation preserves manual-intervention journal semantics", () => {
-  const deploymentPlan = activePlan({ deployments: ["governance"] });
+  const deploymentPlan = activePlan({ deployments: ["reserve"] });
   const execution = releaseExecutionForPlan(deploymentPlan);
   const prepared = createPreparedMainActiveJournal({
     plan: deploymentPlan,
@@ -6906,7 +6786,7 @@ test("terminal failure validation preserves manual-intervention journal semantic
   });
   const started = startMainTransactionOperation(prepared, {
     type: "promote",
-    target: "governance",
+    target: "reserve",
   });
   const evidence = createMainActiveDeploymentFailureEvidence({
     eventHeadSha: SHA,
@@ -6920,7 +6800,7 @@ test("terminal failure validation preserves manual-intervention journal semantic
     mainOwnershipMode: deploymentPlan.planning.mainOwnershipMode,
     journalHistory: [prepared, started],
     freshness: [{ phase: "pre-command", status: "unproven" }],
-    rollbackStateTargets: ["governance"],
+    rollbackStateTargets: ["reserve"],
     publicServingMutationCommands: 1,
     coordinatorOutcome: "active-failed",
     recoveryOutcome: "manual-intervention",
@@ -6939,7 +6819,7 @@ test("terminal failure validation preserves manual-intervention journal semantic
 });
 
 test("terminal evidence wraps and restores verified-noop failure evidence", () => {
-  const deploymentPlan = activePlan({ deployments: ["governance"] });
+  const deploymentPlan = activePlan({ deployments: ["reserve"] });
   const execution = releaseExecutionForPlan(deploymentPlan);
   const manifest = execution.manifest;
   const prepared = createPreparedMainActiveJournal({
@@ -6960,13 +6840,13 @@ test("terminal evidence wraps and restores verified-noop failure evidence", () =
     runAttempt: "3",
   });
   const publicSmokes = Object.fromEntries(
-    ["app", "governance", "reserve", "ui"].map((target) => [
+    ["app", "reserve", "ui"].map((target) => [
       target,
       {
         publicUrl: `https://${target}.mento.org/`,
-        runtime: target === "governance" ? runtimeSmoke(target, SHA) : null,
-        servedSha: target === "governance" ? SHA : null,
-        status: target === "governance" ? "passed" : "not-run",
+        runtime: target === "reserve" ? runtimeSmoke(target, SHA) : null,
+        servedSha: target === "reserve" ? SHA : null,
+        status: target === "reserve" ? "passed" : "not-run",
       },
     ]),
   );
@@ -7057,7 +6937,7 @@ test("active App activation is a single ordinary promote and no bridge alias ope
     adapters: clean.adapters,
   });
   assert.equal(result.outcome, "active-committed");
-  assert.equal(result.publicServingMutationCommands, 4);
+  assert.equal(result.publicServingMutationCommands, 3);
   // Exactly one verified App operation, and it is an ordinary promote.
   assert.deepEqual(
     result.journal.operations
@@ -7103,7 +6983,7 @@ test("active App activation is a single ordinary promote and no bridge alias ope
 test("active controller keeps mixed shadow targets out of public mutation and evidence", async () => {
   const harness = activeHarness({
     ownershipMap: ownership({
-      governance: MAIN_OWNERSHIP_MODES.SHADOW,
+      reserve: MAIN_OWNERSHIP_MODES.SHADOW,
     }),
   });
   const result = await runMainActiveTransaction({
@@ -7115,23 +6995,23 @@ test("active controller keeps mixed shadow targets out of public mutation and ev
     journalHistory: [],
     adapters: harness.adapters,
   });
-  assert.deepEqual(result.shadowTargets, ["governance"]);
-  // Reserve + UI + App promotes. The App contributes exactly one command like
-  // every other target now that the bridge alias set is retired.
-  assert.equal(result.publicServingMutationCommands, 3);
+  assert.deepEqual(result.shadowTargets, ["reserve"]);
+  // UI + App promotes. The App contributes exactly one command like every
+  // other target now that the bridge alias set is retired.
+  assert.equal(result.publicServingMutationCommands, 2);
   assert.equal(
     result.journal.operations.some(
       (operation) =>
-        operation.type === "promote" && operation.target === "governance",
+        operation.type === "promote" && operation.target === "reserve",
     ),
     false,
   );
   assert.deepEqual(
-    harness.mappings.get("governance.mento.org"),
-    mapping("governance.mento.org", harness.inputs.prior.governance),
+    harness.mappings.get("reserve.mento.org"),
+    mapping("reserve.mento.org", harness.inputs.prior.reserve),
   );
-  assert.deepEqual(activePublicSmokes(result).governance, {
-    publicUrl: "https://governance.mento.org/",
+  assert.deepEqual(activePublicSmokes(result).reserve, {
+    publicUrl: "https://reserve.mento.org/",
     runtime: null,
     servedSha: null,
     status: "not-required",
@@ -7275,11 +7155,6 @@ test("active canonical mappings bind canonical active and current captures", asy
     bindings: [
       { alias: "app.mento.org", projectId: "prj_app123", target: "app" },
       {
-        alias: "governance.mento.org",
-        projectId: "prj_governance123",
-        target: "governance",
-      },
-      {
         alias: "reserve.mento.org",
         projectId: "prj_reserve123",
         target: "reserve",
@@ -7294,11 +7169,6 @@ test("active canonical mappings bind canonical active and current captures", asy
         alias: "app.mento.org",
         projectId: "prj_app456",
         target: "app",
-      },
-      {
-        alias: "governance.mento.org",
-        projectId: "prj_governance456",
-        target: "governance",
       },
       {
         alias: "reserve.mento.org",
@@ -7319,9 +7189,8 @@ test("active canonical mappings bind canonical active and current captures", asy
   const expectedActive = {
     schema: "vercel-main-canonical-mappings:v1",
     mappings: {
-      governance: [activeMappings[1]],
-      reserve: [activeMappings[2]],
-      ui: [activeMappings[3]],
+      reserve: [activeMappings[1]],
+      ui: [activeMappings[2]],
       app: [activeMappings[0]],
     },
   };
@@ -7340,9 +7209,8 @@ test("active canonical mappings bind canonical active and current captures", asy
     {
       schema: "vercel-main-canonical-mappings:v1",
       mappings: {
-        governance: [currentMappings[1]],
-        reserve: [currentMappings[2]],
-        ui: [currentMappings[3]],
+        reserve: [currentMappings[1]],
+        ui: [currentMappings[2]],
         app: [currentMappings[0]],
       },
     },
@@ -7414,7 +7282,7 @@ test("active canonical mappings bind canonical active and current captures", asy
         ...activeSpec,
         bindings: [
           activeSpec.bindings[0],
-          { ...activeSpec.bindings[0], target: "governance" },
+          { ...activeSpec.bindings[0], target: "reserve" },
           ...activeSpec.bindings.slice(2),
         ],
       },
@@ -7470,14 +7338,13 @@ test("active canonical mappings bind canonical active and current captures", asy
 });
 
 test("active and current-release mapping-spec producers bind terminal captures", () => {
-  const deploymentPlan = activePlan({ deployments: ["governance"] });
+  const deploymentPlan = activePlan({ deployments: ["reserve"] });
   const activeExecution = releaseExecutionForPlan(deploymentPlan);
   const activeBarrier = createMainStageBarrier({
     execution: activeExecution,
     candidateReceipts: {
       app: null,
-      governance: currentCandidateReceipt(activeExecution, "governance"),
-      reserve: null,
+      reserve: currentCandidateReceipt(activeExecution, "reserve"),
       ui: null,
     },
     runId: "800",
@@ -7501,8 +7368,7 @@ test("active and current-release mapping-spec producers bind terminal captures",
     execution: currentExecution,
     candidateReceipts: {
       app: null,
-      governance: currentCandidateReceipt(currentExecution, "governance"),
-      reserve: null,
+      reserve: currentCandidateReceipt(currentExecution, "reserve"),
       ui: null,
     },
     runId: "800",
@@ -7533,7 +7399,7 @@ test("active and current-release mapping-spec producers bind terminal captures",
     assert.equal(spec.schema, ACTIVE_ALIAS_MAPPING_SPEC_SCHEMA, name);
     assert.deepEqual(
       new Set(spec.bindings.map(({ target }) => target)),
-      new Set(["governance", "reserve", "ui", "app"]),
+      new Set(["reserve", "ui", "app"]),
       name,
     );
     const rawMappings = spec.bindings.map((binding, index) => ({
@@ -7548,7 +7414,7 @@ test("active and current-release mapping-spec producers bind terminal captures",
     assert.deepEqual(canonical, {
       schema: "vercel-main-canonical-mappings:v1",
       mappings: Object.fromEntries(
-        ["governance", "reserve", "ui", "app"].map((target) => [
+        ["reserve", "ui", "app"].map((target) => [
           target,
           spec.bindings
             .map((binding, index) => ({ binding, mapping: rawMappings[index] }))
@@ -7576,7 +7442,7 @@ test("active and current-release mapping-spec producers bind terminal captures",
 });
 
 test("active recovery planning and execution hand off exact reverse mutations and stay release-failing", async () => {
-  const deploymentPlan = activePlan({ deployments: ["governance"] });
+  const deploymentPlan = activePlan({ deployments: ["reserve"] });
   const prepared = createPreparedMainActiveJournal({
     plan: deploymentPlan,
     stageJobs: stageJobs(deploymentPlan),
@@ -7586,16 +7452,14 @@ test("active recovery planning and execution hand off exact reverse mutations an
   });
   const started = startMainTransactionOperation(prepared, {
     type: "promote",
-    target: "governance",
+    target: "reserve",
   });
   let mappingState = "candidate";
   const currentMappings = Object.values(started.prior).flatMap((record) =>
     record.aliases.map((alias) =>
       mapping(
         alias,
-        alias === "governance.mento.org"
-          ? started.candidates.governance
-          : record,
+        alias === "reserve.mento.org" ? started.candidates.reserve : record,
       ),
     ),
   );
@@ -7625,7 +7489,7 @@ test("active recovery planning and execution hand off exact reverse mutations an
     /forbidden or missing fields/,
   );
   assert.equal(recoveryPlan.decision, "recover");
-  assert.deepEqual(recoveryPlan.rollbackStateTargets, ["governance"]);
+  assert.deepEqual(recoveryPlan.rollbackStateTargets, ["reserve"]);
   assert.equal(recoveryPlan.forceFailure, true);
   const mappingSpec = createMainActiveRecoveryMappingSpec({
     journalHistory: activeHistoryDocument([prepared, started]),
@@ -7668,7 +7532,6 @@ test("active recovery planning and execution hand off exact reverse mutations an
     runAttempt: "3",
   });
   assert.deepEqual(Object.keys(canonicalMappings.mappings), [
-    "governance",
     "reserve",
     "ui",
     "app",
@@ -7767,7 +7630,7 @@ test("active recovery planning and execution hand off exact reverse mutations an
     /identity/,
   );
   // MGP-18 retired the legacy App deployment. A journal that re-introduces its
-  // prior no longer matches the reviewed four-target shape.
+  // prior no longer matches the reviewed three-target shape.
   const retiredLegacyPrior = structuredClone(prepared);
   retiredLegacyPrior.prior["legacy-app"] = {
     deploymentId: "dpl_legacyPrior123",
@@ -7833,11 +7696,11 @@ test("active recovery planning and execution hand off exact reverse mutations an
     "vercel-active-deployment-state-spec:v3",
   );
   assert.equal(recoveryStateSpec.transactionId, started.transactionId);
-  assert.deepEqual(recoveryStateSpec.activeTargets, ["governance"]);
+  assert.deepEqual(recoveryStateSpec.activeTargets, ["reserve"]);
   assert.deepEqual(recoveryStateSpec.shadowTargets, []);
   assert.equal(
-    recoveryStateSpec.projects.governance.deploymentId,
-    started.candidates.governance.deploymentId,
+    recoveryStateSpec.projects.reserve.deploymentId,
+    started.candidates.reserve.deploymentId,
   );
   assert.equal(Object.hasOwn(recoveryStateSpec, "legacyAppV2"), false);
   const recoveryProof = activeStateProof({ spec: recoveryStateSpec });
@@ -7887,11 +7750,11 @@ test("active recovery planning and execution hand off exact reverse mutations an
 // cannot name.
 test("active recovery terminal evidence is constructible for a mixed shadow release", async () => {
   const deploymentPlan = activePlan({
-    deployments: ["app", "governance"],
+    deployments: ["app", "reserve"],
     mainOwnershipMode: ownership({ app: MAIN_OWNERSHIP_MODES.SHADOW }),
   });
   const execution = releaseExecutionForPlan(deploymentPlan);
-  assert.deepEqual(execution.projection.activeTargets, ["governance"]);
+  assert.deepEqual(execution.projection.activeTargets, ["reserve"]);
   assert.deepEqual(execution.projection.shadowTargets, ["app"]);
 
   const prepared = createPreparedMainActiveJournal({
@@ -7904,15 +7767,13 @@ test("active recovery terminal evidence is constructible for a mixed shadow rele
   assert.equal(prepared.candidates.app, null);
   const started = startMainTransactionOperation(prepared, {
     type: "promote",
-    target: "governance",
+    target: "reserve",
   });
   const currentMappings = Object.values(started.prior).flatMap((prior) =>
     prior.aliases.map((alias) =>
       mapping(
         alias,
-        alias === "governance.mento.org"
-          ? started.candidates.governance
-          : prior,
+        alias === "reserve.mento.org" ? started.candidates.reserve : prior,
       ),
     ),
   );
@@ -7953,12 +7814,12 @@ test("active recovery terminal evidence is constructible for a mixed shadow rele
     runId: "800",
     runAttempt: "3",
   });
-  assert.deepEqual(spec.activeTargets, ["governance"]);
+  assert.deepEqual(spec.activeTargets, ["reserve"]);
   assert.deepEqual(spec.shadowTargets, ["app"]);
-  assert.equal(spec.projects.governance.expectedDisposition, "githubPrebuilt");
+  assert.equal(spec.projects.reserve.expectedDisposition, "githubPrebuilt");
   assert.equal(
-    spec.projects.governance.deploymentId,
-    started.candidates.governance.deploymentId,
+    spec.projects.reserve.deploymentId,
+    started.candidates.reserve.deploymentId,
   );
   // Recovery cannot bind the shadow App stage, so it claims nothing about it.
   assert.equal(spec.projects.app.expectedDisposition, null);
@@ -7997,7 +7858,7 @@ test("active recovery terminal evidence is constructible for a mixed shadow rele
 });
 
 test("active recovery terminal evidence handles unstarted and unresolved App candidates", async () => {
-  const deploymentPlan = activePlan({ deployments: ["app", "governance"] });
+  const deploymentPlan = activePlan({ deployments: ["app", "reserve"] });
   const prepared = createPreparedMainActiveJournal({
     plan: deploymentPlan,
     stageJobs: stageJobs(deploymentPlan),
@@ -8007,15 +7868,13 @@ test("active recovery terminal evidence handles unstarted and unresolved App can
   });
   const started = startMainTransactionOperation(prepared, {
     type: "promote",
-    target: "governance",
+    target: "reserve",
   });
   const currentMappings = Object.values(started.prior).flatMap((prior) =>
     prior.aliases.map((alias) =>
       mapping(
         alias,
-        alias === "governance.mento.org"
-          ? started.candidates.governance
-          : prior,
+        alias === "reserve.mento.org" ? started.candidates.reserve : prior,
       ),
     ),
   );
@@ -8155,15 +8014,15 @@ test("active recovery terminal evidence handles unstarted and unresolved App can
     /not proven/,
   );
 
-  const governanceReturned = recordMainTransactionCommandReturned(started, {
+  const reserveReturned = recordMainTransactionCommandReturned(started, {
     operationId: started.operations.at(-1).operationId,
     outcome: "success",
   });
-  const governanceVerified = recordMainTransactionVerified(governanceReturned, {
+  const reserveVerified = recordMainTransactionVerified(reserveReturned, {
     operationId: started.operations.at(-1).operationId,
     mappingState: "candidate",
   });
-  const appDeployStarted = startMainTransactionOperation(governanceVerified, {
+  const appDeployStarted = startMainTransactionOperation(reserveVerified, {
     type: "promote",
     target: "app",
   });
@@ -8174,8 +8033,8 @@ test("active recovery terminal evidence handles unstarted and unresolved App can
   const manualHistory = activeHistoryDocument([
     prepared,
     started,
-    governanceReturned,
-    governanceVerified,
+    reserveReturned,
+    reserveVerified,
     appDeployStarted,
     manualRecovering,
     manualTerminal,
@@ -8257,8 +8116,8 @@ test("active recovery terminal evidence handles unstarted and unresolved App can
       journalHistory: activeHistoryDocument([
         prepared,
         started,
-        governanceReturned,
-        governanceVerified,
+        reserveReturned,
+        reserveVerified,
         appDeployStarted,
         unsafeRecovering,
         unsafeRecovered,
@@ -8277,8 +8136,8 @@ test("active recovery terminal evidence handles unstarted and unresolved App can
         journalHistory: activeHistoryDocument([
           prepared,
           started,
-          governanceReturned,
-          governanceVerified,
+          reserveReturned,
+          reserveVerified,
           appDeployStarted,
           unsafeRecovering,
           strippedAppCandidate,
@@ -8302,7 +8161,7 @@ test("unknown App controller recovery produces fail-closed terminal evidence aft
   });
   const forwardHistory = [prepared];
   let highest = prepared;
-  for (const target of ["governance", "reserve", "ui"]) {
+  for (const target of ["reserve", "ui"]) {
     const started = startMainTransactionOperation(highest, {
       type: "promote",
       target,
@@ -8342,7 +8201,6 @@ test("unknown App controller recovery produces fail-closed terminal evidence aft
   };
   const mappingStates = {
     app: "unexpected",
-    governance: "candidate",
     reserve: "candidate",
     ui: "candidate",
   };
@@ -8393,8 +8251,8 @@ test("unknown App controller recovery produces fail-closed terminal evidence aft
   });
   assert.equal(result.outcome, "manual-intervention");
   assert.equal(result.journal.status, "manual_intervention");
-  assert.equal(result.publicServingMutationCommands, 3);
-  assert.deepEqual(rollbackOrder, ["ui", "reserve", "governance"]);
+  assert.equal(result.publicServingMutationCommands, 2);
+  assert.deepEqual(rollbackOrder, ["ui", "reserve"]);
 
   const history = activeHistoryDocument([
     ...forwardHistory,
@@ -8432,11 +8290,7 @@ test("unknown App controller recovery produces fail-closed terminal evidence aft
   });
   assert.equal(artifacts.evidence.recoveryOutcome, "manual-intervention");
   assert.equal(artifacts.proofs.outcome, "manual-intervention");
-  assert.deepEqual(artifacts.proofs.rollbackTargets, [
-    "governance",
-    "reserve",
-    "ui",
-  ]);
+  assert.deepEqual(artifacts.proofs.rollbackTargets, ["reserve", "ui"]);
   assert.equal(
     artifacts.proofs.stateProof.artifact.projects.app.expectedDisposition,
     "githubPrebuilt",
@@ -8444,17 +8298,15 @@ test("unknown App controller recovery produces fail-closed terminal evidence aft
 });
 
 test("active recovery public-smoke materializer accepts only exact runtime results", async () => {
-  const deploymentPlan = activePlan({ deployments: ["governance"] });
+  const deploymentPlan = activePlan({ deployments: ["reserve"] });
   const execution = releaseExecutionForPlan(deploymentPlan);
   const finalPaths = {
     app: "https://app.mento.org/pools",
-    governance: "https://governance.mento.org/voting-power",
     reserve: "https://reserve.mento.org/?tab=stablecoins",
     ui: "https://ui.mento.org/form-components",
   };
   const interactions = {
     app: "real-production-wallet-list",
-    governance: "governance-voting-power-navigation",
     reserve: "reserve-overview-data-and-supply-tab",
     ui: "ui-search-navigation-and-checkbox",
   };
@@ -8478,31 +8330,31 @@ test("active recovery public-smoke materializer accepts only exact runtime resul
     execution,
     targetResults: runtimeResults,
   });
-  assert.deepEqual(smokes.governance, {
-    publicUrl: "https://governance.mento.org/",
-    runtime: runtimeResults.governance,
-    servedSha: execution.manifest.originalPriors.governance.servedSha,
+  assert.deepEqual(smokes.reserve, {
+    publicUrl: "https://reserve.mento.org/",
+    runtime: runtimeResults.reserve,
+    servedSha: execution.manifest.originalPriors.reserve.servedSha,
     status: "passed",
   });
   for (const [name, mutate, pattern] of [
     [
       "tampered served SHA",
       (value) => {
-        value.governance.deploy_sha = OTHER_SHA;
+        value.reserve.deploy_sha = OTHER_SHA;
       },
-      /governance active recovery runtime smoke conflicts/,
+      /reserve active recovery runtime smoke conflicts/,
     ],
     [
       "cross-target runtime result",
       (value) => {
-        value.governance.logical_target = "reserve";
+        value.reserve.logical_target = "ui";
       },
-      /governance active recovery runtime smoke conflicts/,
+      /reserve active recovery runtime smoke conflicts/,
     ],
     [
       "missing runtime field",
       (value) => {
-        delete value.governance.final_url;
+        delete value.reserve.final_url;
       },
       /forbidden or missing fields/,
     ],
@@ -8535,8 +8387,6 @@ test("active recovery public-smoke materializer accepts only exact runtime resul
         join(directory, "execution.json"),
         "--app",
         join(directory, "app.json"),
-        "--governance",
-        join(directory, "governance.json"),
         "--reserve",
         join(directory, "reserve.json"),
         "--ui",
@@ -8556,13 +8406,12 @@ test("current state specs normalize a full release into active-state target orde
   const deploymentPlan = activePlan();
   const execution = releaseExecutionForPlan(deploymentPlan);
   assert.deepEqual(execution.projection.stagedTargets, [
-    "governance",
     "reserve",
     "ui",
     "app",
   ]);
   const candidateReceipts = Object.fromEntries(
-    ["app", "governance", "reserve", "ui"].map((target) => [
+    ["app", "reserve", "ui"].map((target) => [
       target,
       currentCandidateReceipt(execution, target),
     ]),
@@ -8587,12 +8436,7 @@ test("current state specs normalize a full release into active-state target orde
     runId: "800",
     runAttempt: "3",
   });
-  assert.deepEqual(activeSpec.stagedTargets, [
-    "app",
-    "governance",
-    "reserve",
-    "ui",
-  ]);
+  assert.deepEqual(activeSpec.stagedTargets, ["app", "reserve", "ui"]);
   assert.deepEqual(activeSpec.activeTargets, activeSpec.stagedTargets);
   assert.deepEqual(activeSpec.shadowTargets, []);
 
@@ -8604,7 +8448,7 @@ test("current state specs normalize a full release into active-state target orde
   const verifiedBarrier = createMainStageBarrier({
     execution: verifiedExecution,
     candidateReceipts: Object.fromEntries(
-      ["app", "governance", "reserve", "ui"].map((target) => [
+      ["app", "reserve", "ui"].map((target) => [
         target,
         currentCandidateReceipt(verifiedExecution, target),
       ]),
@@ -8624,13 +8468,12 @@ test("current state specs normalize a full release into active-state target orde
 });
 
 test("current state specs normalize a mixed App and ordinary release", () => {
-  const deploymentPlan = activePlan({ deployments: ["app", "governance"] });
+  const deploymentPlan = activePlan({ deployments: ["app", "reserve"] });
   const execution = releaseExecutionForPlan(deploymentPlan);
-  assert.deepEqual(execution.projection.stagedTargets, ["governance", "app"]);
+  assert.deepEqual(execution.projection.stagedTargets, ["reserve", "app"]);
   const candidateReceipts = {
     app: currentCandidateReceipt(execution, "app"),
-    governance: currentCandidateReceipt(execution, "governance"),
-    reserve: null,
+    reserve: currentCandidateReceipt(execution, "reserve"),
     ui: null,
   };
   const barrier = createMainStageBarrier({
@@ -8654,8 +8497,8 @@ test("current state specs normalize a mixed App and ordinary release", () => {
     runId: "800",
     runAttempt: "3",
   });
-  assert.deepEqual(activeSpec.stagedTargets, ["app", "governance"]);
-  assert.deepEqual(activeSpec.activeTargets, ["app", "governance"]);
+  assert.deepEqual(activeSpec.stagedTargets, ["app", "reserve"]);
+  assert.deepEqual(activeSpec.activeTargets, ["app", "reserve"]);
   assert.deepEqual(activeSpec.shadowTargets, []);
 
   const verifiedExecution = createMainReleaseExecution({
@@ -8669,8 +8512,7 @@ test("current state specs normalize a mixed App and ordinary release", () => {
       execution: verifiedExecution,
       candidateReceipts: {
         app: currentCandidateReceipt(verifiedExecution, "app"),
-        governance: currentCandidateReceipt(verifiedExecution, "governance"),
-        reserve: null,
+        reserve: currentCandidateReceipt(verifiedExecution, "reserve"),
         ui: null,
       },
       runId: "800",
@@ -8685,7 +8527,7 @@ test("current state specs normalize a mixed App and ordinary release", () => {
 });
 
 test("current release verification is journal-free and binds its barrier candidates", () => {
-  const deploymentPlan = activePlan({ deployments: ["governance"] });
+  const deploymentPlan = activePlan({ deployments: ["reserve"] });
   const base = releaseExecutionForPlan(deploymentPlan);
   const execution = createMainReleaseExecution({
     decision: "verify-existing-release",
@@ -8698,8 +8540,7 @@ test("current release verification is journal-free and binds its barrier candida
     execution,
     candidateReceipts: {
       app: null,
-      governance: currentCandidateReceipt(execution, "governance"),
-      reserve: null,
+      reserve: currentCandidateReceipt(execution, "reserve"),
       ui: null,
     },
     runId: "800",
@@ -8733,7 +8574,7 @@ test("current release verification is journal-free and binds its barrier candida
     runAttempt: "3",
   });
   assert.equal(
-    aliases.bindings.some(({ alias }) => alias === "governance.mento.org"),
+    aliases.bindings.some(({ alias }) => alias === "reserve.mento.org"),
     true,
   );
   const mappings = Object.values(execution.manifest.originalPriors).flatMap(
@@ -8741,12 +8582,12 @@ test("current release verification is journal-free and binds its barrier candida
       prior.aliases.map((alias) =>
         mapping(
           alias,
-          prior === execution.manifest.originalPriors.governance
+          prior === execution.manifest.originalPriors.reserve
             ? {
                 deploymentId:
-                  rawStateProof.projects.governance.expectedDeploymentId,
+                  rawStateProof.projects.reserve.expectedDeploymentId,
                 deploymentUrl:
-                  rawStateProof.projects.governance.expectedDeploymentUrl,
+                  rawStateProof.projects.reserve.expectedDeploymentUrl,
               }
             : prior,
         ),
@@ -8757,8 +8598,7 @@ test("current release verification is journal-free and binds its barrier candida
     barrier,
     targetResults: {
       app: null,
-      governance: runtimeSmoke("governance"),
-      reserve: null,
+      reserve: runtimeSmoke("reserve"),
       ui: null,
     },
     runId: "800",
@@ -8790,8 +8630,8 @@ test("current release verification is journal-free and binds its barrier candida
           ...rawStateProof,
           projects: {
             ...rawStateProof.projects,
-            governance: {
-              ...rawStateProof.projects.governance,
+            reserve: {
+              ...rawStateProof.projects.reserve,
               expectedDeploymentId: "dpl_forged123",
             },
           },
@@ -8804,14 +8644,13 @@ test("current release verification is journal-free and binds its barrier candida
 });
 
 test("current active public-smoke materializer binds each active runtime result", async () => {
-  const deploymentPlan = activePlan({ deployments: ["governance"] });
+  const deploymentPlan = activePlan({ deployments: ["reserve"] });
   const execution = releaseExecutionForPlan(deploymentPlan);
   const barrier = createMainStageBarrier({
     execution,
     candidateReceipts: {
       app: null,
-      governance: currentCandidateReceipt(execution, "governance"),
-      reserve: null,
+      reserve: currentCandidateReceipt(execution, "reserve"),
       ui: null,
     },
     runId: "800",
@@ -8819,18 +8658,17 @@ test("current active public-smoke materializer binds each active runtime result"
   });
   const runtimeResults = {
     app: null,
-    governance: {
+    reserve: {
       deploy_sha: execution.manifest.deploySha,
-      final_url: "https://governance.mento.org/voting-power",
-      interaction: "governance-voting-power-navigation",
-      logical_target: "governance",
-      public_url: "https://governance.mento.org/",
+      final_url: "https://reserve.mento.org/?tab=stablecoins",
+      interaction: "reserve-overview-data-and-supply-tab",
+      logical_target: "reserve",
+      public_url: "https://reserve.mento.org/",
       successful_documents: 1,
       successful_fonts: 1,
       successful_scripts: 1,
       successful_stylesheets: 1,
     },
-    reserve: null,
     ui: null,
   };
   const smokes = createMainCurrentActivePublicSmokes({
@@ -8847,17 +8685,11 @@ test("current active public-smoke materializer binds each active runtime result"
       servedSha: null,
       status: "not-required",
     },
-    governance: {
-      publicUrl: "https://governance.mento.org/",
-      runtime: runtimeResults.governance,
-      servedSha: execution.manifest.deploySha,
-      status: "passed",
-    },
     reserve: {
       publicUrl: "https://reserve.mento.org/",
-      runtime: null,
-      servedSha: null,
-      status: "not-required",
+      runtime: runtimeResults.reserve,
+      servedSha: execution.manifest.deploySha,
+      status: "passed",
     },
     ui: {
       publicUrl: "https://ui.mento.org/",
@@ -8871,49 +8703,49 @@ test("current active public-smoke materializer binds each active runtime result"
     [
       "stale deployment SHA",
       (value) => {
-        value.governance.deploy_sha = OTHER_SHA;
+        value.reserve.deploy_sha = OTHER_SHA;
       },
-      /governance active runtime smoke conflicts/,
+      /reserve active runtime smoke conflicts/,
     ],
     [
       "cross-target runtime result",
       (value) => {
-        value.governance.logical_target = "reserve";
+        value.reserve.logical_target = "ui";
       },
-      /governance active runtime smoke conflicts/,
+      /reserve active runtime smoke conflicts/,
     ],
     [
       "wrong requested public URL",
       (value) => {
-        value.governance.public_url = "https://reserve.mento.org/";
+        value.reserve.public_url = "https://ui.mento.org/";
       },
-      /governance active runtime smoke conflicts/,
+      /reserve active runtime smoke conflicts/,
     ],
     [
       "wrong final URL",
       (value) => {
-        value.governance.final_url = "https://governance.mento.org/";
+        value.reserve.final_url = "https://reserve.mento.org/";
       },
-      /governance active runtime smoke conflicts/,
+      /reserve active runtime smoke conflicts/,
     ],
     [
       "incomplete resource evidence",
       (value) => {
-        value.governance.successful_scripts = 0;
+        value.reserve.successful_scripts = 0;
       },
-      /governance active runtime smoke is incomplete/,
+      /reserve active runtime smoke is incomplete/,
     ],
     [
       "malformed runtime result",
       (value) => {
-        delete value.governance.final_url;
+        delete value.reserve.final_url;
       },
       /forbidden or missing fields/,
     ],
     [
       "inactive target runtime result",
       (value) => {
-        value.app = { ...value.governance, logical_target: "app" };
+        value.app = { ...value.reserve, logical_target: "app" };
       },
       /app inactive active runtime smoke is malformed/,
     ],
@@ -8952,8 +8784,6 @@ test("current active public-smoke materializer binds each active runtime result"
         join(directory, "barrier.json"),
         "--app",
         join(directory, "app.json"),
-        "--governance",
-        join(directory, "governance.json"),
         "--reserve",
         join(directory, "reserve.json"),
         "--ui",
@@ -9108,14 +8938,14 @@ test("active final-result matrix preserves safe noops and fails every recovery o
 
 test("active final result accepts a staged target-local main rollback with no active targets", () => {
   const deploymentPlan = activePlan({
-    deployments: ["governance"],
+    deployments: ["reserve"],
     mainOwnershipMode: ownership({
-      governance: MAIN_OWNERSHIP_MODES.SHADOW,
+      reserve: MAIN_OWNERSHIP_MODES.SHADOW,
     }),
   });
-  assert.deepEqual(deploymentPlan.planning.stagedTargets, ["governance"]);
+  assert.deepEqual(deploymentPlan.planning.stagedTargets, ["reserve"]);
   assert.deepEqual(deploymentPlan.planning.activeTargets, []);
-  assert.deepEqual(deploymentPlan.planning.shadowTargets, ["governance"]);
+  assert.deepEqual(deploymentPlan.planning.shadowTargets, ["reserve"]);
   assert.deepEqual(
     evaluateMainActiveFinalResults({
       execution: releaseExecutionForPlan(deploymentPlan),
@@ -9130,7 +8960,7 @@ test("active final result accepts a staged target-local main rollback with no ac
       reason: "shadow-prepared",
     },
   );
-  const contradictoryPlan = activePlan({ deployments: ["governance"] });
+  const contradictoryPlan = activePlan({ deployments: ["reserve"] });
   assert.equal(
     evaluateMainActiveFinalResults({
       execution: releaseExecutionForPlan(contradictoryPlan),
@@ -9144,9 +8974,9 @@ test("active final result accepts a staged target-local main rollback with no ac
 
 test("active safe-noop evidence records target-local shadow success without failure semantics", () => {
   const deploymentPlan = activePlan({
-    deployments: ["governance"],
+    deployments: ["reserve"],
     mainOwnershipMode: ownership({
-      governance: MAIN_OWNERSHIP_MODES.SHADOW,
+      reserve: MAIN_OWNERSHIP_MODES.SHADOW,
     }),
   });
   const evidence = createMainActiveSafeNoopEvidence({
@@ -9164,9 +8994,9 @@ test("active safe-noop evidence records target-local shadow success without fail
   assert.equal(evidence.outcome, "success");
   assert.equal(evidence.reason, "shadow-prepared");
   assert.equal(evidence.publicServingMutationCommands, 0);
-  assert.deepEqual(evidence.planning.stagedTargets, ["governance"]);
+  assert.deepEqual(evidence.planning.stagedTargets, ["reserve"]);
   assert.deepEqual(evidence.planning.activeTargets, []);
-  assert.deepEqual(evidence.planning.shadowTargets, ["governance"]);
+  assert.deepEqual(evidence.planning.shadowTargets, ["reserve"]);
   assert.equal(Object.hasOwn(evidence, "journal"), false);
   const summary = renderMainActiveSafeNoopEvidence(evidence);
   assert.match(summary, /active safe-noop evidence/);
@@ -9177,8 +9007,8 @@ test("active safe-noop evidence records target-local shadow success without fail
     () =>
       createMainActiveSafeNoopEvidence({
         ...evidence,
-        plan: activePlan({ deployments: ["governance"] }),
-        jobs: activeJobs(activePlan({ deployments: ["governance"] })),
+        plan: activePlan({ deployments: ["reserve"] }),
+        jobs: activeJobs(activePlan({ deployments: ["reserve"] })),
         coordinatorOutcome: "active-committed",
       }),
     /requires a safe no-op verdict/,
@@ -9186,7 +9016,7 @@ test("active safe-noop evidence records target-local shadow success without fail
 });
 
 test("active failure evidence never claims zero after a mutation may have started and redacts raw plan output", () => {
-  const deploymentPlan = activePlan({ deployments: ["governance"] });
+  const deploymentPlan = activePlan({ deployments: ["reserve"] });
   const prepared = createPreparedMainActiveJournal({
     plan: deploymentPlan,
     stageJobs: stageJobs(deploymentPlan),
@@ -9196,7 +9026,7 @@ test("active failure evidence never claims zero after a mutation may have starte
   });
   const started = startMainTransactionOperation(prepared, {
     type: "promote",
-    target: "governance",
+    target: "reserve",
   });
   const base = {
     eventHeadSha: SHA,
@@ -9272,22 +9102,22 @@ test("active failure evidence never claims zero after a mutation may have starte
     ...base,
     publicServingMutationCommands: 1,
     riderAliases: {
-      governance: {
-        aliases: ["governancementoorg-mentolabs.vercel.app"],
+      reserve: {
+        aliases: ["reservementoorg-mentolabs.vercel.app"],
         omitted: 0,
       },
     },
-    riderTargets: ["governance"],
+    riderTargets: ["reserve"],
   });
   assert.deepEqual(withRiders.riderAliases, {
-    governance: {
-      aliases: ["governancementoorg-mentolabs.vercel.app"],
+    reserve: {
+      aliases: ["reservementoorg-mentolabs.vercel.app"],
       omitted: 0,
     },
   });
   assert.match(
     renderMainActiveDeploymentFailureEvidence(withRiders),
-    /- Rider domains moved with `governance`: governancementoorg-mentolabs\.vercel\.app/,
+    /- Rider domains moved with `reserve`: reservementoorg-mentolabs\.vercel\.app/,
   );
   // Riders never widen scope: a target this release did not promote cannot
   // appear, and a foreign reviewed domain is still cross-target contamination.
@@ -9297,10 +9127,10 @@ test("active failure evidence never claims zero after a mutation may have starte
         ...base,
         publicServingMutationCommands: 1,
         riderAliases: {
-          governance: { aliases: [], omitted: 0 },
+          reserve: { aliases: [], omitted: 0 },
           ui: { aliases: [], omitted: 0 },
         },
-        riderTargets: ["governance"],
+        riderTargets: ["reserve"],
       }),
     /Active failure rider domains keys are not a canonical promoted subset/,
   );
@@ -9310,11 +9140,11 @@ test("active failure evidence never claims zero after a mutation may have starte
         ...base,
         publicServingMutationCommands: 1,
         riderAliases: {
-          governance: { aliases: ["app.mento.org"], omitted: 0 },
+          reserve: { aliases: ["app.mento.org"], omitted: 0 },
         },
-        riderTargets: ["governance"],
+        riderTargets: ["reserve"],
       }),
-    /Active failure rider domains governance is not canonical/,
+    /Active failure rider domains reserve is not canonical/,
   );
 
   const ambiguous = createMainActiveDeploymentFailureEvidence({
@@ -9354,9 +9184,9 @@ test("final-active CLI and safe-noop renderer publish target-local shadow succes
     writeFileSync(githubOutput, "");
     writeFileSync(summary, "");
     const deploymentPlan = activePlan({
-      deployments: ["governance"],
+      deployments: ["reserve"],
       mainOwnershipMode: ownership({
-        governance: MAIN_OWNERSHIP_MODES.SHADOW,
+        reserve: MAIN_OWNERSHIP_MODES.SHADOW,
       }),
     });
     writeFileSync(
@@ -9366,8 +9196,7 @@ test("final-active CLI and safe-noop renderer publish target-local shadow succes
     const values = {
       WAIT_FOR_CI_RESULT: "success",
       PLAN_RESULT: "success",
-      STAGE_GOVERNANCE_RESULT: "success",
-      STAGE_RESERVE_RESULT: "skipped",
+      STAGE_RESERVE_RESULT: "success",
       STAGE_UI_RESULT: "skipped",
       COORDINATOR_RESULT: "success",
       COORDINATOR_OUTCOME: "shadow-prepared",
@@ -9439,7 +9268,6 @@ test("final-active CLI exposes fail-after-evidence without ending evidence produ
       values: {
         WAIT_FOR_CI_RESULT: "success",
         PLAN_RESULT: "success",
-        STAGE_GOVERNANCE_RESULT: "success",
         STAGE_RESERVE_RESULT: "success",
         STAGE_UI_RESULT: "success",
         COORDINATOR_RESULT: "failure",
@@ -9467,7 +9295,6 @@ test("final-active CLI exposes fail-after-evidence without ending evidence produ
       values: {
         WAIT_FOR_CI_RESULT: "success",
         PLAN_RESULT: "success",
-        STAGE_GOVERNANCE_RESULT: "failure",
         STAGE_RESERVE_RESULT: "failure",
         STAGE_UI_RESULT: "failure",
         COORDINATOR_RESULT: "failure",
@@ -9485,7 +9312,7 @@ test("final-active CLI exposes fail-after-evidence without ending evidence produ
     });
     assert.equal(preparationFailure.releaseOutcome, "failure");
     assert.equal(preparationFailure.failAfterEvidence, true);
-    assert.equal(preparationFailure.reason, "stage-governance-invalid");
+    assert.equal(preparationFailure.reason, "stage-reserve-invalid");
     assert.match(readFileSync(output, "utf8"), /release_outcome=failure/);
     assert.match(readFileSync(output, "utf8"), /fail_after_evidence=true/);
   } finally {
@@ -9516,7 +9343,6 @@ test("final-active CLI process fails closed when the evaluator throws", () => {
           ...process.env,
           WAIT_FOR_CI_RESULT: "success",
           PLAN_RESULT: "success",
-          STAGE_GOVERNANCE_RESULT: "success",
           STAGE_RESERVE_RESULT: "success",
           STAGE_UI_RESULT: "success",
           COORDINATOR_RESULT: "success",
@@ -9570,7 +9396,7 @@ test("rider evidence truncates rather than letting visibility fail a release", (
     return createMainDeploymentEvidence({
       plan: deploymentPlan,
       stages: Object.fromEntries(
-        ["governance", "reserve", "ui"].map((target) => [
+        ["reserve", "ui"].map((target) => [
           target,
           {
             handoff: jobs[target].handoff,

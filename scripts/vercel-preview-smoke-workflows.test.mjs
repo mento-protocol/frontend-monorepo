@@ -83,24 +83,18 @@ test("reusable smoke validates metadata before common and target-specific browse
   assert.ok(
     names.indexOf(
       "Run common HTTP, header, build-ID, and representative-asset smoke",
-    ) <
-      names.indexOf(
-        "Exercise App and Governance wallet list and team-preview mock wallet",
-      ),
+    ) < names.indexOf("Exercise App wallet list and team-preview mock wallet"),
   );
   const wallet = smoke.steps.find(({ name }) =>
     name.startsWith("Exercise App"),
   );
-  assert.match(
-    wallet.if,
-    /logical_target == 'app'.*logical_target == 'governance'/,
-  );
+  assert.equal(wallet.if, "inputs.logical_target == 'app'");
   assert.equal(
     wallet.run,
     "pnpm exec playwright test --config apps/app.mento.org/playwright.preview.config.ts",
   );
   const genericBrowser = smoke.steps.find(({ name }) =>
-    name.startsWith("Run App, Governance, or Reserve"),
+    name.startsWith("Run App or Reserve"),
   );
   assert.equal(genericBrowser.if, "inputs.logical_target != 'ui'");
   assert.match(
@@ -128,11 +122,11 @@ test("reusable smoke validates metadata before common and target-specific browse
   assert.match(walletSpec, /test\.afterEach/);
 });
 
-test("all four automatic build and resume paths use the single reusable smoke", () => {
+test("all three automatic build and resume paths use the single reusable smoke", () => {
   const prebuilt = workflow(".github/workflows/_vercel-prebuilt.yml");
   const worker = workflow(".github/workflows/vercel-preview-worker.yml");
   const buildSmoke = prebuilt.jobs.smoke;
-  const resumeSmokes = ["app", "governance", "reserve", "ui"].map(
+  const resumeSmokes = ["app", "reserve", "ui"].map(
     (target) => worker.jobs[`resume-${target}-smoke`],
   );
   for (const smoke of [buildSmoke, ...resumeSmokes]) {
@@ -167,7 +161,7 @@ test("all four automatic build and resume paths use the single reusable smoke", 
   assert.equal(buildSmoke.with.logical_target, "${{ inputs.logical_target }}");
   assert.deepEqual(
     resumeSmokes.map(({ with: inputs }) => inputs.logical_target),
-    ["app", "governance", "reserve", "ui"],
+    ["app", "reserve", "ui"],
   );
   for (const resumeSmoke of resumeSmokes) {
     assert.equal(resumeSmoke.with.verification_mode, "controller");
@@ -180,7 +174,6 @@ test("all four automatic build and resume paths use the single reusable smoke", 
     prebuiltCallers.map(([name, job]) => [name, job.with.logical_target]),
     [
       ["deploy-app-preview", "app"],
-      ["deploy-governance-preview", "governance"],
       ["deploy-reserve-preview", "reserve"],
       ["deploy-ui-preview", "ui"],
     ],
@@ -193,7 +186,7 @@ test("all four automatic build and resume paths use the single reusable smoke", 
   );
 });
 
-test("native adapter always classifies and runs full App or Governance smoke without lookup or dedupe", () => {
+test("native adapter always classifies and runs full App smoke without lookup or dedupe", () => {
   const adapter = workflow(adapterPath);
   assert.deepEqual(adapter.on, { deployment_status: null });
   assert.deepEqual(adapter.permissions, {});
@@ -201,7 +194,6 @@ test("native adapter always classifies and runs full App or Governance smoke wit
   assert.deepEqual(Object.keys(adapter.jobs), [
     "classify",
     "smoke-app",
-    "smoke-governance",
     "record-native-result",
   ]);
   const classify = adapter.jobs.classify;
@@ -211,10 +203,7 @@ test("native adapter always classifies and runs full App or Governance smoke wit
   assert.equal(classify.steps[0].with["persist-credentials"], false);
   assert.match(JSON.stringify(classify), /classify-native/);
 
-  for (const [jobName, target] of [
-    ["smoke-app", "app"],
-    ["smoke-governance", "governance"],
-  ]) {
+  for (const [jobName, target] of [["smoke-app", "app"]]) {
     const job = adapter.jobs[jobName];
     assert.equal(job.uses, "./.github/workflows/_vercel-preview-smoke.yml");
     assert.equal(job.with.logical_target, target);
@@ -226,6 +215,7 @@ test("native adapter always classifies and runs full App or Governance smoke wit
     );
   }
   const raw = read(adapterPath);
+  assert.doesNotMatch(raw, /smoke-governance|GOVERNANCE_RESULT/);
   assert.doesNotMatch(
     raw,
     /matrix|concurrency|secrets\.|github\.token|GITHUB_TOKEN|VERCEL_TOKEN|TURBO_TOKEN/,

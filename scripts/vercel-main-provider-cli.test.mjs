@@ -65,7 +65,7 @@ const MAIN_PREPLAN_HANDOFF_ENV_OVERHEAD_BYTES = Buffer.byteLength(
 
 function fixtureInput() {
   const input = JSON.parse(readFileSync(fixtureUrl, "utf8"));
-  for (const target of ["app", "governance", "reserve", "ui"]) {
+  for (const target of ["app", "reserve", "ui"]) {
     for (const state of input.priorStates[target].states) {
       state.git.sha = PRIOR_SHA;
     }
@@ -85,7 +85,6 @@ function releaseManifest({
     input.mode = "active";
     input.mainOwnershipMode = {
       app: "github",
-      governance: "github",
       reserve: "github",
       ui: "github",
     };
@@ -120,12 +119,12 @@ function releaseManifest({
     runPlanner: ({ base, head }) => ({
       base,
       head,
-      deployments: ["app", "governance", "reserve", "ui"],
+      deployments: ["app", "reserve", "ui"],
       reason: "global-build-input",
     }),
   });
   const originalPriors = Object.fromEntries(
-    ["governance", "reserve", "ui", "app"].map((target) => {
+    ["reserve", "ui", "app"].map((target) => {
       const state = input.priorStates[target].states[0];
       const prior = plan.priors.find((entry) => entry.target === target);
       return [
@@ -159,13 +158,16 @@ function releaseManifest({
   return createMainReleaseManifest({ upstreamRunId, plan, originalPriors });
 }
 
-function productionShapedDecision({ productionIdPaddingBytes = 40 } = {}) {
+// The padding stands in for production-length identifiers. It was raised when
+// Governance left the main pipeline (ADR 0017) so three targets still produce a
+// handoff above the legacy 64 KiB encoded limit.
+function productionShapedDecision({ productionIdPaddingBytes = 240 } = {}) {
   const manifest = releaseManifest({
     active: true,
     productionIdPaddingBytes,
   });
   const candidates = Object.fromEntries(
-    ["governance", "reserve", "ui", "app"].map((target) => [
+    ["reserve", "ui", "app"].map((target) => [
       target,
       {
         deploymentId: `dpl_${target}${"D".repeat(productionIdPaddingBytes)}`,
@@ -179,7 +181,7 @@ function productionShapedDecision({ productionIdPaddingBytes = 40 } = {}) {
     nextUpstreamRunId: "701",
     candidateReleases: [{ manifest, candidates }],
     currentMappings: Object.fromEntries(
-      ["governance", "reserve", "ui", "app"].map((target) => {
+      ["reserve", "ui", "app"].map((target) => {
         const current =
           target === "app"
             ? candidates[target]
@@ -245,7 +247,6 @@ function testContext(t) {
     VERCEL_TOKEN: "test-secret-token",
     VERCEL_ORG_ID: "team_fixture",
     VERCEL_PROJECT_ID_APP: values.app,
-    VERCEL_PROJECT_ID_GOVERNANCE: values.governance,
     VERCEL_PROJECT_ID_RESERVE: values.reserve,
     VERCEL_PROJECT_ID_UI: values.ui,
     DEPLOY_SHA: SHA,
@@ -364,18 +365,13 @@ function aliasSubsets(values) {
   );
 }
 
-test("canonical mappings preserve exactly the four reviewed target alias sets", async (t) => {
+test("canonical mappings preserve exactly the three reviewed target alias sets", async (t) => {
   const context = testContext(t);
   const expected = createMainCanonicalMappings({
     planningSnapshot: planningSnapshot(),
     projectIds: projectIds(),
   });
-  assert.deepEqual(Object.keys(expected.mappings), [
-    "governance",
-    "reserve",
-    "ui",
-    "app",
-  ]);
+  assert.deepEqual(Object.keys(expected.mappings), ["reserve", "ui", "app"]);
   assert.deepEqual(
     expected.mappings.app.map(({ alias }) => alias),
     ["app.mento.org"],
@@ -463,9 +459,9 @@ test("preplan discovery groups mapped manifests and marks unowned mappings rollb
   });
   const second = releaseManifest({ deploySha: SHA, upstreamRunId: "700" });
   const snapshot = planningSnapshot({
-    "governance.mento.org": {
-      deploymentId: "dpl_governanceCandidate123",
-      deploymentUrl: "https://governance-candidate.vercel.app",
+    "ui.mento.org": {
+      deploymentId: "dpl_uiCandidate123",
+      deploymentUrl: "https://ui-candidate.vercel.app",
     },
     "reserve.mento.org": {
       deploymentId: "dpl_reserveCandidate123",
@@ -491,7 +487,7 @@ test("preplan discovery groups mapped manifests and marks unowned mappings rollb
         return {
           canonicalState: {},
           metadata:
-            deploymentId === "dpl_governanceCandidate123"
+            deploymentId === "dpl_uiCandidate123"
               ? { releaseManifest: first }
               : deploymentId === "dpl_reserveCandidate123"
                 ? { releaseManifest: second }
@@ -500,7 +496,7 @@ test("preplan discovery groups mapped manifests and marks unowned mappings rollb
       },
       resolveReleaseCandidate: async ({ manifest, target }) => {
         const selectedTarget =
-          manifest.releaseId === first.releaseId ? "governance" : "reserve";
+          manifest.releaseId === first.releaseId ? "ui" : "reserve";
         return target === selectedTarget
           ? {
               intent: {},
@@ -539,7 +535,7 @@ test("preplan discovery groups mapped manifests and marks unowned mappings rollb
     [first.releaseId, second.releaseId].sort(),
   );
   assert.equal(readJson(output).discovery.candidateReleases.length, 2);
-  assert.deepEqual(result.discovery.rollbackOnlyTargets, ["app", "ui"]);
+  assert.deepEqual(result.discovery.rollbackOnlyTargets, ["app"]);
   for (const rollbackOnlyTargets of [
     ["ui", "app"],
     ["app", "app"],
@@ -772,7 +768,7 @@ test("preplan decision restores a manifest-bound App recovery residual", async (
   });
   // App now maps exactly one alias, so its single mapped deployment carries
   // the release metadata and App is no longer rollback-only.
-  assert.deepEqual(result.rollbackOnlyTargets, ["governance", "reserve", "ui"]);
+  assert.deepEqual(result.rollbackOnlyTargets, ["reserve", "ui"]);
   assert.deepEqual(readJson(output), result);
 });
 
@@ -783,15 +779,15 @@ test("preplan materialization accepts only inherited restore and exposes ordered
     upstreamRunId: "699",
     active: true,
   });
-  const governanceCandidate = {
-    deploymentId: "dpl_governanceInherited123",
-    deploymentUrl: "https://governance-inherited.vercel.app",
+  const reserveCandidate = {
+    deploymentId: "dpl_reserveInherited123",
+    deploymentUrl: "https://reserve-inherited.vercel.app",
     manifest: inherited,
   };
   const currentMappings = Object.fromEntries(
-    ["governance", "reserve", "ui", "app"].map((target) => {
+    ["reserve", "ui", "app"].map((target) => {
       const prior = inherited.originalPriors[target];
-      const current = target === "governance" ? governanceCandidate : prior;
+      const current = target === "reserve" ? reserveCandidate : prior;
       return [
         target,
         prior.aliases.map((alias) => ({
@@ -809,8 +805,7 @@ test("preplan materialization accepts only inherited restore and exposes ordered
       {
         manifest: inherited,
         candidates: {
-          governance: governanceCandidate,
-          reserve: null,
+          reserve: reserveCandidate,
           ui: null,
           app: null,
         },
@@ -825,7 +820,7 @@ test("preplan materialization accepts only inherited restore and exposes ordered
     nextUpstreamRunId: "700",
   });
   const completeCandidates = Object.fromEntries(
-    ["governance", "reserve", "ui", "app"].map((target) => [
+    ["reserve", "ui", "app"].map((target) => [
       target,
       {
         deploymentId: `dpl_${target}MaximumShape123`,
@@ -844,7 +839,7 @@ test("preplan materialization accepts only inherited restore and exposes ordered
       },
     ],
     currentMappings: Object.fromEntries(
-      ["governance", "reserve", "ui", "app"].map((target) => [
+      ["reserve", "ui", "app"].map((target) => [
         target,
         inherited.originalPriors[target].aliases.map((alias) => ({
           alias,
@@ -936,7 +931,7 @@ test("preplan materialization accepts only inherited restore and exposes ordered
   assert.equal(
     readFileSync(context.githubOutput, "utf8"),
     [
-      'inherited_candidate_targets=["governance"]',
+      'inherited_candidate_targets=["reserve"]',
       `inherited_journal_deploy_sha=${inherited.deploySha}`,
       "",
     ].join("\n"),
@@ -1495,7 +1490,7 @@ test("candidate finalization reuses one fresh candidate and rejects smoke mismat
 // through the served-prior contract.
 test("inherited candidate finalization uses the fixed served-prior alias contract", async (t) => {
   const context = testContext(t);
-  for (const target of ["app", "governance", "reserve", "ui"]) {
+  for (const target of ["app", "reserve", "ui"]) {
     const intent = candidateIntent(target);
     const response = deploymentResponse(intent);
     const intentPath = writeJson(
@@ -1550,7 +1545,7 @@ test("inherited candidate finalization uses the fixed served-prior alias contrac
       assert.equal(result.action, "reuse");
       assert.deepEqual(result.canonicalState.aliases, aliases);
     }
-    const otherTarget = target === "governance" ? "reserve" : "governance";
+    const otherTarget = target === "reserve" ? "ui" : "reserve";
     for (const [name, aliases, expected] of [
       [
         "missing-protected",
@@ -1605,7 +1600,7 @@ test("inherited candidate finalization uses the fixed served-prior alias contrac
 
 test("candidate smoke uses the target's direct immutable route and preserves the SHA-bound receipt URL", async (t) => {
   const context = testContext(t);
-  for (const target of ["app", "governance", "reserve", "ui"]) {
+  for (const target of ["app", "reserve", "ui"]) {
     const intent = candidateIntent(target);
     const response = deploymentResponse(intent);
     const intentPath = writeJson(

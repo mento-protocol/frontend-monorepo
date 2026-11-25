@@ -70,7 +70,7 @@ function receiptInput(outcome = "active-committed") {
     stateProof: proof(state, "state"),
     publicSmoke: proof(smoke, "smoke"),
     mutationCount: contract.mutations ?? contract.minMutations ?? 0,
-    rollbackTargets: contract.rollback === "required" ? ["governance"] : [],
+    rollbackTargets: contract.rollback === "required" ? ["reserve"] : [],
     affectedOperations:
       outcome === "manual-intervention" ? [affectedOperation()] : [],
     journal:
@@ -138,16 +138,15 @@ test("receipt shape is exactly the twenty-three reviewed keys", () => {
   );
 });
 
-test("affected operations admit exactly four targets and two operation types", () => {
+test("affected operations admit exactly three targets and two operation types", () => {
   const input = receiptInput("manual-intervention");
   const accepted = new Set();
   for (const [target, type, alias] of [
-    ["governance", "promote", null],
     ["reserve", "promote", null],
     ["ui", "promote", null],
     ["app", "promote", null],
     ["app", "ordinary_rollback", null],
-    ["governance", "ordinary_rollback", null],
+    ["reserve", "ordinary_rollback", null],
   ]) {
     const receipt = createMainTerminalReceipt({
       ...input,
@@ -158,10 +157,9 @@ test("affected operations admit exactly four targets and two operation types", (
     accepted.add(type);
   }
   assert.equal(
-    [...accepted].filter((value) =>
-      ["governance", "reserve", "ui", "app"].includes(value),
-    ).length,
-    4,
+    [...accepted].filter((value) => ["reserve", "ui", "app"].includes(value))
+      .length,
+    3,
   );
   assert.equal(
     [...accepted].filter((value) =>
@@ -171,7 +169,8 @@ test("affected operations admit exactly four targets and two operation types", (
   );
   // Neither the retired legacy path, the retired App custom-environment
   // deploy, nor the retired transitional bridge alias operations may re-enter
-  // the receipt contract. No operation may carry an alias at all.
+  // the receipt contract, nor may the retired Governance target. No
+  // operation may carry an alias at all.
   for (const [target, type, alias] of [
     ["legacy-app", "app_alias_restore", "v2-app.mento.org"],
     ["app", "legacy_emergency_restore", "v2-app.mento.org"],
@@ -180,7 +179,9 @@ test("affected operations admit exactly four targets and two operation types", (
     ["app", "app_alias_set", "app.mento.org"],
     ["app", "app_alias_restore", "app.mento.org"],
     ["app", "promote", "app.mento.org"],
-    ["governance", "ordinary_rollback", "governance.mento.org"],
+    ["reserve", "ordinary_rollback", "reserve.mento.org"],
+    ["governance", "promote", null],
+    ["governance", "ordinary_rollback", null],
   ]) {
     assert.throws(
       () =>
@@ -277,7 +278,7 @@ test("recovery failure has a recovery-only, dynamic, tamper-evident terminal han
     () =>
       createMainTerminalReceipt({
         ...input,
-        rollbackTargets: ["governance"],
+        rollbackTargets: ["reserve"],
       }),
     /forbids rollback targets/,
   );
@@ -320,7 +321,7 @@ test("recovered unproven census has a recovery-only durable terminal handoff", (
     ["passed", "unsafe", "unsafe", "passed"],
   );
   assert.equal(receipt.journal.status, "recovered");
-  assert.deepEqual(receipt.rollbackTargets, ["governance"]);
+  assert.deepEqual(receipt.rollbackTargets, ["reserve"]);
   assert.deepEqual(
     decodeMainTerminalReceipt(encodeMainTerminalReceipt(receipt), IDENTITY),
     receipt,
@@ -649,7 +650,7 @@ test("manual receipt carries an exact canonical affected-operation set without i
     }),
     affectedOperation({
       operationId: "op-0002",
-      target: "governance",
+      target: "reserve",
       type: "promote",
       state: "verified",
       commandOutcome: "success",
@@ -657,7 +658,7 @@ test("manual receipt carries an exact canonical affected-operation set without i
     }),
     affectedOperation({
       operationId: "op-0003",
-      target: "governance",
+      target: "reserve",
       type: "ordinary_rollback",
       state: "verified",
       commandOutcome: "success",
@@ -768,7 +769,7 @@ test("tampering, oversize output, and a future producer attempt fail closed", ()
 test("receipt rejects forbidden fields and noncanonical rollback target order", () => {
   const receipt = createMainTerminalReceipt({
     ...receiptInput("recovered"),
-    rollbackTargets: ["governance", "reserve"],
+    rollbackTargets: ["reserve", "ui"],
   });
   const extra = { ...receipt, unexpected: true };
   assert.throws(() => assertMainTerminalReceipt(extra), /keys are missing/);
@@ -785,7 +786,7 @@ test("receipt rejects forbidden fields and noncanonical rollback target order", 
     () =>
       createMainTerminalReceipt({
         ...receiptInput("recovered"),
-        rollbackTargets: ["reserve", "governance"],
+        rollbackTargets: ["ui", "reserve"],
       }),
     /not canonical/,
   );

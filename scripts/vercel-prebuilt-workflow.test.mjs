@@ -413,13 +413,8 @@ test("automatic preview contract binds PR, environment, provenance, and exact SH
   }
 });
 
-test("automatic preview contract accepts only the four literal target mappings", () => {
-  assert.deepEqual(Object.keys(PREBUILT_TARGETS), [
-    "app",
-    "governance",
-    "reserve",
-    "ui",
-  ]);
+test("automatic preview contract accepts only the three literal target mappings", () => {
+  assert.deepEqual(Object.keys(PREBUILT_TARGETS), ["app", "reserve", "ui"]);
   for (const target of Object.values(PREBUILT_TARGETS)) {
     const automatic = automaticContract({
       ...target,
@@ -1291,27 +1286,6 @@ test("one-way materialization preserves raw source and emits only the canonical 
     assert.deepEqual(
       readFileSync(result.environmentPath),
       destinationBeforeRetry,
-    );
-  } finally {
-    fixture.cleanup();
-  }
-});
-
-test("Governance materialization never requires or carries pulled explorer credentials", () => {
-  const pulledEnvironment = defaultPulledEnvironment("governance");
-  pulledEnvironment.ETHERSCAN_API_KEY = "pulled-explorer-sentinel";
-  pulledEnvironment.SENTRY_AUTH_TOKEN = "pulled-sentry-sentinel";
-  const fixture = pulledStagingFixture("governance", pulledEnvironment);
-  try {
-    const { environmentPath } = materializeFixture(fixture);
-    const materialized = parseVercelPulledEnvironment(
-      readFileSync(environmentPath, "utf8"),
-    );
-    assert.equal(Object.hasOwn(materialized, "ETHERSCAN_API_KEY"), false);
-    assert.equal(Object.hasOwn(materialized, "SENTRY_AUTH_TOKEN"), false);
-    assert.deepEqual(
-      Object.keys(materialized).sort(),
-      Object.keys(defaultPulledEnvironment("governance")).sort(),
     );
   } finally {
     fixture.cleanup();
@@ -3408,7 +3382,7 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
     raw.indexOf("- name: Build the literal target prebuilt output"),
   );
   const environmentValidationIndex = raw.indexOf(
-    "- name: Validate runner-owned non-Governance preview build variables",
+    "- name: Validate runner-owned preview build variables",
   );
   const stagePullIndex = raw.indexOf(
     "- name: Stage project settings and allowlisted environment into candidate source",
@@ -3534,7 +3508,7 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
   assert.ok(materializationIndex < materializedAssertionIndex);
   assert.ok(materializedAssertionIndex < environmentValidationIndex);
   assert.ok(environmentValidationIndex < stagePullIndex);
-  assert.equal(raw.match(/vercel-build-environment\.mjs/g)?.length, 2);
+  assert.equal(raw.match(/vercel-build-environment\.mjs/g)?.length, 1);
   assert.match(
     environmentValidationBlock,
     /BUILD_ENVIRONMENT_PATH: \$\{\{ env\.VERCEL_ISOLATION_ROOT \}\}\/mento-vercel-build-environment/,
@@ -3549,14 +3523,11 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
   );
   assert.doesNotMatch(environmentValidationBlock, /ETHERSCAN_API_KEY/);
   assert.doesNotMatch(environmentValidationBlock, /SENTRY_AUTH_TOKEN/);
-  assert.match(
-    buildBlock,
-    /vercel-build-environment\.mjs" \\\n\s+check --target "\$LOGICAL_TARGET" --environment preview \\\n\s+--project-directory "\$BUILD_ENVIRONMENT_PATH"/,
-  );
-  assert.match(
-    buildBlock,
-    /BUILD_ENVIRONMENT_PATH: \$\{\{ env\.VERCEL_ISOLATION_ROOT \}\}\/mento-vercel-build-environment/,
-  );
+  // The governance build was the only one that re-checked the materialized
+  // environment inside the build step (ADR 0017).
+  assert.doesNotMatch(buildBlock, /vercel-build-environment\.mjs/);
+  assert.doesNotMatch(buildBlock, /BUILD_ENVIRONMENT_PATH/);
+  assert.doesNotMatch(buildBlock, /ETHERSCAN_API_KEY/);
   assert.doesNotMatch(
     buildBlock,
     /--project-directory "\$SOURCE_PATH\/\$EXPECTED_ROOT_DIRECTORY"/,

@@ -3709,12 +3709,9 @@ function buildFromEnvironment() {
   if (process.env.SENTRY_AUTH_TOKEN !== undefined) {
     throw new Error("Preview build cannot receive SENTRY_AUTH_TOKEN");
   }
-  if (process.env.LOGICAL_TARGET === "governance") {
-    requiredText(process.env.ETHERSCAN_API_KEY, "ETHERSCAN_API_KEY");
-  } else if ((process.env.ETHERSCAN_API_KEY ?? "") !== "") {
-    throw new Error(
-      "Only the governance preview build can receive ETHERSCAN_API_KEY",
-    );
+  // The governance preview build was the only consumer (ADR 0017).
+  if ((process.env.ETHERSCAN_API_KEY ?? "") !== "") {
+    throw new Error("Preview builds cannot receive ETHERSCAN_API_KEY");
   }
   assertCandidateProvenance(
     process.env.SOURCE_PATH,

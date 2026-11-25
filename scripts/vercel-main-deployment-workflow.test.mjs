@@ -107,7 +107,6 @@ test("active workflow has the current-attempt release graph", () => {
     "restore-inherited-release",
     "prepare-release",
     "stage-app",
-    "stage-governance",
     "stage-reserve",
     "stage-ui",
     "activate-and-verify",
@@ -118,7 +117,6 @@ test("active workflow has the current-attempt release graph", () => {
   assert.equal(workflow.env.VERCEL_MAIN_MODE, "active");
   assert.deepEqual(JSON.parse(workflow.env.MAIN_OWNERSHIP_MODE_JSON), {
     app: "github",
-    governance: "github",
     reserve: "github",
     ui: "github",
   });
@@ -448,7 +446,6 @@ test("every public-mutation job requires the exact-attempt CI success gate", () 
   assert.deepEqual(mutators, [
     "restore-inherited-release",
     "stage-app",
-    "stage-governance",
     "stage-reserve",
     "stage-ui",
     "activate-and-verify",
@@ -705,7 +702,7 @@ test("every workflow install narrows pnpm to the root workspace project", () => 
       (step) => [jobName, step],
     ),
   );
-  assert.equal(installs.length, 9);
+  assert.equal(installs.length, 8);
   for (const [jobName, install] of installs) {
     assert.equal(install.with.filter, "frontend-monorepo", jobName);
   }
@@ -808,7 +805,7 @@ test("inherited restoration proves and validates reuse before a durable bounded 
   assert.doesNotMatch(mappingSpecs.run, /legacy/);
 
   const strictReceipts = command(jobName, "inherited-candidate-receipts");
-  for (const target of ["governance", "reserve", "ui", "app"]) {
+  for (const target of ["reserve", "ui", "app"]) {
     const movedCandidateCondition = `contains(fromJSON(steps.inherited.outputs.inherited_candidate_targets), '${target}')`;
     const intent = command(jobName, `--target ${target}`);
     const preflight = jobSteps.find(
@@ -854,7 +851,7 @@ test("inherited restoration proves and validates reuse before a durable bounded 
   }
   assert.match(
     strictReceipts.run,
-    /--app "\$APP_RECEIPT" --governance "\$GOVERNANCE_RECEIPT"[\s\S]*--reserve "\$RESERVE_RECEIPT" --ui "\$UI_RECEIPT"/,
+    /--app "\$APP_RECEIPT"[\s\S]*--reserve "\$RESERVE_RECEIPT" --ui "\$UI_RECEIPT"/,
   );
   const restoreRuns = jobSteps.map((step) => step.run ?? "").join("\n");
   assert.doesNotMatch(restoreRuns, /\bjq\b|\bpending\b/);
@@ -948,7 +945,7 @@ test("inherited restoration proves and validates reuse before a durable bounded 
     jobSteps,
     "./.github/actions/vercel-main-active-recovery-transition",
   );
-  // Four mutation slots — one rollback per main target — plus the terminal
+  // Three mutation slots — one rollback per main target — plus the terminal
   // slot that turns an unrecovered head into a terminal status.
   assert.equal(transitions.length, MAIN_ACTIVE_MAX_RECOVERY_TRANSITIONS + 1);
   assert.deepEqual(
@@ -960,11 +957,11 @@ test("inherited restoration proves and validates reuse before a durable bounded 
   );
   assert.deepEqual(
     transitions.map((step) => step.with.slot),
-    ["1", "2", "3", "4", "5"],
+    ["1", "2", "3", "4"],
   );
   assert.equal(
-    named(jobName, "Restore terminal inherited transition 5").with.slot,
-    "5",
+    named(jobName, "Restore terminal inherited transition 4").with.slot,
+    "4",
   );
   for (const transition of transitions) {
     assert.equal(
@@ -1050,10 +1047,6 @@ test("only inherited restoration uses inherited candidate finalization", () => {
   assert.deepEqual(inheritedFinalizers, [
     {
       jobName: "restore-inherited-release",
-      id: "inherited-governance-finalize",
-    },
-    {
-      jobName: "restore-inherited-release",
       id: "inherited-reserve-finalize",
     },
     {
@@ -1071,7 +1064,7 @@ test("only inherited restoration uses inherited candidate finalization", () => {
   );
   assert.doesNotMatch(workflowSource, /--alias-topology-mode/);
 
-  for (const target of ["app", "governance", "reserve", "ui"]) {
+  for (const target of ["app", "reserve", "ui"]) {
     const finalize = command(`stage-${target}`, "candidate-finalize");
     assert.match(
       finalize.run,
@@ -1256,7 +1249,7 @@ test("release preparation starts only after inherited recovery and replans from 
 });
 
 test("every main target materializes execution and uses create-or-reuse provider handoffs", () => {
-  for (const target of ["app", "governance", "reserve", "ui"]) {
+  for (const target of ["app", "reserve", "ui"]) {
     const job = `stage-${target}`;
     const stage = workflow.jobs[job];
     assert.equal(stage["timeout-minutes"], 50);
@@ -1393,7 +1386,6 @@ test("active coordinator validates stage receipts and never builds or deploys", 
     "require-ci-success",
     "prepare-release",
     "stage-app",
-    "stage-governance",
     "stage-reserve",
     "stage-ui",
   ]);
@@ -1422,7 +1414,7 @@ test("active coordinator validates stage receipts and never builds or deploys", 
   assert.ok(jobSteps.indexOf(proof) < jobSteps.indexOf(install));
 
   const stageValidation = named(jobName, "Validate literal stage results");
-  for (const target of ["APP", "GOVERNANCE", "RESERVE", "UI"]) {
+  for (const target of ["APP", "RESERVE", "UI"]) {
     const dependency = target.toLowerCase();
     assert.equal(
       stageValidation.env[`${target}_RESULT`],
@@ -1526,10 +1518,7 @@ test("active coordinator validates stage receipts and never builds or deploys", 
     "the coordinator downloads no same-run payload",
   );
   const strictReceipts = command(jobName, "candidate-receipts");
-  assert.match(
-    strictReceipts.run,
-    /--app[\s\S]*--governance[\s\S]*--reserve[\s\S]*--ui/,
-  );
+  assert.match(strictReceipts.run, /--app[\s\S]*--reserve[\s\S]*--ui/);
   assert.match(
     strictReceipts.run,
     /--app "\$\{\{ needs\.stage-app\.outputs\.receipt \|\| 'none' \}\}"/,
@@ -1609,7 +1598,6 @@ test("recovery is a bounded exact-current-attempt transaction with no cross-atte
     "restore-inherited-release",
     "prepare-release",
     "stage-app",
-    "stage-governance",
     "stage-reserve",
     "stage-ui",
     "activate-and-verify",
@@ -1618,7 +1606,7 @@ test("recovery is a bounded exact-current-attempt transaction with no cross-atte
   assert.match(recoveryJob.if, /require-ci-success\.result == 'success'/);
   assert.match(recoveryJob.if, /prepare-release\.result == 'success'/);
   assert.match(recoveryJob.if, /activate-and-verify\.result != 'success'/);
-  for (const target of ["APP", "GOVERNANCE", "RESERVE", "UI"]) {
+  for (const target of ["APP", "RESERVE", "UI"]) {
     assert.equal(
       recoveryJob.env[`VERCEL_PROJECT_ID_${target}`],
       `\${{ vars.VERCEL_PROJECT_ID_${target} }}`,
@@ -1830,17 +1818,17 @@ test("recovery is a bounded exact-current-attempt transaction with no cross-atte
     (step) =>
       step.uses === "./.github/actions/vercel-main-active-recovery-transition",
   );
-  // Four mutation slots — one rollback per main target — plus the terminal
+  // Three mutation slots — one rollback per main target — plus the terminal
   // slot that turns an unrecovered head into a terminal status.
   assert.equal(transitions.length, MAIN_ACTIVE_MAX_RECOVERY_TRANSITIONS + 1);
   assert.deepEqual(
     transitions.map((step) => step.with.slot),
-    ["1", "2", "3", "4", "5"],
+    ["1", "2", "3", "4"],
   );
   assert.equal(
-    named("recover-main-deployment", "Restore terminal recovery transition 5")
+    named("recover-main-deployment", "Restore terminal recovery transition 4")
       .with.slot,
-    "5",
+    "4",
   );
   for (const transition of transitions) {
     assert.match(
@@ -1900,7 +1888,6 @@ test("recovery is a bounded exact-current-attempt transaction with no cross-atte
   // App stage, and nothing re-derives it from the execution projection.
   for (const [variable, job] of [
     ["APP_RESULT", "stage-app"],
-    ["GOVERNANCE_RESULT", "stage-governance"],
     ["RESERVE_RESULT", "stage-reserve"],
     ["UI_RESULT", "stage-ui"],
   ]) {
@@ -2115,7 +2102,6 @@ test("every credentialed producer uses the protected Vercel environment", () => 
     "restore-inherited-release",
     "prepare-release",
     "stage-app",
-    "stage-governance",
     "stage-reserve",
     "stage-ui",
     "activate-and-verify",
@@ -2131,10 +2117,6 @@ test("every credentialed producer uses the protected Vercel environment", () => 
 });
 
 test("shadow and no-target paths remain release execution decisions, never terminal downloads", () => {
-  assert.match(
-    workflow.jobs["stage-governance"].if,
-    /contains\(fromJSON\(needs\.prepare-release\.outputs\.targets\)/,
-  );
   assert.match(
     workflow.jobs["stage-reserve"].if,
     /contains\(fromJSON\(needs\.prepare-release\.outputs\.targets\)/,
@@ -2162,7 +2144,7 @@ test("all public mutation paths have bounded timeouts and journal uploads", () =
     forwardTransitions.length,
     MAIN_ACTIVE_PROMOTABLE_TARGETS.length,
   );
-  assert.equal(forwardTransitions.length, 4);
+  assert.equal(forwardTransitions.length, 3);
   for (const transition of forwardTransitions) {
     assert.equal(transition.with.alias, undefined, transition.name);
   }
@@ -2224,7 +2206,6 @@ test("production jobs keep the immutable controller checkout and source jobs use
     "restore-inherited-release",
     "prepare-release",
     "stage-app",
-    "stage-governance",
     "stage-reserve",
     "stage-ui",
     "activate-and-verify",
@@ -2246,7 +2227,6 @@ test("production jobs keep the immutable controller checkout and source jobs use
     "provider-preplan",
     "prepare-release",
     "stage-app",
-    "stage-governance",
     "stage-reserve",
     "stage-ui",
     "activate-and-verify",
@@ -2296,7 +2276,7 @@ test("provider and release handoffs stay compact job outputs rather than plan JS
 });
 
 test("ordinary candidates emit a current-attempt intent before create and a receipt after fresh smoke", () => {
-  for (const target of ["governance", "reserve", "ui"]) {
+  for (const target of ["reserve", "ui"]) {
     const job = `stage-${target}`;
     const intent = command(job, "candidate-intent --execution");
     const preflight = command(job, "candidate-preflight");
@@ -2327,12 +2307,6 @@ test("every main stage retains protected runtime isolation and create-only uploa
       projectName: "app.mento.org",
       root: "apps/app.mento.org",
       secrets: ["SENTRY_AUTH_TOKEN"],
-    },
-    governance: {
-      project: "${{ vars.VERCEL_PROJECT_ID_GOVERNANCE }}",
-      projectName: "governance.mento.org",
-      root: "apps/governance.mento.org",
-      secrets: ["ETHERSCAN_API_KEY", "SENTRY_AUTH_TOKEN"],
     },
     reserve: {
       project: "${{ vars.VERCEL_PROJECT_ID_RESERVE }}",
@@ -2494,7 +2468,6 @@ test("every main stage retains protected runtime isolation and create-only uploa
 test("every main stage job target reaches the production-shadow CLI at runtime", () => {
   const contracts = {
     app: "apps/app.mento.org",
-    governance: "apps/governance.mento.org",
     reserve: "apps/reserve.mento.org",
     ui: "apps/ui.mento.org",
   };
@@ -2545,7 +2518,7 @@ test("every main stage job target reaches the production-shadow CLI at runtime",
   }
 });
 
-test("coordinator checkpoints the forward journal before four bounded mutations and commits from final proof", () => {
+test("coordinator checkpoints the forward journal before three bounded mutations and commits from final proof", () => {
   const coordinator = "activate-and-verify";
   const jobSteps = steps(coordinator);
   const barrier = command(coordinator, "stage-barrier");
@@ -2567,20 +2540,25 @@ test("coordinator checkpoints the forward journal before four bounded mutations 
     jobSteps,
     "./.github/actions/vercel-main-active-transition",
   );
-  assert.equal(transitions.length, 4);
+  assert.equal(transitions.length, 3);
   assert.equal(transitions.length, MAIN_ACTIVE_PROMOTABLE_TARGETS.length);
   assert.deepEqual(
     transitions.map((step) => step.with.slot),
-    ["1", "2", "3", "4"],
+    ["1", "2", "3"],
   );
-  // The retired bridge occupied a fifth forward slot. Neither that step nor an
+  // The retired bridge occupied a fifth forward slot and the retired
+  // Governance target a fourth (ADR 0017). Neither those steps nor an
   // alias-carrying forward slot may return.
-  assert.equal(
-    jobSteps.find((step) =>
-      step.name?.includes("Activate bounded Vercel transition 5"),
-    ),
-    undefined,
-  );
+  for (const retiredSlot of ["4", "5"]) {
+    assert.equal(
+      jobSteps.find((step) =>
+        step.name?.includes(
+          `Activate bounded Vercel transition ${retiredSlot}`,
+        ),
+      ),
+      undefined,
+    );
+  }
   for (const transition of transitions) {
     assert.equal(transition.with.alias, undefined, transition.name);
     assert.match(transition.if, /steps\.freshness\.outputs\.status == 'fresh'/);
@@ -2627,13 +2605,11 @@ test("coordinator checkpoints the forward journal before four bounded mutations 
   );
   const publicUrls = {
     app: "https://app.mento.org/",
-    governance: "https://governance.mento.org/",
     reserve: "https://reserve.mento.org/",
     ui: "https://ui.mento.org/",
   };
   const labels = {
     app: "App",
-    governance: "Governance",
     reserve: "Reserve",
     ui: "UI",
   };
@@ -2665,7 +2641,7 @@ test("coordinator checkpoints the forward journal before four bounded mutations 
     jobSteps.filter((step) =>
       step.run?.includes("node scripts/vercel-main-runtime.mjs"),
     ).length,
-    4,
+    3,
   );
   const publicSmokes = named(
     coordinator,
@@ -2780,7 +2756,7 @@ test("coordinator checkpoints the forward journal before four bounded mutations 
     /vercel-production-shadow\.mjs deploy --target app/,
   );
   assert.doesNotMatch(
-    ["stage-governance", "stage-reserve", "stage-ui"]
+    ["stage-reserve", "stage-ui"]
       .flatMap(steps)
       .map((step) => step.run ?? "")
       .join("\n"),
@@ -2867,10 +2843,6 @@ test("a complete same-release re-verifies current state without a journal or pub
   assert.match(
     publicSmokes.run,
     /--app "\$RUNNER_TEMP\/app-runtime-smoke\.json"/,
-  );
-  assert.match(
-    publicSmokes.run,
-    /--governance "\$RUNNER_TEMP\/governance-runtime-smoke\.json"/,
   );
   assert.match(
     publicSmokes.run,
@@ -2975,10 +2947,6 @@ test("result restores the compact handoff then fails closed from the literal fin
     "${{ needs.activate-and-verify.outputs.outcome || needs.recover-main-deployment.outputs.outcome }}",
   );
   assert.equal(
-    finalActive.env.STAGE_GOVERNANCE_RESULT,
-    "${{ needs.stage-governance.result }}",
-  );
-  assert.equal(
     finalActive.env.STAGE_RESERVE_RESULT,
     "${{ needs.stage-reserve.result }}",
   );
@@ -3012,7 +2980,6 @@ test("result restores the compact handoff then fails closed from the literal fin
     "restore-inherited-release",
     "prepare-release",
     "stage-app",
-    "stage-governance",
     "stage-reserve",
     "stage-ui",
     "activate-and-verify",
@@ -3068,7 +3035,7 @@ test("reducer constants and action pin boundaries stay covered while the retired
     MAIN_ACTIVE_MAX_RECOVERY_TRANSITIONS,
     MAIN_ACTIVE_PROMOTABLE_TARGETS.length,
   );
-  assert.equal(MAIN_ACTIVE_MAX_RECOVERY_TRANSITIONS, 4);
+  assert.equal(MAIN_ACTIVE_MAX_RECOVERY_TRANSITIONS, 3);
   // The bridge topology cannot re-enter: its constant and both command
   // builders are gone from the adapter module.
   for (const retired of [
@@ -3122,10 +3089,6 @@ test("reducer constants and action pin boundaries stay covered while the retired
 
 test("ordinary build adapters retain literal project and root contracts", () => {
   const expected = {
-    governance: [
-      "${{ vars.VERCEL_PROJECT_ID_GOVERNANCE }}",
-      "apps/governance.mento.org",
-    ],
     reserve: [
       "${{ vars.VERCEL_PROJECT_ID_RESERVE }}",
       "apps/reserve.mento.org",
@@ -3275,7 +3238,7 @@ test("the post-recovery rider census runs after every compensation slot", () => 
       step.name ?? "",
     ),
   );
-  assert.equal(slots.length, 5);
+  assert.equal(slots.length, 4);
   for (const slot of slots) {
     assert.ok(jobSteps.indexOf(slot) < census, slot.name);
   }

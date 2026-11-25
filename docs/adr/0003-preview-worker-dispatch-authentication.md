@@ -6,11 +6,16 @@ canonical: true
 last_verified: 2026-07-22
 scope: ci/deployment/preview-worker-dispatch-authentication
 date: 2026-07
+superseded_in_part_by:
+  - "0017"
 ---
 
 # ADR 0003 — A dedicated repository-scoped credential dispatches preview workers
 
 **Status:** Accepted (Jul 2026)
+Amended 2026-11-24 by
+[ADR 0017](0017-retire-governance-from-vercel-deployment.md): Governance is no
+longer a preview target, so its rollback below is history.
 **Scope:** ci/deployment/preview-worker-dispatch-authentication
 
 ## Context

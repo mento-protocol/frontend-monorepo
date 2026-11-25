@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       logical_target:
-        description: Literal app, governance, reserve, or ui target
+        description: Literal app, reserve, or ui target
         required: true
         type: string
       deployment_url:
@@ -165,13 +165,13 @@ jobs:
       - name: Run common HTTP, header, build-ID, and representative-asset smoke
         run: node scripts/vercel-preview-smoke.mjs http
 
-      - name: Exercise App and Governance wallet list and team-preview mock wallet
-        if: inputs.logical_target == 'app' || inputs.logical_target == 'governance'
+      - name: Exercise App wallet list and team-preview mock wallet
+        if: inputs.logical_target == 'app'
         env:
           PREVIEW_URL: ${{ inputs.deployment_url }}
         run: pnpm exec playwright test --config apps/app.mento.org/playwright.preview.config.ts
 
-      - name: Run App, Governance, or Reserve browser smoke
+      - name: Run App or Reserve browser smoke
         if: inputs.logical_target != 'ui'
         env:
           PLAYWRIGHT_BROWSER_CHANNEL: bundled

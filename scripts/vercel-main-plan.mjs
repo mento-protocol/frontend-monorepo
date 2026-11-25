@@ -76,12 +76,7 @@ const SELECTION_REASONS = new Set([
   "shadow-native-already-current",
 ]);
 
-export const MAIN_DEPLOYMENT_TARGETS = Object.freeze([
-  "app",
-  "governance",
-  "reserve",
-  "ui",
-]);
+export const MAIN_DEPLOYMENT_TARGETS = Object.freeze(["app", "reserve", "ui"]);
 
 export const MAIN_DEPLOYMENT_MODES = Object.freeze({
   ACTIVE: "active",
@@ -102,12 +97,6 @@ export const MAIN_TARGET_CONTRACTS = Object.freeze({
     aliases: Object.freeze(["app.mento.org"]),
     customEnvironmentSlug: null,
     projectName: "app.mento.org",
-    target: "production",
-  }),
-  governance: Object.freeze({
-    aliases: Object.freeze(["governance.mento.org"]),
-    customEnvironmentSlug: null,
-    projectName: "governance.mento.org",
     target: "production",
   }),
   reserve: Object.freeze({
@@ -262,7 +251,7 @@ function assertTargetObject(value, label) {
     JSON.stringify(Object.keys(value).toSorted()) !==
       JSON.stringify([...MAIN_DEPLOYMENT_TARGETS].toSorted())
   ) {
-    throw new Error(`${label} must contain exactly the four main targets`);
+    throw new Error(`${label} must contain exactly the three main targets`);
   }
 }
 
@@ -288,7 +277,7 @@ export function partitionMainOwnership({ mode, mainOwnershipMode }) {
     githubTargets.length > 0
   ) {
     throw new Error(
-      "Global shadow mode requires all four targets to use shadow ownership",
+      "Global shadow mode requires all three targets to use shadow ownership",
     );
   }
   return {

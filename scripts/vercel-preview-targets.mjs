@@ -134,20 +134,6 @@ export const PREVIEW_TARGET_CONFIG = Object.freeze({
       PREVIEW_SHADOW_GITHUB_MAIN_VERCEL_CONFIGURATION,
     nativeVercelConfiguration: NATIVE_VERCEL_CONFIGURATION,
   }),
-  governance: targetConfiguration({
-    logicalTarget: "governance",
-    workspacePackage: "governance.mento.org",
-    expectedRootDirectory: "apps/governance.mento.org",
-    projectVariable: "VERCEL_PROJECT_ID_GOVERNANCE",
-    ownershipMode: PREVIEW_OWNERSHIP_MODES.GITHUB,
-    mainOwnershipMode: MAIN_OWNERSHIP_MODES.GITHUB,
-    vercelConfigurationPath: "apps/governance.mento.org/vercel.json",
-    activeVercelConfiguration: ACTIVE_GITHUB_VERCEL_CONFIGURATION,
-    mainShadowVercelConfiguration: MAIN_SHADOW_GITHUB_VERCEL_CONFIGURATION,
-    previewShadowVercelConfiguration:
-      PREVIEW_SHADOW_GITHUB_MAIN_VERCEL_CONFIGURATION,
-    nativeVercelConfiguration: NATIVE_VERCEL_CONFIGURATION,
-  }),
   reserve: targetConfiguration({
     logicalTarget: "reserve",
     workspacePackage: "reserve.mento.org",
