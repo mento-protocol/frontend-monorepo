@@ -12,7 +12,7 @@ permissions:
 
 env:
   VERCEL_MAIN_MODE: active
-  MAIN_OWNERSHIP_MODE_JSON: '{"app":"github","reserve":"github","ui":"github"}'
+  MAIN_OWNERSHIP_MODE_JSON: '{"app":"github","reserve":"github"}'
   SOURCE_PATH: source
   TRUSTED_POST_BUILD_PATH: trusted-after-build
 
@@ -129,7 +129,6 @@ jobs:
       UPSTREAM_RUN_URL: ${{ needs.wait-for-ci.outputs.upstream_run_url }}
       VERCEL_PROJECT_ID_APP: ${{ vars.VERCEL_PROJECT_ID_APP }}
       VERCEL_PROJECT_ID_RESERVE: ${{ vars.VERCEL_PROJECT_ID_RESERVE }}
-      VERCEL_PROJECT_ID_UI: ${{ vars.VERCEL_PROJECT_ID_UI }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -167,7 +166,7 @@ jobs:
           node scripts/vercel-main-deployment.mjs create-spec --scope main --output "$RUNNER_TEMP/main-spec.json"
           node scripts/vercel-deployment-state.mjs planning-snapshot --spec "$RUNNER_TEMP/main-spec.json" --output "$RUNNER_TEMP/planning.json"
           umask 077
-          jq -n --arg app "$VERCEL_PROJECT_ID_APP" --arg reserve "$VERCEL_PROJECT_ID_RESERVE" --arg ui "$VERCEL_PROJECT_ID_UI" '{app:$app,reserve:$reserve,ui:$ui}' > "$RUNNER_TEMP/projects.json"
+          jq -n --arg app "$VERCEL_PROJECT_ID_APP" --arg reserve "$VERCEL_PROJECT_ID_RESERVE" '{app:$app,reserve:$reserve}' > "$RUNNER_TEMP/projects.json"
       - name: Discover protected provider candidates
         env:
           VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
@@ -233,7 +232,6 @@ jobs:
       MAIN_PREPLAN_HANDOFF: ${{ needs.provider-preplan.outputs.handoff }}
       VERCEL_PROJECT_ID_APP: ${{ vars.VERCEL_PROJECT_ID_APP }}
       VERCEL_PROJECT_ID_RESERVE: ${{ vars.VERCEL_PROJECT_ID_RESERVE }}
-      VERCEL_PROJECT_ID_UI: ${{ vars.VERCEL_PROJECT_ID_UI }}
     steps:
       - name: Check out immutable inherited recovery controller
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -317,32 +315,6 @@ jobs:
           test "${{ steps.inherited-reserve-preflight.outputs.action }}" = reuse
           node scripts/vercel-main-provider-cli.mjs candidate-smoke --intent "$RUNNER_TEMP/inherited-reserve-intent.json" --output "$RUNNER_TEMP/inherited-reserve-smoke.json"
           node scripts/vercel-main-provider-cli.mjs candidate-finalize-inherited --intent "$RUNNER_TEMP/inherited-reserve-intent.json" --smoke "$RUNNER_TEMP/inherited-reserve-smoke.json" --output "$RUNNER_TEMP/inherited-reserve-receipt.json"
-      - name: Create inherited UI candidate intent
-        if: contains(fromJSON(steps.inherited.outputs.inherited_candidate_targets), 'ui')
-        run: >-
-          node scripts/vercel-main-release-cli.mjs inherited-candidate-intent
-          --preplan "$RUNNER_TEMP/inherited-preplan.json" --target ui
-          --output "$RUNNER_TEMP/inherited-ui-intent.json"
-      - name: Require an existing inherited UI provider candidate
-        if: contains(fromJSON(steps.inherited.outputs.inherited_candidate_targets), 'ui')
-        id: inherited-ui-preflight
-        env:
-          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
-        run: >-
-          node scripts/vercel-main-provider-cli.mjs candidate-preflight
-          --intent "$RUNNER_TEMP/inherited-ui-intent.json"
-          --output "$RUNNER_TEMP/inherited-ui-preflight.json"
-      - name: Freshly smoke and finalize inherited UI candidate
-        if: contains(fromJSON(steps.inherited.outputs.inherited_candidate_targets), 'ui')
-        id: inherited-ui-finalize
-        env:
-          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN_PRODUCTION }}
-        run: |
-          test "${{ steps.inherited-ui-preflight.outputs.action }}" = reuse
-          node scripts/vercel-main-provider-cli.mjs candidate-smoke --intent "$RUNNER_TEMP/inherited-ui-intent.json" --output "$RUNNER_TEMP/inherited-ui-smoke.json"
-          node scripts/vercel-main-provider-cli.mjs candidate-finalize-inherited --intent "$RUNNER_TEMP/inherited-ui-intent.json" --smoke "$RUNNER_TEMP/inherited-ui-smoke.json" --output "$RUNNER_TEMP/inherited-ui-receipt.json"
       - name: Create inherited App candidate intent
         if: contains(fromJSON(steps.inherited.outputs.inherited_candidate_targets), 'app')
         run: >-
@@ -373,12 +345,11 @@ jobs:
         env:
           APP_RECEIPT: ${{ steps.inherited-app-finalize.outputs.receipt || 'none' }}
           RESERVE_RECEIPT: ${{ steps.inherited-reserve-finalize.outputs.receipt || 'none' }}
-          UI_RECEIPT: ${{ steps.inherited-ui-finalize.outputs.receipt || 'none' }}
         run: >-
           node scripts/vercel-main-release-cli.mjs inherited-candidate-receipts
           --preplan "$RUNNER_TEMP/inherited-preplan.json"
           --app "$APP_RECEIPT"
-          --reserve "$RESERVE_RECEIPT" --ui "$UI_RECEIPT"
+          --reserve "$RESERVE_RECEIPT"
           --output "$RUNNER_TEMP/inherited-candidate-receipts.json"
       - name: Recapture authoritative inherited mappings after candidate validation
         env:
@@ -506,7 +477,7 @@ jobs:
         id: recovery-head-2
         if: ${{ always() && !failure() && !cancelled() }}
         run: node scripts/vercel-main-deployment.mjs active-journal-history --artifacts "$RUNNER_TEMP/inherited-journals" --output "$RUNNER_TEMP/inherited-head-2.json"
-      - name: Restore bounded inherited transition 3
+      - name: Restore terminal inherited transition 3
         if: ${{ steps.recovery-head-2.outputs.highest_status != 'recovered' }}
         uses: ./.github/actions/vercel-main-active-recovery-transition
         env:
@@ -521,27 +492,6 @@ jobs:
             operation-cwd: "${{ github.workspace }}/source",
             recovery-plan: "${{ runner.temp }}/inherited-recovery-plan.json",
             slot: "3",
-            vercel-cli: "${{ steps.recovery-runtime.outputs.vercel-cli }}",
-          }
-      - name: Inspect inherited recovery head 3
-        id: recovery-head-3
-        if: ${{ always() && !failure() && !cancelled() }}
-        run: node scripts/vercel-main-deployment.mjs active-journal-history --artifacts "$RUNNER_TEMP/inherited-journals" --output "$RUNNER_TEMP/inherited-head-3.json"
-      - name: Restore terminal inherited transition 4
-        if: ${{ steps.recovery-head-3.outputs.highest_status != 'recovered' }}
-        uses: ./.github/actions/vercel-main-active-recovery-transition
-        env:
-          {
-            VERCEL_ORG_ID: "${{ vars.VERCEL_ORG_ID }}",
-            VERCEL_TOKEN: "${{ secrets.VERCEL_TOKEN_PRODUCTION }}",
-          }
-        with:
-          {
-            controller-path: "${{ github.workspace }}",
-            journal-directory: "${{ runner.temp }}/inherited-journals",
-            operation-cwd: "${{ github.workspace }}/source",
-            recovery-plan: "${{ runner.temp }}/inherited-recovery-plan.json",
-            slot: "4",
             vercel-cli: "${{ steps.recovery-runtime.outputs.vercel-cli }}",
           }
       - name: Read final canonical inherited recovery head
@@ -607,7 +557,6 @@ jobs:
       UPSTREAM_RUN_URL: ${{ needs.wait-for-ci.outputs.upstream_run_url }}
       VERCEL_PROJECT_ID_APP: ${{ vars.VERCEL_PROJECT_ID_APP }}
       VERCEL_PROJECT_ID_RESERVE: ${{ vars.VERCEL_PROJECT_ID_RESERVE }}
-      VERCEL_PROJECT_ID_UI: ${{ vars.VERCEL_PROJECT_ID_UI }}
     steps:
       - name: Check out immutable release preparation controller
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -644,7 +593,7 @@ jobs:
         run: |
           node scripts/vercel-main-deployment.mjs create-spec --scope main --output "$RUNNER_TEMP/main-spec.json"
           umask 077
-          jq -n --arg app "$VERCEL_PROJECT_ID_APP" --arg reserve "$VERCEL_PROJECT_ID_RESERVE" --arg ui "$VERCEL_PROJECT_ID_UI" '{app:$app,reserve:$reserve,ui:$ui}' > "$RUNNER_TEMP/projects.json"
+          jq -n --arg app "$VERCEL_PROJECT_ID_APP" --arg reserve "$VERCEL_PROJECT_ID_RESERVE" '{app:$app,reserve:$reserve}' > "$RUNNER_TEMP/projects.json"
       - name: Capture a wholly fresh main snapshot
         env:
           VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
@@ -1112,214 +1061,6 @@ jobs:
         uses: ./.github/actions/vercel-protected-runtime
         with: { operation: cleanup, logical-target: reserve }
 
-  stage-ui:
-    name: Stage UI candidate
-    needs: [wait-for-ci, require-ci-success, prepare-release]
-    if: >-
-      always() && !cancelled() && needs.wait-for-ci.result == 'success' &&
-      needs.require-ci-success.result == 'success' &&
-      needs.prepare-release.result == 'success' &&
-      contains(fromJSON(needs.prepare-release.outputs.targets), 'ui')
-    runs-on: ubuntu-latest
-    timeout-minutes: 50
-    environment:
-      name: vercel-cli-production
-      deployment: false # trunk-ignore(actionlint/syntax-check): Pinned actionlint has not learned GitHub's deployment key.
-    outputs:
-      receipt: ${{ steps.finalize.outputs.receipt }}
-      evidence: ${{ steps.terminal.outputs.evidence }}
-    env:
-      DEPLOY_SHA: ${{ needs.wait-for-ci.outputs.deploy_sha }}
-      UPSTREAM_RUN_ID: ${{ needs.wait-for-ci.outputs.upstream_run_id }}
-      UPSTREAM_RUN_ATTEMPT: ${{ needs.wait-for-ci.outputs.upstream_run_attempt }}
-      MAIN_RELEASE_EXECUTION: ${{ needs.prepare-release.outputs.execution }}
-      LOGICAL_TARGET: ui
-      VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID_UI }}
-      VERCEL_PROJECT_ID_UI: ${{ vars.VERCEL_PROJECT_ID_UI }}
-    steps:
-      - name: Check out trusted UI controller
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          {
-            fetch-depth: 1,
-            persist-credentials: false,
-            ref: "${{ github.workflow_sha }}",
-          }
-      - name: Check out exact UI source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          {
-            fetch-depth: 0,
-            path: source,
-            persist-credentials: false,
-            ref: "${{ needs.wait-for-ci.outputs.deploy_sha }}",
-          }
-      - name: Prove exact UI source
-        env: { GITHUB_WORKFLOW_SHA: "${{ github.workflow_sha }}" }
-        run: |
-          git -C "$SOURCE_PATH" fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
-          node scripts/vercel-main-deployment.mjs validate-source
-      - name: Install exact UI source without lifecycle scripts
-        uses: ./.github/actions/pnpm-install
-        with:
-          {
-            working-directory: source,
-            ignore-scripts: "true",
-            filter: frontend-monorepo,
-          }
-      - name: Materialize execution and create UI current intent
-        id: intent
-        run: |
-          node scripts/vercel-main-release-cli.mjs materialize --output "$RUNNER_TEMP/execution.json"
-          node scripts/vercel-main-deployment.mjs candidate-intent --execution "$RUNNER_TEMP/execution.json" --target ui --output "$RUNNER_TEMP/intent.json"
-      - name: Prepare protected UI runtime
-        id: runtime
-        uses: ./.github/actions/vercel-protected-runtime
-        with:
-          {
-            operation: prepare,
-            logical-target: ui,
-            controller-path: "${{ github.workspace }}",
-            source-path: "${{ github.workspace }}/source",
-          }
-      - name: Verify pinned UI prerequisites
-        run: ${{ steps.runtime.outputs.node-bin }} scripts/vercel-prebuilt.mjs check-versions --repo-root "$SOURCE_PATH"
-      - name: Prepare runner-owned UI pull staging
-        env:
-          {
-            PULL_STAGING_PATH: "${{ steps.runtime.outputs.pull-staging-path }}",
-            SOURCE_PATH: "${{ steps.runtime.outputs.pull-staging-path }}",
-            VERCEL_ISOLATION_ROOT: "${{ steps.runtime.outputs.isolation-root }}",
-            VERCEL_ORG_ID: "${{ vars.VERCEL_ORG_ID }}",
-          }
-        run: ${{ steps.runtime.outputs.node-bin }} scripts/vercel-production-shadow.mjs prepare-pull-staging
-      - name: Pull UI production configuration
-        env:
-          {
-            SOURCE_PATH: "${{ steps.runtime.outputs.pull-staging-path }}",
-            TRUSTED_NODE_PATH: "${{ steps.runtime.outputs.node-bin }}",
-            TRUSTED_VERCEL_CLI_PATH: "${{ steps.runtime.outputs.vercel-cli }}",
-            VERCEL_ORG_ID: "${{ vars.VERCEL_ORG_ID }}",
-            VERCEL_TOKEN: "${{ secrets.VERCEL_TOKEN_PRODUCTION }}",
-          }
-        run: ${{ steps.runtime.outputs.node-bin }} scripts/vercel-production-shadow.mjs pull
-      - name: Validate UI project and Root Directory
-        env:
-          {
-            PULL_STAGING_PATH: "${{ steps.runtime.outputs.pull-staging-path }}",
-            SOURCE_PATH: "${{ steps.runtime.outputs.pull-staging-path }}",
-            VERCEL_ISOLATION_ROOT: "${{ steps.runtime.outputs.isolation-root }}",
-            VERCEL_ORG_ID: "${{ vars.VERCEL_ORG_ID }}",
-            VERCEL_TOKEN: "${{ secrets.VERCEL_TOKEN_PRODUCTION }}",
-          }
-        run: |
-          "${{ steps.runtime.outputs.node-bin }}" scripts/vercel-production-shadow.mjs validate-pull-staging
-          "${{ steps.runtime.outputs.node-bin }}" scripts/vercel-deployment-state.mjs project --project-id "$VERCEL_PROJECT_ID" --project-name ui.mento.org --root-directory apps/ui.mento.org
-      - name: Preflight UI candidate provider
-        id: preflight
-        env:
-          {
-            VERCEL_ORG_ID: "${{ vars.VERCEL_ORG_ID }}",
-            VERCEL_TOKEN: "${{ secrets.VERCEL_TOKEN_PRODUCTION }}",
-          }
-        run: node scripts/vercel-main-provider-cli.mjs candidate-preflight --intent "$RUNNER_TEMP/intent.json" --output "$RUNNER_TEMP/preflight.json"
-      - name: Materialize UI candidate metadata
-        if: steps.preflight.outputs.action == 'create'
-        run: node scripts/vercel-main-deployment.mjs candidate-metadata --intent "$RUNNER_TEMP/intent.json" --output "$RUNNER_TEMP/ui-candidate-metadata.json"
-      - name: Build and upload UI only when candidate creation is authorized
-        id: build
-        if: steps.preflight.outputs.action == 'create'
-        env:
-          CI: 1
-          MENTO_NEXT_DEPLOYMENT_ID: ${{ steps.intent.outputs.candidate_id }}
-          NEXT_PUBLIC_VERCEL_ENV: production
-          TURBO_REMOTE_CACHE_SIGNATURE_KEY: ${{ secrets.TURBO_REMOTE_CACHE_SIGNATURE_KEY }}
-          TURBO_TEAM: ${{ vars.TURBO_TEAM }}
-          TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
-          VERCEL: 1
-          VERCEL_ENV: production
-          VERCEL_GIT_COMMIT_REF: main
-          VERCEL_GIT_COMMIT_SHA: ${{ needs.wait-for-ci.outputs.deploy_sha }}
-          VERCEL_GIT_PROVIDER: github
-          VERCEL_GIT_REPO_OWNER: mento-protocol
-          VERCEL_GIT_REPO_SLUG: frontend-monorepo
-          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
-          VERCEL_TARGET_ENV: production
-        uses: ./.github/actions/vercel-candidate-build
-        with:
-          controller-path: ${{ github.workspace }}
-          source-path: ${{ github.workspace }}/source
-          runtime-root: ${{ steps.runtime.outputs.runtime-root }}
-          isolation-root: ${{ steps.runtime.outputs.isolation-root }}
-          runtime-marker: ${{ steps.runtime.outputs.runtime-marker }}
-          tools-path: ${{ steps.runtime.outputs.tools-path }}
-          build-environment-path: ${{ steps.runtime.outputs.build-environment-path }}
-          candidate-source-path: ${{ steps.runtime.outputs.candidate-source-path }}
-          candidate-home-path: ${{ steps.runtime.outputs.candidate-home-path }}
-          pull-staging-path: ${{ steps.runtime.outputs.pull-staging-path }}
-          candidate-identity-marker: ${{ steps.runtime.outputs.candidate-identity-marker }}
-          build-log-path: ${{ steps.runtime.outputs.build-log-path }}
-          provenance-path: ${{ steps.runtime.outputs.provenance-path }}
-          upload-source-path: ${{ steps.runtime.outputs.upload-source-path }}
-          node-bin: ${{ steps.runtime.outputs.node-bin }}
-          pnpm-bin: ${{ steps.runtime.outputs.pnpm-bin }}
-          vercel-cli: ${{ steps.runtime.outputs.vercel-cli }}
-          deploy-sha: ${{ needs.wait-for-ci.outputs.deploy_sha }}
-          next-deployment-id: ${{ steps.intent.outputs.candidate_id }}
-          logical-target: ui
-          expected-root-directory: apps/ui.mento.org
-          vercel-org-id: ${{ vars.VERCEL_ORG_ID }}
-          vercel-project-id: ${{ vars.VERCEL_PROJECT_ID_UI }}
-      - name: Restore trusted UI controller after build
-        if: steps.preflight.outputs.action == 'create'
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          {
-            fetch-depth: 1,
-            path: trusted-after-build,
-            persist-credentials: false,
-            ref: "${{ github.workflow_sha }}",
-          }
-      - name: Upload UI candidate without public custom domains
-        if: steps.preflight.outputs.action == 'create'
-        env:
-          {
-            SOURCE_PATH: "${{ steps.runtime.outputs.upload-source-path }}",
-            TRUSTED_NODE_PATH: "${{ steps.runtime.outputs.node-bin }}",
-            TRUSTED_VERCEL_CLI_PATH: "${{ steps.runtime.outputs.vercel-cli }}",
-            VERCEL_ORG_ID: "${{ vars.VERCEL_ORG_ID }}",
-            VERCEL_TOKEN: "${{ secrets.VERCEL_TOKEN_PRODUCTION }}",
-          }
-        run: ${{ steps.runtime.outputs.node-bin }} "$TRUSTED_POST_BUILD_PATH/scripts/vercel-production-shadow.mjs" deploy --candidate-metadata "$RUNNER_TEMP/ui-candidate-metadata.json" --expected "$RUNNER_TEMP/ui-deployment-expectation.json"
-      - name: Freshly smoke and finalize UI candidate
-        id: finalize
-        env:
-          {
-            VERCEL_ORG_ID: "${{ vars.VERCEL_ORG_ID }}",
-            VERCEL_TOKEN: "${{ secrets.VERCEL_TOKEN_PRODUCTION }}",
-          }
-        run: |
-          node scripts/vercel-main-provider-cli.mjs candidate-smoke --intent "$RUNNER_TEMP/intent.json" --output "$RUNNER_TEMP/smoke.json"
-          node scripts/vercel-main-provider-cli.mjs candidate-finalize --intent "$RUNNER_TEMP/intent.json" --smoke "$RUNNER_TEMP/smoke.json" --preflight "$RUNNER_TEMP/preflight.json" --output "$RUNNER_TEMP/receipt.json"
-      - name: Publish UI terminal outputs
-        id: terminal
-        if: ${{ always() }}
-        run: echo "evidence=${{ steps.finalize.outputs.receipt }}" >> "$GITHUB_OUTPUT"
-      - name: Upload UI browser diagnostics on failure
-        if: failure()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          {
-            name: "vercel-main-ui-${{ github.run_id }}-${{ github.run_attempt }}",
-            path: trusted-after-build/apps/app.mento.org/test-results/,
-            if-no-files-found: ignore,
-            retention-days: 7,
-          }
-      - name: Remove authenticated UI runtime
-        if: ${{ always() }}
-        uses: ./.github/actions/vercel-protected-runtime
-        with: { operation: cleanup, logical-target: ui }
-
   activate-and-verify:
     name: Verify staged candidates and activate release
     needs:
@@ -1329,7 +1070,6 @@ jobs:
         prepare-release,
         stage-app,
         stage-reserve,
-        stage-ui,
       ]
     if: >-
       always() && !cancelled() &&
@@ -1353,7 +1093,6 @@ jobs:
       MAIN_RELEASE_EXECUTION: ${{ needs.prepare-release.outputs.execution }}
       VERCEL_PROJECT_ID_APP: ${{ vars.VERCEL_PROJECT_ID_APP }}
       VERCEL_PROJECT_ID_RESERVE: ${{ vars.VERCEL_PROJECT_ID_RESERVE }}
-      VERCEL_PROJECT_ID_UI: ${{ vars.VERCEL_PROJECT_ID_UI }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -1401,9 +1140,6 @@ jobs:
           RESERVE_RECEIPT: ${{ needs.stage-reserve.outputs.receipt || 'none' }}
           RESERVE_RESULT: ${{ needs.stage-reserve.result }}
           RESERVE_SELECTED: ${{ contains(fromJSON(needs.prepare-release.outputs.targets), 'reserve') }}
-          UI_RECEIPT: ${{ needs.stage-ui.outputs.receipt || 'none' }}
-          UI_RESULT: ${{ needs.stage-ui.result }}
-          UI_SELECTED: ${{ contains(fromJSON(needs.prepare-release.outputs.targets), 'ui') }}
         run: |
           set -euo pipefail
           validate_stage() {
@@ -1421,7 +1157,6 @@ jobs:
           }
           validate_stage app "$APP_SELECTED" "$APP_RESULT" "$APP_RECEIPT"
           validate_stage reserve "$RESERVE_SELECTED" "$RESERVE_RESULT" "$RESERVE_RECEIPT"
-          validate_stage ui "$UI_SELECTED" "$UI_RESULT" "$UI_RECEIPT"
       - name: Check remote main freshness before activation
         if: needs.prepare-release.outputs.no_target != 'true'
         id: freshness
@@ -1487,7 +1222,6 @@ jobs:
           --execution "$RUNNER_TEMP/execution.json"
           --app "${{ needs.stage-app.outputs.receipt || 'none' }}"
           --reserve "${{ needs.stage-reserve.outputs.receipt || 'none' }}"
-          --ui "${{ needs.stage-ui.outputs.receipt || 'none' }}"
           --output "$RUNNER_TEMP/all-candidate-receipts.json"
       - name: Create the exact stage barrier before activation
         if: steps.freshness.outputs.status == 'fresh'
@@ -1513,10 +1247,10 @@ jobs:
         id: shadow-terminal
         run: |
           set -euo pipefail
-          for target in app reserve ui; do
+          for target in app reserve; do
             printf 'null\n' > "$RUNNER_TEMP/shadow-$target-runtime-smoke.json"
           done
-          node scripts/vercel-main-deployment.mjs active-public-smokes --execution "$RUNNER_TEMP/execution.json" --stage-barrier "$RUNNER_TEMP/stage-barrier.json" --app "$RUNNER_TEMP/shadow-app-runtime-smoke.json" --reserve "$RUNNER_TEMP/shadow-reserve-runtime-smoke.json" --ui "$RUNNER_TEMP/shadow-ui-runtime-smoke.json" --output "$RUNNER_TEMP/shadow-public-smokes.json"
+          node scripts/vercel-main-deployment.mjs active-public-smokes --execution "$RUNNER_TEMP/execution.json" --stage-barrier "$RUNNER_TEMP/stage-barrier.json" --app "$RUNNER_TEMP/shadow-app-runtime-smoke.json" --reserve "$RUNNER_TEMP/shadow-reserve-runtime-smoke.json" --output "$RUNNER_TEMP/shadow-public-smokes.json"
           node scripts/vercel-main-deployment.mjs active-terminal-state-proof --execution "$RUNNER_TEMP/execution.json" --stage-barrier "$RUNNER_TEMP/stage-barrier.json" --state-proof "$RUNNER_TEMP/null.json" --output "$RUNNER_TEMP/shadow-terminal-state-proof.json"
           node scripts/vercel-main-release-cli.mjs terminal-artifacts --active-evidence-output "$RUNNER_TEMP/active-evidence.json" --execution "$RUNNER_TEMP/execution.json" --final-census "$RUNNER_TEMP/shadow-terminal-state-proof.json" --final-mappings "$RUNNER_TEMP/shadow-mappings.json" --freshness "$RUNNER_TEMP/null.json" --journal-history "$RUNNER_TEMP/empty-history.json" --outcome shadow-prepared --proofs-output "$RUNNER_TEMP/terminal-proofs.json" --public-smokes "$RUNNER_TEMP/shadow-public-smokes.json" --stage-results "$RUNNER_TEMP/null.json" --state-proof "$RUNNER_TEMP/shadow-terminal-state-proof.json"
           echo 'outcome=shadow-prepared' >> "$GITHUB_OUTPUT"
@@ -1609,28 +1343,6 @@ jobs:
             stage-barrier: "${{ runner.temp }}/stage-barrier.json",
             vercel-cli: "${{ steps.app-runtime.outputs.vercel-cli }}",
           }
-      - name: Activate bounded Vercel transition 3
-        if: >-
-          steps.freshness.outputs.status == 'fresh' &&
-          needs.prepare-release.outputs.has_active_targets == 'true' &&
-          needs.prepare-release.outputs.decision != 'verify-existing-release'
-        uses: ./.github/actions/vercel-main-active-transition
-        env:
-          {
-            VERCEL_ORG_ID: "${{ vars.VERCEL_ORG_ID }}",
-            VERCEL_TOKEN: "${{ secrets.VERCEL_TOKEN_PRODUCTION }}",
-          }
-        with:
-          {
-            controller-path: "${{ github.workspace }}",
-            execution: "${{ runner.temp }}/execution.json",
-            journal-directory: "${{ runner.temp }}/active-journals",
-            operation-cwd: "${{ github.workspace }}/source",
-            prepared-journal: "${{ runner.temp }}/prepared-journal.json",
-            slot: "3",
-            stage-barrier: "${{ runner.temp }}/stage-barrier.json",
-            vercel-cli: "${{ steps.app-runtime.outputs.vercel-cli }}",
-          }
       - name: Install trusted Chromium for final public runtime checks
         if: >-
           steps.freshness.outputs.status == 'fresh' &&
@@ -1664,18 +1376,6 @@ jobs:
         run: >-
           node scripts/vercel-main-runtime.mjs
           > "$RUNNER_TEMP/reserve-runtime-smoke.json"
-      - name: Run selected UI public runtime smoke
-        if: >-
-          steps.freshness.outputs.status == 'fresh' &&
-          contains(fromJSON(needs.prepare-release.outputs.active_targets), 'ui')
-        working-directory: source
-        env:
-          DEPLOY_SHA: ${{ needs.wait-for-ci.outputs.deploy_sha }}
-          LOGICAL_TARGET: ui
-          PUBLIC_URL: https://ui.mento.org/
-        run: >-
-          node scripts/vercel-main-runtime.mjs
-          > "$RUNNER_TEMP/ui-runtime-smoke.json"
       - name: Materialize exact public smoke results
         if: >-
           steps.freshness.outputs.status == 'fresh' &&
@@ -1683,7 +1383,6 @@ jobs:
         env:
           APP_ACTIVE: ${{ contains(fromJSON(needs.prepare-release.outputs.active_targets), 'app') }}
           RESERVE_ACTIVE: ${{ contains(fromJSON(needs.prepare-release.outputs.active_targets), 'reserve') }}
-          UI_ACTIVE: ${{ contains(fromJSON(needs.prepare-release.outputs.active_targets), 'ui') }}
         run: |
           set -euo pipefail
           materialize_inactive_smoke() {
@@ -1697,13 +1396,11 @@ jobs:
           }
           materialize_inactive_smoke "$APP_ACTIVE" "$RUNNER_TEMP/app-runtime-smoke.json"
           materialize_inactive_smoke "$RESERVE_ACTIVE" "$RUNNER_TEMP/reserve-runtime-smoke.json"
-          materialize_inactive_smoke "$UI_ACTIVE" "$RUNNER_TEMP/ui-runtime-smoke.json"
           node scripts/vercel-main-deployment.mjs active-public-smokes \
             --execution "$RUNNER_TEMP/execution.json" \
             --stage-barrier "$RUNNER_TEMP/stage-barrier.json" \
             --app "$RUNNER_TEMP/app-runtime-smoke.json" \
             --reserve "$RUNNER_TEMP/reserve-runtime-smoke.json" \
-            --ui "$RUNNER_TEMP/ui-runtime-smoke.json" \
             --output "$RUNNER_TEMP/public-smokes.json"
       - name: Capture fresh final mappings state census and freshness
         if: >-
@@ -1870,7 +1567,6 @@ jobs:
         prepare-release,
         stage-app,
         stage-reserve,
-        stage-ui,
         activate-and-verify,
       ]
     if: >-
@@ -1897,7 +1593,6 @@ jobs:
       MAIN_RELEASE_EXECUTION: ${{ needs.prepare-release.outputs.execution }}
       VERCEL_PROJECT_ID_APP: ${{ vars.VERCEL_PROJECT_ID_APP }}
       VERCEL_PROJECT_ID_RESERVE: ${{ vars.VERCEL_PROJECT_ID_RESERVE }}
-      VERCEL_PROJECT_ID_UI: ${{ vars.VERCEL_PROJECT_ID_UI }}
     steps:
       - name: Check out immutable recovery controller
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -2171,7 +1866,7 @@ jobs:
         id: recovery-head-2
         if: ${{ always() && steps.journal-presence.outputs.has_journal == 'true' && steps.initialize.outputs.transition_kind == 'journal' && !failure() && !cancelled() }}
         run: node scripts/vercel-main-deployment.mjs active-journal-history --artifacts "$RUNNER_TEMP/current-attempt-journals" --output "$RUNNER_TEMP/recovery-head-2.json"
-      - name: Restore bounded recovery transition 3
+      - name: Restore terminal recovery transition 3
         if: ${{ steps.journal-presence.outputs.has_journal == 'true' && steps.initialize.outputs.transition_kind == 'journal' && steps.recovery-head-2.outputs.highest_status != 'recovered' && steps.recovery-head-2.outputs.highest_status != 'manual_intervention' }}
         uses: ./.github/actions/vercel-main-active-recovery-transition
         env:
@@ -2186,27 +1881,6 @@ jobs:
             operation-cwd: "${{ github.workspace }}/source",
             recovery-plan: "${{ runner.temp }}/recovery-plan.json",
             slot: "3",
-            vercel-cli: "${{ steps.recovery-runtime.outputs.vercel-cli }}",
-          }
-      - name: Inspect recovery head 3
-        id: recovery-head-3
-        if: ${{ always() && steps.journal-presence.outputs.has_journal == 'true' && steps.initialize.outputs.transition_kind == 'journal' && !failure() && !cancelled() }}
-        run: node scripts/vercel-main-deployment.mjs active-journal-history --artifacts "$RUNNER_TEMP/current-attempt-journals" --output "$RUNNER_TEMP/recovery-head-3.json"
-      - name: Restore terminal recovery transition 4
-        if: ${{ steps.journal-presence.outputs.has_journal == 'true' && steps.initialize.outputs.transition_kind == 'journal' && steps.recovery-head-3.outputs.highest_status != 'recovered' && steps.recovery-head-3.outputs.highest_status != 'manual_intervention' }}
-        uses: ./.github/actions/vercel-main-active-recovery-transition
-        env:
-          {
-            VERCEL_ORG_ID: "${{ vars.VERCEL_ORG_ID }}",
-            VERCEL_TOKEN: "${{ secrets.VERCEL_TOKEN_PRODUCTION }}",
-          }
-        with:
-          {
-            controller-path: "${{ github.workspace }}",
-            journal-directory: "${{ runner.temp }}/current-attempt-journals",
-            operation-cwd: "${{ github.workspace }}/source",
-            recovery-plan: "${{ runner.temp }}/recovery-plan.json",
-            slot: "4",
             vercel-cli: "${{ steps.recovery-runtime.outputs.vercel-cli }}",
           }
       - name: Read final current-attempt recovery head
@@ -2279,10 +1953,9 @@ jobs:
           APP_RESULT: ${{ needs.stage-app.result }}
           COORDINATOR_RESULT: ${{ needs.activate-and-verify.result }}
           RESERVE_RESULT: ${{ needs.stage-reserve.result }}
-          UI_RESULT: ${{ needs.stage-ui.result }}
         run: |
           set -euo pipefail
-          node scripts/vercel-main-release-cli.mjs terminal-stage-results --execution "$RUNNER_TEMP/execution.json" --app-result "$APP_RESULT" --reserve-result "$RESERVE_RESULT" --ui-result "$UI_RESULT" --coordinator-result "$COORDINATOR_RESULT" --output "$RUNNER_TEMP/preparation-stage-results.json"
+          node scripts/vercel-main-release-cli.mjs terminal-stage-results --execution "$RUNNER_TEMP/execution.json" --app-result "$APP_RESULT" --reserve-result "$RESERVE_RESULT" --coordinator-result "$COORDINATOR_RESULT" --output "$RUNNER_TEMP/preparation-stage-results.json"
           node scripts/vercel-main-release-cli.mjs terminal-artifacts --active-evidence-output "$RUNNER_TEMP/recovery-evidence.json" --execution "$RUNNER_TEMP/execution.json" --final-census "$RUNNER_TEMP/null.json" --final-mappings "$RUNNER_TEMP/null.json" --freshness "$RUNNER_TEMP/null.json" --journal-history "$RUNNER_TEMP/empty-history.json" --outcome preparation-failed-before-journal --proofs-output "$RUNNER_TEMP/recovery-proofs.json" --public-smokes "$RUNNER_TEMP/null.json" --stage-results "$RUNNER_TEMP/preparation-stage-results.json" --state-proof "$RUNNER_TEMP/null.json"
           echo 'outcome=preparation-failed-before-journal' >> "$GITHUB_OUTPUT"
       - name: Derive recovery terminal state specification
@@ -2343,11 +2016,6 @@ jobs:
         working-directory: source
         env: { LOGICAL_TARGET: reserve, PUBLIC_URL: https://reserve.mento.org/ }
         run: DEPLOY_SHA="$(jq -r '.manifest.originalPriors.reserve.servedSha' "$RUNNER_TEMP/execution.json")" node scripts/vercel-main-runtime.mjs > "$RUNNER_TEMP/recovery-reserve-runtime-smoke.json"
-      - name: Run restored UI public runtime smoke
-        if: steps.recovery-terminal.outputs.outcome == 'recovered'
-        working-directory: source
-        env: { LOGICAL_TARGET: ui, PUBLIC_URL: https://ui.mento.org/ }
-        run: DEPLOY_SHA="$(jq -r '.manifest.originalPriors.ui.servedSha' "$RUNNER_TEMP/execution.json")" node scripts/vercel-main-runtime.mjs > "$RUNNER_TEMP/recovery-ui-runtime-smoke.json"
       - name: Materialize restored-prior public smoke proof
         if: steps.recovery-terminal.outputs.outcome == 'recovered'
         run: >-
@@ -2355,7 +2023,6 @@ jobs:
           --execution "$RUNNER_TEMP/execution.json"
           --app "$RUNNER_TEMP/recovery-app-runtime-smoke.json"
           --reserve "$RUNNER_TEMP/recovery-reserve-runtime-smoke.json"
-          --ui "$RUNNER_TEMP/recovery-ui-runtime-smoke.json"
           --output "$RUNNER_TEMP/recovery-public-smokes.json"
       # Taken after every compensation slot, so it reports the domains each
       # target's reviewed protected domain travels with once recovery is
@@ -2477,7 +2144,6 @@ jobs:
         prepare-release,
         stage-app,
         stage-reserve,
-        stage-ui,
         activate-and-verify,
         recover-main-deployment,
       ]
@@ -2541,7 +2207,6 @@ jobs:
           RECOVERY_OUTCOME: ${{ needs.recover-main-deployment.outputs.outcome || 'not-required' }}
           RECOVERY_RESULT: ${{ needs.recover-main-deployment.result }}
           STAGE_RESERVE_RESULT: ${{ needs.stage-reserve.result }}
-          STAGE_UI_RESULT: ${{ needs.stage-ui.result }}
           UPSTREAM_RUN_ATTEMPT: ${{ needs.wait-for-ci.outputs.upstream_run_attempt }}
           UPSTREAM_RUN_ID: ${{ needs.wait-for-ci.outputs.upstream_run_id }}
           WAIT_FOR_CI_RESULT: ${{ needs.wait-for-ci.result }}

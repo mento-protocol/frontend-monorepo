@@ -50,13 +50,12 @@ import {
 const SHA = "0123456789abcdef0123456789abcdef01234567";
 const RUN_ID = "123456789";
 const RUN_ATTEMPT = "2";
-const TARGETS = ["app", "reserve", "ui"];
+const TARGETS = ["app", "reserve"];
 // Every main target, App included, maps exactly one reviewed alias.
 const APP_ALIAS = "app.mento.org";
 const PROJECT_IDS = {
   app: "prj_app123",
   reserve: "prj_reserve123",
-  ui: "prj_ui123",
 };
 
 function record(name, aliases) {
@@ -107,7 +106,6 @@ function prior() {
   return {
     app: record("app", ["app.mento.org"]),
     reserve: record("reserve", ["reserve.mento.org"]),
-    ui: record("ui", ["ui.mento.org"]),
   };
 }
 
@@ -217,9 +215,6 @@ function prepared(activeTargets, { startCandidateTargets = [] } = {}) {
       : null,
     reserve: activeTargets.includes("reserve")
       ? candidate("reserve", captured.reserve.aliases, manifest)
-      : null,
-    ui: activeTargets.includes("ui")
-      ? candidate("ui", captured.ui.aliases, manifest)
       : null,
   };
   return createPreparedMainTransactionJournal({
@@ -402,7 +397,7 @@ function activeStateProof(
   const projects = Object.fromEntries(
     TARGETS.map((target) => {
       const active = activeTargets.includes(target);
-      const shadowStage = target !== "app" && shadowTargets.includes(target);
+      const shadowStage = shadowTargets.includes(target);
       const expected = active
         ? journal.candidates[target]
         : shadowStage
@@ -472,12 +467,10 @@ function runtimeSmoke(target, deploySha = SHA) {
   const finalUrls = {
     app: "https://app.mento.org/pools",
     reserve: "https://reserve.mento.org/?tab=stablecoins",
-    ui: "https://ui.mento.org/form-components",
   };
   const interactions = {
     app: "real-production-wallet-list",
     reserve: "reserve-overview-data-and-supply-tab",
-    ui: "ui-search-navigation-and-checkbox",
   };
   return {
     deploy_sha: deploySha,
@@ -614,12 +607,12 @@ test("dispatch skips an already-candidate ordinary release without a promote", (
 });
 
 test("dispatch resumes a candidate prefix by promoting only the prior suffix", () => {
-  const initial = prepared(["reserve", "ui"], {
+  const initial = prepared(["app", "reserve"], {
     startCandidateTargets: ["reserve"],
   });
   const initialized = reduceForward(initial, [], event("initialize"), [
+    "app",
     "reserve",
-    "ui",
   ]);
   const dispatched = reduceForward(
     initial,
@@ -631,10 +624,10 @@ test("dispatch resumes a candidate prefix by promoting only the prior suffix", (
         reserve: "candidate",
       }),
     }),
-    ["reserve", "ui"],
+    ["app", "reserve"],
   );
   assert.equal(dispatched.journal.operations.at(-1).type, "promote");
-  assert.equal(dispatched.journal.operations.at(-1).target, "ui");
+  assert.equal(dispatched.journal.operations.at(-1).target, "app");
   assert.equal(dispatched.afterUploadAction, "authorize");
 });
 
@@ -920,19 +913,17 @@ test("finalize commits only after exact mappings, smokes, census, and v2 proof",
 test("mixed active and shadow planning validates shadow stages without journaling them", () => {
   const { initial, history } = runOrdinaryForward();
   const stagedCandidates = {
-    app: null,
+    app: candidate("app", initial.prior.app.aliases),
     reserve: initial.candidates.reserve,
-    ui: candidate("ui", initial.prior.ui.aliases),
   };
   const mainOwnershipMode = {
-    app: "github",
+    app: "shadow",
     reserve: "github",
-    ui: "shadow",
   };
   const committed = reduceMainActiveTransition({
     preparedJournal: initial,
     activeTargets: ["reserve"],
-    shadowTargets: ["ui"],
+    shadowTargets: ["app"],
     stagedCandidates,
     mainOwnershipMode,
     projectIds: PROJECT_IDS,
@@ -946,7 +937,7 @@ test("mixed active and shadow planning validates shadow stages without journalin
       publicSmokes: publicSmokes(["reserve"]),
       stateProof: activeStateProof(history.at(-1), {
         activeTargets: ["reserve"],
-        shadowTargets: ["ui"],
+        shadowTargets: ["app"],
         stagedCandidates,
         mainOwnershipMode,
       }),
@@ -954,7 +945,9 @@ test("mixed active and shadow planning validates shadow stages without journalin
   });
   assert.equal(committed.journal.status, "committed");
   assert.equal(
-    committed.journal.operations.some((operation) => operation.target === "ui"),
+    committed.journal.operations.some(
+      (operation) => operation.target === "app",
+    ),
     false,
   );
 });
@@ -962,41 +955,39 @@ test("mixed active and shadow planning validates shadow stages without journalin
 test("shadow final mapping accepts the bound prior and rejects unbound same-SHA identities", () => {
   const { initial, history } = runOrdinaryForward();
   const stagedCandidates = {
-    app: null,
+    app: candidate("app", initial.prior.app.aliases),
     reserve: initial.candidates.reserve,
-    ui: candidate("ui", initial.prior.ui.aliases),
   };
   const mainOwnershipMode = {
-    app: "github",
+    app: "shadow",
     reserve: "github",
-    ui: "shadow",
   };
-  const nativeUi = {
-    deploymentId: "dpl_uiNative123",
-    deploymentUrl: "https://ui-native.vercel.app",
+  const nativeApp = {
+    deploymentId: "dpl_appNative123",
+    deploymentUrl: "https://app-native.vercel.app",
   };
   const proof = activeStateProof(history.at(-1), {
     activeTargets: ["reserve"],
-    shadowTargets: ["ui"],
+    shadowTargets: ["app"],
     stagedCandidates,
     mainOwnershipMode,
   });
-  const finalize = (uiDeployment) => {
+  const finalize = (appDeployment) => {
     const mappings = currentMappings(history.at(-1), {
       reserve: "candidate",
     }).map((entry) =>
-      entry.alias === "ui.mento.org"
+      entry.alias === "app.mento.org"
         ? {
             alias: entry.alias,
-            deploymentId: uiDeployment.deploymentId,
-            deploymentUrl: uiDeployment.deploymentUrl,
+            deploymentId: appDeployment.deploymentId,
+            deploymentUrl: appDeployment.deploymentUrl,
           }
         : entry,
     );
     return reduceMainActiveTransition({
       preparedJournal: initial,
       activeTargets: ["reserve"],
-      shadowTargets: ["ui"],
+      shadowTargets: ["app"],
       stagedCandidates,
       mainOwnershipMode,
       projectIds: PROJECT_IDS,
@@ -1010,16 +1001,16 @@ test("shadow final mapping accepts the bound prior and rejects unbound same-SHA 
       }),
     });
   };
-  assert.equal(finalize(initial.prior.ui).journal.status, "committed");
+  assert.equal(finalize(initial.prior.app).journal.status, "committed");
   for (const forbidden of [
-    nativeUi,
-    stagedCandidates.ui,
+    nativeApp,
+    stagedCandidates.app,
     {
-      deploymentId: "dpl_uiUnexpected123",
-      deploymentUrl: "https://ui-unexpected.vercel.app",
+      deploymentId: "dpl_appUnexpected123",
+      deploymentUrl: "https://app-unexpected.vercel.app",
     },
   ]) {
-    assert.throws(() => finalize(forbidden), /Final mapping ui is invalid/);
+    assert.throws(() => finalize(forbidden), /Final mapping app is invalid/);
   }
 });
 
@@ -1106,7 +1097,7 @@ test("recovery reducer persists recovering, started, returned, verified, and ter
 });
 
 test("recovery reducer checkpoints safe reverse recovery before manual intervention", () => {
-  const initial = prepared(["reserve", "ui"]);
+  const initial = prepared(["app", "reserve"]);
   const reserveStarted = startMainTransactionOperation(initial, {
     type: "promote",
     target: "reserve",
@@ -1119,20 +1110,20 @@ test("recovery reducer checkpoints safe reverse recovery before manual intervent
     operationId: reserveStarted.operations.at(-1).operationId,
     mappingState: "candidate",
   });
-  const uiStarted = startMainTransactionOperation(reserveVerified, {
+  const appStarted = startMainTransactionOperation(reserveVerified, {
     type: "promote",
-    target: "ui",
+    target: "app",
   });
-  const uiReturned = recordMainTransactionCommandReturned(uiStarted, {
-    operationId: uiStarted.operations.at(-1).operationId,
+  const appReturned = recordMainTransactionCommandReturned(appStarted, {
+    operationId: appStarted.operations.at(-1).operationId,
     outcome: "success",
   });
-  const highest = recordMainTransactionVerified(uiReturned, {
-    operationId: uiStarted.operations.at(-1).operationId,
+  const highest = recordMainTransactionVerified(appReturned, {
+    operationId: appStarted.operations.at(-1).operationId,
     mappingState: "candidate",
   });
   const plannedMappings = currentMappings(highest, {
-    ui: "candidate",
+    app: "candidate",
   }).map((mapping) =>
     mapping.alias === "reserve.mento.org"
       ? {
@@ -1143,7 +1134,7 @@ test("recovery reducer checkpoints safe reverse recovery before manual intervent
       : mapping,
   );
   const unexpectedReserve = recoveryCurrentMappings(highest, {
-    ui: "candidate",
+    app: "candidate",
   }).map((mapping) =>
     mapping.alias === "reserve.mento.org"
       ? {
@@ -1161,7 +1152,7 @@ test("recovery reducer checkpoints safe reverse recovery before manual intervent
   assert.deepEqual(
     plan.actions.map((action) => [action.kind, action.target]),
     [
-      ["ordinary_rollback", "ui"],
+      ["ordinary_rollback", "app"],
       ["manual_intervention", "reserve"],
     ],
   );
@@ -1171,8 +1162,8 @@ test("recovery reducer checkpoints safe reverse recovery before manual intervent
     reserveStarted,
     reserveReturned,
     reserveVerified,
-    uiStarted,
-    uiReturned,
+    appStarted,
+    appReturned,
     highest,
   ];
   const recovering = reduceMainActiveRecoveryTransition({
@@ -1214,12 +1205,12 @@ test("recovery reducer checkpoints safe reverse recovery before manual intervent
     }),
   });
   history.push(returned.journal);
-  const restoredUi = unexpectedReserve.map((mapping) =>
-    mapping.alias === "ui.mento.org"
+  const restoredApp = unexpectedReserve.map((mapping) =>
+    mapping.alias === "app.mento.org"
       ? {
           ...mapping,
-          deploymentId: highest.prior.ui.deploymentId,
-          deploymentUrl: highest.prior.ui.deploymentUrl,
+          deploymentId: highest.prior.app.deploymentId,
+          deploymentUrl: highest.prior.app.deploymentUrl,
         }
       : mapping,
   );
@@ -1228,7 +1219,7 @@ test("recovery reducer checkpoints safe reverse recovery before manual intervent
     history,
     event: recoveryEvent("verify", {
       uploadReceipt: receipt(returned.journal),
-      currentMappings: restoredUi,
+      currentMappings: restoredApp,
     }),
   });
   assert.equal(verified.journal.operations.at(-1).mappingState, "prior");
@@ -1239,7 +1230,7 @@ test("recovery reducer checkpoints safe reverse recovery before manual intervent
     history,
     event: recoveryEvent("dispatch", {
       uploadReceipt: receipt(verified.journal),
-      currentMappings: restoredUi,
+      currentMappings: restoredApp,
     }),
   });
   assert.equal(terminal.journal.status, "manual_intervention");
@@ -1253,10 +1244,10 @@ test("recovery reducer checkpoints safe reverse recovery before manual intervent
 // reverse activation order.
 test("App promote recovery is a noop at prior, a rollback at candidate, and manual on an unexpected mapping", () => {
   for (const appMapping of ["prior", "candidate", "unexpected"]) {
-    const initial = prepared(["app", "reserve", "ui"]);
+    const initial = prepared(["app", "reserve"]);
     const history = [initial];
     let highest = initial;
-    for (const target of ["reserve", "ui"]) {
+    for (const target of ["reserve"]) {
       const started = startMainTransactionOperation(highest, {
         type: "promote",
         target,
@@ -1286,7 +1277,6 @@ test("App promote recovery is a noop at prior, a rollback at candidate, and manu
 
     const ordinaryStates = {
       reserve: "candidate",
-      ui: "candidate",
     };
     const observed = currentMappings(highest, {
       ...ordinaryStates,
@@ -1313,7 +1303,6 @@ test("App promote recovery is a noop at prior, a rollback at candidate, and manu
       plan.actions.map(({ kind, target }) => [target, kind]),
       [
         ["app", appKind],
-        ["ui", "ordinary_rollback"],
         ["reserve", "ordinary_rollback"],
       ],
       appMapping,
@@ -1324,7 +1313,6 @@ test("App promote recovery is a noop at prior, a rollback at candidate, and manu
     );
     assert.deepEqual(plan.rollbackStateTargets, [
       ...(appMapping === "candidate" ? ["app"] : []),
-      "ui",
       "reserve",
     ]);
   }
@@ -1680,7 +1668,7 @@ test("history loader rejects multi-link and oversized journal files", () => {
 test("fresh App provider census accepts one stable candidate and rejects a third deployment", async () => {
   const journal = prepared(["app"]);
   const mappings = Object.fromEntries(
-    ["reserve", "ui", "app"].map((target) => [
+    ["reserve", "app"].map((target) => [
       target,
       journal.prior[target].aliases.map((alias) => ({
         alias,
@@ -2009,7 +1997,6 @@ test("inherited recovery refuses missing, divergent, and all-candidate current j
   const inherited = prepared(TARGETS);
   const partial = groupedCurrentMappings(inherited, {
     reserve: "candidate",
-    ui: "candidate",
   });
   const missing = decideMainActiveAppRecoverySafety({
     inheritedJournal: inherited,
@@ -2050,7 +2037,6 @@ test("inherited recovery refuses missing, divergent, and all-candidate current j
   const allCandidate = groupedCurrentMappings(inherited, {
     app: "candidate",
     reserve: "candidate",
-    ui: "candidate",
   });
   const verifyOnly = planFreshInheritedMainActiveRecovery({
     inheritedJournal: inherited,

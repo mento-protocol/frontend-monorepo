@@ -11,7 +11,7 @@ import {
   createMainCandidateReceipt,
   createMainCandidateVercelMetadata,
   isBridgeEraCandidateMetadata,
-  isGovernanceEraCandidateMetadata,
+  isRetiredEraCandidateMetadata,
 } from "./vercel-main-candidate.mjs";
 import {
   assertMainCandidateHandoff,
@@ -41,7 +41,7 @@ const fixtureUrl = new URL(
 function releaseManifest() {
   const input = JSON.parse(readFileSync(fixtureUrl, "utf8"));
   const priorSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-  for (const target of ["app", "reserve", "ui"]) {
+  for (const target of ["app", "reserve"]) {
     for (const state of input.priorStates[target].states)
       state.git.sha = priorSha;
   }
@@ -60,12 +60,12 @@ function releaseManifest() {
     runPlanner: ({ base, head }) => ({
       base,
       head,
-      deployments: ["app", "reserve", "ui"],
+      deployments: ["app", "reserve"],
       reason: "global-build-input",
     }),
   });
   const originalPriors = Object.fromEntries(
-    ["reserve", "ui", "app"].map((target) => {
+    ["reserve", "app"].map((target) => {
       const state = input.priorStates[target].states[0];
       const prior = plan.priors.find((entry) => entry.target === target);
       return [
@@ -104,7 +104,7 @@ function releaseManifest() {
 }
 
 function intent(
-  target = "ui",
+  target = "reserve",
   {
     originAttempt = "1",
     originTransactionId = "main-0123456789abcdef0123456789abcdef",
@@ -249,7 +249,7 @@ test("provider lists a complete bounded project and stable-identity census", asy
     deploymentIds: ["dpl_0123456789abcdef"],
     complete: true,
   });
-  assert.match(calls[0], /projectId=prj_ui/);
+  assert.match(calls[0], /projectId=prj_reserve/);
   assert.match(calls[0], /meta-mentoReleaseId=/);
   assert.match(calls[0], /meta-mentoCandidateId=/);
   assert.doesNotMatch(
@@ -307,7 +307,7 @@ test("unbound provider callbacks resolve a raw-metadata candidate without artifa
   const currentIntent = intent();
   const response = deploymentResponse(currentIntent);
   const generatedProjectAlias =
-    PRODUCTION_GENERATED_ALIAS_CONTRACTS.ui.generatedProjectAlias;
+    PRODUCTION_GENERATED_ALIAS_CONTRACTS.reserve.generatedProjectAlias;
   const provider = createMainCandidateVercelProvider({
     intent: currentIntent,
     client: {
@@ -339,7 +339,7 @@ test("unbound provider callbacks resolve a raw-metadata candidate without artifa
 });
 
 test("automatic ordinary candidate finalization permits the base and the exact creator alias", async () => {
-  for (const target of ["reserve", "ui"]) {
+  for (const target of ["reserve"]) {
     const contract = PRODUCTION_GENERATED_ALIAS_CONTRACTS[target];
     for (const aliases of [
       [contract.generatedProjectAlias],
@@ -357,7 +357,7 @@ test("automatic ordinary candidate finalization permits the base and the exact c
 });
 
 test("a later attempt reuses a detached ordinary candidate after recovery moved its generated aliases", async () => {
-  for (const target of ["reserve", "ui"]) {
+  for (const target of ["reserve"]) {
     const contract = PRODUCTION_GENERATED_ALIAS_CONTRACTS[target];
     for (const aliases of subsets([
       contract.generatedProjectAlias,
@@ -390,7 +390,7 @@ test("a later attempt reuses a detached ordinary candidate after recovery moved 
 });
 
 test("a later attempt still rejects unreviewed aliases on a detached ordinary candidate", async () => {
-  for (const target of ["reserve", "ui"]) {
+  for (const target of ["reserve"]) {
     const contract = PRODUCTION_GENERATED_ALIAS_CONTRACTS[target];
     for (const [name, aliases] of [
       ["git-main", [contract.generatedGitMainAlias]],
@@ -415,7 +415,7 @@ test("a later attempt still rejects unreviewed aliases on a detached ordinary ca
 test("a fresh skip-domain candidate finalizes before Vercel moves the generated alias to it", async () => {
   // Vercel leaves the generated project alias on the still-serving prior until
   // `vercel promote`, so a fresh candidate legitimately carries none.
-  for (const target of ["app", "reserve", "ui"]) {
+  for (const target of ["app", "reserve"]) {
     for (const aliases of [[], [generatedCreatorAlias(target)]]) {
       const handoff = await resolveHandoff(target, aliases);
       assert.equal(handoff.action, "reuse");
@@ -426,9 +426,9 @@ test("a fresh skip-domain candidate finalizes before Vercel moves the generated 
 });
 
 test("automatic ordinary candidate finalization rejects non-candidate alias topologies", async () => {
-  for (const target of ["reserve", "ui"]) {
+  for (const target of ["reserve"]) {
     const contract = PRODUCTION_GENERATED_ALIAS_CONTRACTS[target];
-    const otherTarget = target === "reserve" ? "ui" : "reserve";
+    const otherTarget = "app";
     for (const [
       name,
       aliases,
@@ -494,9 +494,9 @@ test("automatic ordinary candidate finalization rejects non-candidate alias topo
 });
 
 test("automatic inherited ordinary finalization requires its protected alias and accepts every generated residual subset", async () => {
-  for (const target of ["reserve", "ui"]) {
+  for (const target of ["reserve"]) {
     const contract = PRODUCTION_GENERATED_ALIAS_CONTRACTS[target];
-    const otherTarget = target === "reserve" ? "ui" : "reserve";
+    const otherTarget = "app";
     const protectedAlias = MAIN_TARGET_CONTRACTS[target].aliases[0];
     let validHandoff;
     for (const residualAliases of subsets([
@@ -570,7 +570,7 @@ test("automatic inherited ordinary finalization requires its protected alias and
 });
 
 test("automatic ordinary finalization keeps the immutable hostname outside generated aliases", async () => {
-  for (const target of ["reserve", "ui"]) {
+  for (const target of ["reserve"]) {
     const generatedProjectAlias =
       PRODUCTION_GENERATED_ALIAS_CONTRACTS[target].generatedProjectAlias;
     await assert.rejects(
@@ -585,7 +585,7 @@ test("automatic ordinary finalization keeps the immutable hostname outside gener
 });
 
 test("deserialized ordinary candidate handoffs recheck the exact alias topology", async () => {
-  for (const target of ["reserve", "ui"]) {
+  for (const target of ["reserve"]) {
     const contract = PRODUCTION_GENERATED_ALIAS_CONTRACTS[target];
     const handoff = await resolveHandoff(target, [
       contract.generatedProjectAlias,
@@ -627,7 +627,7 @@ test("deserialized ordinary candidate handoffs recheck the exact alias topology"
 });
 
 test("deserialized ordinary handoffs reject mutable generated aliases as the immutable hostname", async () => {
-  for (const target of ["reserve", "ui"]) {
+  for (const target of ["reserve"]) {
     const generatedProjectAlias =
       PRODUCTION_GENERATED_ALIAS_CONTRACTS[target].generatedProjectAlias;
     const handoff = await resolveHandoff(target, [generatedProjectAlias]);
@@ -752,14 +752,40 @@ function sealedManifest(metadata) {
   );
 }
 
+// Every seal written before ADR 0018 retired `ui` carries a three-target
+// manifest: the retired activation order, the retired ownership key order, and
+// a UI prior. This rebuilds a current two-target manifest in that universe,
+// with UI following Reserve's ownership and selection and a structurally valid
+// prior taken from a genuine ui-era seal, so the result is exactly what that
+// era sealed. It rewrites the manifest in place, which keeps its top-level key
+// order.
+function toUiEraManifest(manifest) {
+  const uiPrior = sealedManifest(
+    HISTORICAL_SEALS.uiEra.seals.app.deployment.meta,
+  ).originalPriors.ui;
+  const followReserve = (targets) =>
+    targets.flatMap((target) =>
+      target === "reserve" ? ["reserve", "ui"] : [target],
+    );
+  manifest.mainOwnershipMode = {
+    app: manifest.mainOwnershipMode.app,
+    reserve: manifest.mainOwnershipMode.reserve,
+    ui: manifest.mainOwnershipMode.reserve,
+  };
+  manifest.stagedTargets = followReserve(manifest.stagedTargets);
+  manifest.activeTargets = followReserve(manifest.activeTargets);
+  const { reserve, ...rest } = manifest.originalPriors;
+  manifest.originalPriors = { reserve, ui: uiPrior, ...rest };
+  return manifest;
+}
+
 // Every seal written before ADR 0017 retired `governance` carries a
-// four-target manifest: the retired activation order, the retired ownership
-// key order, and a Governance prior. This rebuilds a current three-target
-// manifest in that universe, with Governance following Reserve's ownership and
-// selection and a structurally valid prior taken from a genuine
-// governance-era seal, so the result is exactly what that era sealed. It
-// rewrites the manifest in place, which keeps its top-level key order.
+// four-target manifest: the ui-era universe plus a Governance prior, with
+// Governance first in the retired activation order. Governance follows
+// Reserve's ownership and selection, and its prior is taken from a genuine
+// governance-era seal.
 function toGovernanceEraManifest(manifest) {
+  toUiEraManifest(manifest);
   const governancePrior = sealedManifest(
     HISTORICAL_SEALS.governanceEra.seals.app.deployment.meta,
   ).originalPriors.governance;
@@ -930,7 +956,8 @@ test("pre-planning classifies a genuine historical seal as rollback-only", async
     ["bridgeEra", "app"],
     ["governanceEra", "app"],
     ["governanceEra", "reserve"],
-    ["governanceEra", "ui"],
+    ["uiEra", "app"],
+    ["uiEra", "reserve"],
   ]) {
     const { deployment } = HISTORICAL_SEALS[era].seals[target];
     const response = genuineSealResponse(deployment);
@@ -954,7 +981,7 @@ test("pre-planning classifies a genuine historical seal as rollback-only", async
 
 test("a mapping sealed during or before the bridge era is admitted as rollback-only", async () => {
   for (const aliases of [BRIDGE_ERA_APP_ALIASES, PRE_CONVERSION_APP_ALIASES]) {
-    for (const target of ["reserve", "ui", "app"]) {
+    for (const target of ["reserve", "app"]) {
       const oldIntent = intent(target);
       const response = deploymentResponse(oldIntent);
       response.meta = {
@@ -1207,7 +1234,7 @@ test("pre-plan release census resolves one exact staged candidate without prior 
 });
 
 test("pre-plan release census fails closed when repeated visibility changes or is ambiguous", async () => {
-  const oldIntent = intent("ui");
+  const oldIntent = intent("reserve");
   const response = deploymentResponse(oldIntent);
   for (const listings of [
     [
@@ -1240,7 +1267,7 @@ test("pre-plan release census fails closed when repeated visibility changes or i
       () =>
         provider.resolveReleaseCandidate({
           manifest: oldIntent.releaseManifest,
-          target: "ui",
+          target: "reserve",
           projectId: oldIntent.projectId,
         }),
       /census (?:changed|is ambiguous)/,
@@ -1272,7 +1299,7 @@ test("mapped inspection binds its observed project to the manifest rollback prio
 });
 
 test("mapped inspection admits unmarked priors regardless of optional provider source", async () => {
-  for (const target of ["reserve", "ui", "app"]) {
+  for (const target of ["reserve", "app"]) {
     for (const source of [undefined, "git", "cli", "redeploy"]) {
       const oldIntent = intent(target);
       const response = deploymentResponse(oldIntent);
@@ -1308,7 +1335,7 @@ test("mapped inspection admits unmarked priors regardless of optional provider s
 
 test("unmarked mappings that self-report the reviewed SHA remain rollback-only", async () => {
   const reviewedSha = "e".repeat(40);
-  for (const target of ["reserve", "ui", "app"]) {
+  for (const target of ["reserve", "app"]) {
     for (const source of [undefined, "git", "cli", "redeploy"]) {
       const oldIntent = intent(target);
       const response = deploymentResponse(oldIntent);
@@ -1338,7 +1365,7 @@ test("unmarked mappings that self-report the reviewed SHA remain rollback-only",
 });
 
 test("mapped inspection admits complete Mento candidates regardless of optional provider source", async () => {
-  const currentIntent = intent("ui");
+  const currentIntent = intent("reserve");
   for (const source of [undefined, "git", "cli", "redeploy"]) {
     const response = deploymentResponse(currentIntent);
     if (source === undefined) delete response.source;
@@ -1353,7 +1380,7 @@ test("mapped inspection admits complete Mento candidates regardless of optional 
     });
     const mapped = await provider.inspectMappedCandidate({
       deploymentId: response.id,
-      target: "ui",
+      target: "reserve",
       projectId: currentIntent.projectId,
     });
     assert.equal(mapped.metadata.candidateId, currentIntent.candidateId);
@@ -1365,7 +1392,7 @@ test("mapped inspection admits complete Mento candidates regardless of optional 
 });
 
 test("candidate inspection and release reuse ignore optional provider source", async () => {
-  const currentIntent = intent("ui");
+  const currentIntent = intent("reserve");
   for (const source of [undefined, "git", "cli", "redeploy"]) {
     const response = deploymentResponse(currentIntent);
     if (source === undefined) delete response.source;
@@ -1387,7 +1414,7 @@ test("candidate inspection and release reuse ignore optional provider source", a
     assert.equal(candidate.metadata.candidateId, currentIntent.candidateId);
     const resolved = await provider.resolveReleaseCandidate({
       manifest: currentIntent.releaseManifest,
-      target: "ui",
+      target: "reserve",
       projectId: currentIntent.projectId,
     });
     assert.equal(resolved.candidate.deploymentId, response.id);
@@ -1498,7 +1525,7 @@ test("mapped inspection rejects GitHub-owned metadata", async () => {
     () =>
       provider.inspectMappedCandidate({
         deploymentId: response.id,
-        target: "ui",
+        target: "reserve",
         projectId: currentIntent.projectId,
       }),
     /GitHub-owned/,
@@ -1512,7 +1539,7 @@ test("mapped inspection requires the actual custom Next deployment ID", async ()
       delete meta.mentoNextDeploymentId;
     },
     (meta) => {
-      meta.mentoNextDeploymentId = "mr-ui-different";
+      meta.mentoNextDeploymentId = "mr-reserve-different";
     },
   ]) {
     const response = deploymentResponse(currentIntent);
@@ -1529,7 +1556,7 @@ test("mapped inspection requires the actual custom Next deployment ID", async ()
       () =>
         provider.inspectMappedCandidate({
           deploymentId: response.id,
-          target: "ui",
+          target: "reserve",
           projectId: currentIntent.projectId,
         }),
       /metadata/,
@@ -1538,105 +1565,111 @@ test("mapped inspection requires the actual custom Next deployment ID", async ()
 });
 
 // ADR 0017 retired `governance` as a main target while every reviewed domain
-// was served by a deployment sealed against the four-target universe. The
-// first release after the retirement must therefore meet only governance-era
-// seals, classify each one as an unmarked rollback-only prior, capture a new
-// baseline, and force-select every current target, rather than deadlock on an
-// unreadable manifest. End-to-end proof against seals produced by the REAL
-// modules at 982342ad.
-test("the first release after the Governance retirement captures a new baseline", async () => {
-  const seals = HISTORICAL_SEALS.governanceEra.seals;
-  const targets = ["reserve", "ui", "app"];
-  const responses = new Map(
-    targets.map((target) => [
-      seals[target].deployment.id,
-      genuineSealResponse(seals[target].deployment),
-    ]),
-  );
-  const provider = createMainCandidateVercelProvider({
-    client: {
-      requestWithRetry: async () =>
-        assert.fail("a rollback-only mapping is never resolved as a release"),
-      inspectDeployment: async (id) => responses.get(id),
-      listDeploymentAliases: async () => ({ aliases: [] }),
-    },
-  });
-  const currentMappings = Object.fromEntries(
-    targets.map((target) => [
-      target,
-      [
-        {
-          alias: `${target}.mento.org`,
-          deploymentId: seals[target].deployment.id,
-          deploymentUrl: seals[target].deployment.url,
-        },
-      ],
-    ]),
-  );
-  const projectIds = {
-    app: seals.app.deployment.projectId,
-    reserve: seals.reserve.deployment.projectId,
-    ui: seals.ui.deployment.projectId,
-  };
-  const discovery = await discoverMainPreplanCandidateReleases({
-    currentMappings,
-    projectIds,
-    provider,
-  });
-  assert.deepEqual(discovery.rollbackOnlyTargets, ["app", "reserve", "ui"]);
-  assert.deepEqual(discovery.candidateReleases, []);
+// was served by a deployment sealed against the four-target universe, and ADR
+// 0018 then retired `ui` while every reviewed domain was served by a
+// deployment sealed against the three-target universe. The first release
+// after each retirement must therefore meet only retired-era seals, classify
+// each one as an unmarked rollback-only prior, capture a new baseline, and
+// force-select every current target, rather than deadlock on an unreadable
+// manifest. End-to-end proof against seals produced by the REAL modules at
+// 982342ad and 618e6176.
+for (const [era, retiredTarget] of [
+  ["governanceEra", "Governance"],
+  ["uiEra", "UI"],
+]) {
+  test(`the first release after the ${retiredTarget} retirement captures a new baseline`, async () => {
+    const seals = HISTORICAL_SEALS[era].seals;
+    const targets = ["reserve", "app"];
+    const responses = new Map(
+      targets.map((target) => [
+        seals[target].deployment.id,
+        genuineSealResponse(seals[target].deployment),
+      ]),
+    );
+    const provider = createMainCandidateVercelProvider({
+      client: {
+        requestWithRetry: async () =>
+          assert.fail("a rollback-only mapping is never resolved as a release"),
+        inspectDeployment: async (id) => responses.get(id),
+        listDeploymentAliases: async () => ({ aliases: [] }),
+      },
+    });
+    const currentMappings = Object.fromEntries(
+      targets.map((target) => [
+        target,
+        [
+          {
+            alias: `${target}.mento.org`,
+            deploymentId: seals[target].deployment.id,
+            deploymentUrl: seals[target].deployment.url,
+          },
+        ],
+      ]),
+    );
+    const projectIds = {
+      app: seals.app.deployment.projectId,
+      reserve: seals.reserve.deployment.projectId,
+    };
+    const discovery = await discoverMainPreplanCandidateReleases({
+      currentMappings,
+      projectIds,
+      provider,
+    });
+    assert.deepEqual(discovery.rollbackOnlyTargets, ["app", "reserve"]);
+    assert.deepEqual(discovery.candidateReleases, []);
 
-  const nextDeploySha = "e".repeat(40);
-  const decision = decideMainPreplanReconciliation({
-    nextDeploySha,
-    nextUpstreamRunId: "701",
-    candidateReleases: discovery.candidateReleases,
-    currentMappings,
-    rollbackOnlyTargets: discovery.rollbackOnlyTargets,
-  });
-  assert.equal(decision.decision, "capture-new-baseline");
-  assert.equal(decision.reason, "no-mapped-release-metadata");
-  assert.deepEqual(decision.rollbackOnlyTargets, ["app", "reserve", "ui"]);
-  assert.equal(decision.reconciliation, null);
-  assert.equal(decision.rollbackAuthorization, null);
+    const nextDeploySha = "e".repeat(40);
+    const decision = decideMainPreplanReconciliation({
+      nextDeploySha,
+      nextUpstreamRunId: "701",
+      candidateReleases: discovery.candidateReleases,
+      currentMappings,
+      rollbackOnlyTargets: discovery.rollbackOnlyTargets,
+    });
+    assert.equal(decision.decision, "capture-new-baseline");
+    assert.equal(decision.reason, "no-mapped-release-metadata");
+    assert.deepEqual(decision.rollbackOnlyTargets, ["app", "reserve"]);
+    assert.equal(decision.reconciliation, null);
+    assert.equal(decision.rollbackAuthorization, null);
 
-  const input = JSON.parse(readFileSync(fixtureUrl, "utf8"));
-  for (const target of targets) {
-    for (const state of input.priorStates[target].states) {
-      state.deploymentId = seals[target].deployment.id;
-      state.deploymentUrl = `https://${seals[target].deployment.url}`;
-      state.git.sha = seals[target].context.deploySha;
+    const input = JSON.parse(readFileSync(fixtureUrl, "utf8"));
+    for (const target of targets) {
+      for (const state of input.priorStates[target].states) {
+        state.deploymentId = seals[target].deployment.id;
+        state.deploymentUrl = `https://${seals[target].deployment.url}`;
+        state.git.sha = seals[target].context.deploySha;
+      }
     }
-  }
-  const plannerCalls = [];
-  const plan = planMainDeployments({
-    mode: "active",
-    mainOwnershipMode: { app: "github", reserve: "github", ui: "github" },
-    deploySha: nextDeploySha,
-    projectIds,
-    priorStates: input.priorStates,
-    rollbackOnlyTargets: decision.rollbackOnlyTargets,
-    gitAdapter: {
-      firstParent: () => input.firstParent,
-      isAncestor: () => true,
-      resolveCommit: (sha) => sha,
-    },
-    runPlanner: ({ base, head }) => {
-      plannerCalls.push({ base, head });
-      return { base, head, deployments: [], reason: "non-runtime-only" };
-    },
+    const plannerCalls = [];
+    const plan = planMainDeployments({
+      mode: "active",
+      mainOwnershipMode: { app: "github", reserve: "github" },
+      deploySha: nextDeploySha,
+      projectIds,
+      priorStates: input.priorStates,
+      rollbackOnlyTargets: decision.rollbackOnlyTargets,
+      gitAdapter: {
+        firstParent: () => input.firstParent,
+        isAncestor: () => true,
+        resolveCommit: (sha) => sha,
+      },
+      runPlanner: ({ base, head }) => {
+        plannerCalls.push({ base, head });
+        return { base, head, deployments: [], reason: "non-runtime-only" };
+      },
+    });
+    assert.deepEqual(plan.stagedTargets, ["app", "reserve"]);
+    assert.deepEqual(plan.activeTargets, ["app", "reserve"]);
+    assert.deepEqual(
+      plan.reasons.map(({ target, reason }) => ({ target, reason })),
+      ["app", "reserve"].map((target) => ({
+        target,
+        reason: "served-mapping-rollback-only",
+      })),
+    );
+    assert.equal(plannerCalls.length, 0);
   });
-  assert.deepEqual(plan.stagedTargets, ["app", "reserve", "ui"]);
-  assert.deepEqual(plan.activeTargets, ["app", "reserve", "ui"]);
-  assert.deepEqual(
-    plan.reasons.map(({ target, reason }) => ({ target, reason })),
-    ["app", "reserve", "ui"].map((target) => ({
-      target,
-      reason: "served-mapping-rollback-only",
-    })),
-  );
-  assert.equal(plannerCalls.length, 0);
-});
+}
 
 // The governance-era universe is an allowance, never a bypass: a four-target
 // seal that is corrupt anywhere else, or that is not exactly the retired
@@ -1653,7 +1686,7 @@ test("a corrupt governance-era seal still fails closed", async () => {
   // The uncorrupted rebuild is genuinely admitted, so each case below
   // isolates exactly one corruption.
   assert.equal(
-    isGovernanceEraCandidateMetadata(
+    isRetiredEraCandidateMetadata(
       sealedMetadata(oldIntent, toGovernanceEraManifest),
       context,
     ),
@@ -1756,11 +1789,7 @@ test("a corrupt governance-era seal still fails closed", async () => {
     ["audit origin", toGovernanceEraManifest, { mentoOriginRunId: undefined }],
   ]) {
     const metadata = sealedMetadata(oldIntent, mutate, overrides);
-    assert.equal(
-      isGovernanceEraCandidateMetadata(metadata, context),
-      false,
-      name,
-    );
+    assert.equal(isRetiredEraCandidateMetadata(metadata, context), false, name);
     assert.equal(isBridgeEraCandidateMetadata(metadata, context), false, name);
     const response = deploymentResponse(oldIntent);
     response.meta = { ...response.meta, ...metadata };
@@ -1805,4 +1834,167 @@ test("a corrupt governance-era seal still fails closed", async () => {
       }),
     /Main mapped candidate target is malformed/,
   );
+});
+
+// The ui-era universe is an allowance, never a bypass: a three-target seal
+// that is corrupt anywhere else, or that is not exactly the retired contract,
+// is not a ui-era mapping and must still fail the run closed rather than be
+// downgraded to a rollback-only prior.
+test("a corrupt ui-era seal still fails closed", async () => {
+  const oldIntent = intent("app");
+  const context = {
+    target: "app",
+    projectId: oldIntent.projectId,
+    projectName: oldIntent.projectName,
+    deploySha: oldIntent.deploySha,
+  };
+  // The uncorrupted rebuild is genuinely admitted, so each case below
+  // isolates exactly one corruption.
+  assert.equal(
+    isRetiredEraCandidateMetadata(
+      sealedMetadata(oldIntent, toUiEraManifest),
+      context,
+    ),
+    true,
+  );
+  for (const [name, mutate, overrides = {}] of [
+    [
+      "UI prior aliases",
+      (manifest) => {
+        toUiEraManifest(manifest);
+        manifest.originalPriors.ui.aliases = ["app.mento.org"];
+        return manifest;
+      },
+    ],
+    [
+      "UI prior project",
+      (manifest) => {
+        toUiEraManifest(manifest);
+        manifest.originalPriors.ui.projectName = "reserve.mento.org";
+        return manifest;
+      },
+    ],
+    [
+      "UI prior environment",
+      (manifest) => {
+        const prior = toUiEraManifest(manifest).originalPriors.ui;
+        prior.target = null;
+        prior.customEnvironmentSlug = "v3";
+        for (const leaf of prior.planningLeaves) {
+          leaf.target = null;
+          leaf.customEnvironmentSlug = "v3";
+        }
+        return manifest;
+      },
+    ],
+    [
+      "UI prior missing",
+      (manifest) => {
+        toUiEraManifest(manifest);
+        delete manifest.originalPriors.ui;
+        return manifest;
+      },
+    ],
+    [
+      "current activation order",
+      (manifest) => {
+        const { ui, ...rest } = toUiEraManifest(manifest).originalPriors;
+        manifest.originalPriors = { ...rest, ui };
+        return manifest;
+      },
+    ],
+    [
+      "ownership key order",
+      (manifest) => {
+        const { app, ...rest } = toUiEraManifest(manifest).mainOwnershipMode;
+        manifest.mainOwnershipMode = { ...rest, app };
+        return manifest;
+      },
+    ],
+    [
+      "ownership without UI",
+      (manifest) => {
+        toUiEraManifest(manifest);
+        delete manifest.mainOwnershipMode.ui;
+        return manifest;
+      },
+    ],
+    [
+      "a fourth target",
+      (manifest) => {
+        toUiEraManifest(manifest);
+        manifest.mainOwnershipMode.docs = "github";
+        return manifest;
+      },
+    ],
+    [
+      "staged targets out of the retired order",
+      (manifest) => {
+        toUiEraManifest(manifest);
+        manifest.stagedTargets = [...manifest.stagedTargets].reverse();
+        return manifest;
+      },
+    ],
+    [
+      "release ID",
+      (manifest) => {
+        toUiEraManifest(manifest);
+        manifest.releaseId = `mr-${"0".repeat(24)}`;
+        return manifest;
+      },
+    ],
+    [
+      "stable intent digest",
+      toUiEraManifest,
+      { mentoStableIntentDigest: "0".repeat(64) },
+    ],
+    ["audit origin", toUiEraManifest, { mentoOriginRunId: undefined }],
+  ]) {
+    const metadata = sealedMetadata(oldIntent, mutate, overrides);
+    assert.equal(isRetiredEraCandidateMetadata(metadata, context), false, name);
+    assert.equal(isBridgeEraCandidateMetadata(metadata, context), false, name);
+    const response = deploymentResponse(oldIntent);
+    response.meta = { ...response.meta, ...metadata };
+    if (Object.hasOwn(overrides, "mentoOriginRunId")) {
+      delete response.meta.mentoOriginRunId;
+    }
+    await assert.rejects(
+      () =>
+        mappedProvider(response).inspectMappedCandidate({
+          deploymentId: response.id,
+          target: "app",
+          projectId: oldIntent.projectId,
+        }),
+      /Main (?:release manifest|candidate)/,
+      name,
+    );
+  }
+  // A genuine ui-era seal rebound to another observed deployment is not that
+  // mapping either.
+  const { deployment } = HISTORICAL_SEALS.uiEra.seals.app;
+  const rebound = genuineSealResponse(deployment);
+  rebound.meta.githubCommitSha = "b".repeat(40);
+  await assert.rejects(
+    () =>
+      mappedProvider(rebound).inspectMappedCandidate({
+        deploymentId: rebound.id,
+        target: "app",
+        projectId: deployment.projectId,
+      }),
+    /Main (?:release manifest|candidate)/,
+  );
+  // A UI deployment is no longer a mapped target at all, in either era.
+  for (const era of ["uiEra", "governanceEra"]) {
+    const ui = genuineSealResponse(HISTORICAL_SEALS[era].seals.ui.deployment);
+    await assert.rejects(
+      () =>
+        mappedProvider(ui).inspectMappedCandidate({
+          deploymentId: ui.id,
+          target: "ui",
+          projectId: ui.projectId,
+        }),
+      /Main mapped candidate target is malformed/,
+      era,
+    );
+  }
 });

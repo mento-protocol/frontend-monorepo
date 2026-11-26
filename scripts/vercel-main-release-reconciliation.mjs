@@ -20,11 +20,7 @@ const MAIN_RELEASE_RECONCILIATION_SCHEMA =
   "vercel-main-release-reconciliation:v1";
 const MAIN_PREPLAN_RECONCILIATION_SCHEMA =
   "vercel-main-preplan-reconciliation:v2";
-export const MAIN_RELEASE_ACTIVATION_ORDER = Object.freeze([
-  "reserve",
-  "ui",
-  "app",
-]);
+export const MAIN_RELEASE_ACTIVATION_ORDER = Object.freeze(["reserve", "app"]);
 
 const REPOSITORY = "mento-protocol/frontend-monorepo";
 const SHA_PATTERN = /^[a-f0-9]{40}$/;
@@ -111,36 +107,76 @@ const CURRENT_RELEASE_TARGET_UNIVERSE = Object.freeze({
   partitionOwnership: partitionMainOwnership,
 });
 
-// A candidate seal is immutable, so every manifest sealed while `governance`
-// was still a main target (ADR 0017) stays readable forever: an operator may
-// re-map such a deployment by rolling back at any time, and the first release
-// after the retirement finds every reviewed domain served by one. This frozen
-// universe reproduces exactly the four-target contract those manifests were
-// sealed against: the retired activation order, the retired ownership key
-// order, and the retired Governance contract. It only ever classifies a seal
-// as a rollback-only prior; no release is created, resumed, or reconciled
-// against it. Removing it would deadlock pre-planning on the served mappings.
-const GOVERNANCE_ERA_RELEASE_TARGET_UNIVERSE = Object.freeze({
-  activationOrder: Object.freeze(["governance", "reserve", "ui", "app"]),
-  deploymentTargets: Object.freeze(["app", "governance", "reserve", "ui"]),
-  contracts: Object.freeze({
-    app: MAIN_TARGET_CONTRACTS.app,
-    governance: Object.freeze({
-      aliases: Object.freeze(["governance.mento.org"]),
-      customEnvironmentSlug: null,
-      projectName: "governance.mento.org",
-      target: "production",
-    }),
-    reserve: MAIN_TARGET_CONTRACTS.reserve,
-    ui: MAIN_TARGET_CONTRACTS.ui,
+// The reviewed contracts of main targets that have since been retired. A
+// retired target's contract is frozen exactly as it stood when the target was
+// last a main target, so manifests sealed back then keep validating.
+const RETIRED_TARGET_CONTRACTS = Object.freeze({
+  governance: Object.freeze({
+    aliases: Object.freeze(["governance.mento.org"]),
+    customEnvironmentSlug: null,
+    projectName: "governance.mento.org",
+    target: "production",
   }),
-  acceptsPriorEnvironment: (target, environment) =>
-    acceptsContractEnvironment(
-      GOVERNANCE_ERA_RELEASE_TARGET_UNIVERSE.contracts[target],
-      environment,
-    ),
-  partitionOwnership: partitionGovernanceEraOwnership,
+  ui: Object.freeze({
+    aliases: Object.freeze(["ui.mento.org"]),
+    customEnvironmentSlug: null,
+    projectName: "ui.mento.org",
+    target: "production",
+  }),
 });
+
+// A candidate seal is immutable, so every manifest sealed against an earlier
+// set of main targets stays readable forever: an operator may re-map such a
+// deployment by rolling back at any time, and the first release after a
+// retirement finds every reviewed domain served by one. Each frozen universe
+// reproduces exactly the contract its manifests were sealed against: the
+// retired activation order, the retired ownership key order, and the retired
+// target contracts. It only ever classifies a seal as a rollback-only prior;
+// no release is created, resumed, or reconciled against it. Removing one would
+// deadlock pre-planning on the served mappings.
+function retiredReleaseTargetUniverse(activationOrder, label) {
+  const deploymentTargets = Object.freeze(activationOrder.toSorted());
+  const contracts = Object.freeze(
+    Object.fromEntries(
+      deploymentTargets.map((target) => [
+        target,
+        MAIN_TARGET_CONTRACTS[target] ?? RETIRED_TARGET_CONTRACTS[target],
+      ]),
+    ),
+  );
+  return Object.freeze({
+    activationOrder: Object.freeze([...activationOrder]),
+    deploymentTargets,
+    contracts,
+    acceptsPriorEnvironment: (target, environment) =>
+      acceptsContractEnvironment(contracts[target], environment),
+    partitionOwnership: ({ mode, mainOwnershipMode }) =>
+      partitionRetiredOwnership({
+        mode,
+        mainOwnershipMode,
+        deploymentTargets,
+        label,
+      }),
+  });
+}
+
+// The four targets before Governance was retired (ADR 0017).
+const GOVERNANCE_ERA_RELEASE_TARGET_UNIVERSE = retiredReleaseTargetUniverse(
+  ["governance", "reserve", "ui", "app"],
+  "four governance-era",
+);
+
+// The three targets after Governance and before UI were retired (ADR 0018).
+const UI_ERA_RELEASE_TARGET_UNIVERSE = retiredReleaseTargetUniverse(
+  ["reserve", "ui", "app"],
+  "three ui-era",
+);
+
+// Newest first. Every retired universe is admitted on the same terms.
+const RETIRED_RELEASE_TARGET_UNIVERSES = Object.freeze([
+  UI_ERA_RELEASE_TARGET_UNIVERSE,
+  GOVERNANCE_ERA_RELEASE_TARGET_UNIVERSE,
+]);
 
 function acceptsContractEnvironment(contract, environment) {
   return (
@@ -150,10 +186,14 @@ function acceptsContractEnvironment(contract, environment) {
   );
 }
 
-// The retired four-target counterpart of `partitionMainOwnership`, with the
-// same mode, key, value, and global-shadow rules.
-function partitionGovernanceEraOwnership({ mode, mainOwnershipMode }) {
-  const { deploymentTargets } = GOVERNANCE_ERA_RELEASE_TARGET_UNIVERSE;
+// The retired counterpart of `partitionMainOwnership`, with the same mode,
+// key, value, and global-shadow rules over a retired universe's targets.
+function partitionRetiredOwnership({
+  mode,
+  mainOwnershipMode,
+  deploymentTargets,
+  label,
+}) {
   if (!["active", "shadow"].includes(mode)) {
     throw new Error("Main deployment mode must be shadow or active");
   }
@@ -165,7 +205,7 @@ function partitionGovernanceEraOwnership({ mode, mainOwnershipMode }) {
       JSON.stringify([...deploymentTargets].toSorted())
   ) {
     throw new Error(
-      "Main ownership mode must contain exactly the four governance-era targets",
+      `Main ownership mode must contain exactly the ${label} targets`,
     );
   }
   const canonicalMap = {};
@@ -184,7 +224,7 @@ function partitionGovernanceEraOwnership({ mode, mainOwnershipMode }) {
   );
   if (mode === "shadow" && githubTargets.length > 0) {
     throw new Error(
-      "Global shadow mode requires all four targets to use shadow ownership",
+      `Global shadow mode requires all ${label} targets to use shadow ownership`,
     );
   }
   return { mainOwnershipMode: canonicalMap, githubTargets, shadowTargets };
@@ -811,20 +851,25 @@ export function assertBridgeEraReleaseManifest(value) {
   );
 }
 
-// Admits a manifest that is a structurally valid manifest of the retired
-// four-target universe, sealed after the bridge era and before Governance was
-// retired (ADR 0017). Every field of every prior, including the Governance
-// prior, is validated by the same machinery a current manifest is, so a
-// corrupt manifest is never mistaken for a governance-era one. A bridge-era
-// App prior is not admitted here; `assertBridgeEraReleaseManifest` owns it.
-// The caller treats the result as an unmarked rollback-only prior, exactly
-// as it treats a bridge-era manifest. This admission is permanent.
-export function assertGovernanceEraReleaseManifest(value) {
-  return assertReleaseManifest(
-    value,
-    null,
-    GOVERNANCE_ERA_RELEASE_TARGET_UNIVERSE,
-  );
+// Admits a manifest that is a structurally valid manifest of a retired target
+// universe: sealed after the bridge era and before Governance was retired
+// (ADR 0017), or after that and before UI was retired (ADR 0018). Every field
+// of every prior, including a retired target's prior, is validated by the
+// same machinery a current manifest is, so a corrupt manifest is never
+// mistaken for a retired-era one. A bridge-era App prior is not admitted
+// here; `assertBridgeEraReleaseManifest` owns it. The caller treats the
+// result as an unmarked rollback-only prior, exactly as it treats a
+// bridge-era manifest. This admission is permanent.
+export function assertRetiredEraReleaseManifest(value) {
+  let lastError;
+  for (const universe of RETIRED_RELEASE_TARGET_UNIVERSES) {
+    try {
+      return assertReleaseManifest(value, null, universe);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError;
 }
 
 function planningGitForRecompute(git) {

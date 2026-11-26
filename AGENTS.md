@@ -176,11 +176,12 @@ every in-job gate against the credentialed and mutating steps that follow it,
 and the gate edge on every other public-mutation job are pinned by the
 structural workflow test. Planning starts from each
 target's actual served SHA. The strict `vercel-main-plan:v2` handoff contains
-the canonical three-target `mainOwnershipMode` map (App, Reserve, UI) and
+the canonical two-target `mainOwnershipMode` map (App, Reserve) and
 deterministic `stagedTargets`, `activeTargets`, and `shadowTargets` partitions.
-The current map assigns all three targets to `github`; global `shadow` is valid
-only when all three targets are `shadow`. Governance is no longer a deployment
-target ([ADR 0017](docs/adr/0017-retire-governance-from-vercel-deployment.md)). Ambiguous path planning selects a target; ambiguous
+The current map assigns both targets to `github`; global `shadow` is valid
+only when both targets are `shadow`. Governance and UI are no longer deployment
+targets ([ADR 0017](docs/adr/0017-retire-governance-from-vercel-deployment.md),
+[ADR 0018](docs/adr/0018-retire-ui-from-vercel-deployment.md)). Ambiguous path planning selects a target; ambiguous
 ownership or protected state aborts the whole run.
 
 Release identity is stable across reruns—repository, exact SHA, and validated
@@ -200,7 +201,7 @@ resumes or treats a prior attempt's journal artifact as cross-attempt authority.
 Every other non-prefix, ambiguous, conflicting, or incomplete provider state
 fails closed before the release continues.
 
-Every selected target — Reserve, UI, and App — stages and verifies
+Every selected target — Reserve and App — stages and verifies
 an immutable candidate with `--prod --skip-domain`. Only an `activeTargets`
 member may mutate its public mapping: every target promotes its exact staged
 deployment. App's promote is verified at `candidate`, exactly like every other
@@ -259,7 +260,7 @@ all build-boundary state below the target-scoped, authenticated
 reauthenticate and remove the exact runtime in a final `if: always()` step.
 `stage-app` stages an App production candidate with `--prod --skip-domain` like
 every ordinary target; only the activation turn promotes it.
-Reserve, UI, and App uploads must avoid custom production domains and
+Reserve and App uploads must avoid custom production domains and
 must expose the immutable deployment hostname through the deployment URL/state
 identity. The provider alias list must contain the target's reviewed literal
 base project/team alias and may contain at most one author alias derived exactly

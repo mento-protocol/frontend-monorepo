@@ -12,6 +12,8 @@ supersedes_in_part:
   - "0003"
   - "0004"
   - "0005"
+superseded_in_part_by:
+  - "0018"
 ---
 
 # ADR 0017 — Governance is retired from GitHub-owned Vercel deployment
@@ -23,6 +25,11 @@ supersedes_in_part:
 [0004](0004-one-way-vercel-build-environment-materialization.md), and
 [0005](0005-stable-main-release-identity-and-rerun-admission.md) wherever they
 enumerate Governance as a deployment target. Their decisions otherwise stand.
+Amended 2026-11-26 by
+[ADR 0018](0018-retire-ui-from-vercel-deployment.md), which retires UI and
+generalizes both read rules below to a list of retired eras: the function
+names below are now `assertRetiredEraReleaseManifest`,
+`isRetiredEraCandidateMetadata`, and `normalizeRetiredEraPreviewJournal`.
 **Scope:** ci/deployment
 
 ## Context

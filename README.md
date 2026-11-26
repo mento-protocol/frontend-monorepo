@@ -477,12 +477,12 @@ The repository is set up with GitHub Actions for CI:
   one active batch, caps the work. See [AGENTS.md](AGENTS.md),
   [ADR 0010](docs/adr/0010-trusted-agent-dependabot-preparation.md) and
   [ADR 0012](docs/adr/0012-dependabot-prep-policy-moves-to-shared-skill.md).
-- **CD**: GitHub Actions automatically builds `app.mento.org`,
-  `governance.mento.org`, `reserve.mento.org`, and `ui.mento.org` previews for
+- **CD**: GitHub Actions automatically builds `app.mento.org` and
+  `reserve.mento.org` previews for
   trusted same-repository PRs with exact-SHA aggregate `Vercel Preview`
   statuses, independent first-eligible-plus-latest batching per target,
   credential-free reusable HTTP and browser smoke, one canonical GitHub
-  Deployment per selected target, and one four-target v2 controller-journal
+  Deployment per selected target, and one two-target v2 controller-journal
   comment with a visible outcome table per participating PR. The canonical
   target definitions, package
   names, Vercel project variables, configuration paths, and ownership modes live
@@ -494,18 +494,23 @@ The repository is set up with GitHub Actions for CI:
   PRs remain credential-free. A dedicated repository-scoped GitHub credential
   performs only the worker-dispatch POST so terminal `workflow_run` callbacks
   are created; the normal job token still owns all state and recovery calls.
-  GitHub Actions is the sole automatic branch-preview owner for App,
-  Governance, Reserve, and UI. App completed its final exact-head and fresh
+  GitHub Actions is the sole automatic branch-preview owner for App and
+  Reserve. `governance.mento.org` and `ui.mento.org` still build in CI but are
+  no longer Vercel deployment targets
+  ([ADR 0017](docs/adr/0017-retire-governance-from-vercel-deployment.md),
+  [ADR 0018](docs/adr/0018-retire-ui-from-vercel-deployment.md)); the
+  showcase keeps its required `Visual Regression (ui.mento.org)` check, which
+  builds in CI. App completed its final exact-head and fresh
   post-merge canary gates in [PR #609](https://github.com/mento-protocol/frontend-monorepo/pull/609)
   and [PR #610](https://github.com/mento-protocol/frontend-monorepo/pull/610),
   respectively. Ordinary pull requests therefore have no native Vercel branch
   preview path. GitHub Actions is also the configured automatic `main` owner
-  for all four targets. The automatic `Vercel Main Deployment` workflow runs
+  for both targets. The automatic `Vercel Main Deployment` workflow runs
   in global `active` mode, starting when the `CI/CD` `main` run is requested and
   performing every public mutation only after its exact-attempt CI success
-  gate, with all
-  four per-target `mainOwnershipMode` values set to `github`. Governance,
-  Reserve, UI, and App stage, verify, and promote exact immutable deployments.
+  gate, with both
+  per-target `mainOwnershipMode` values set to `github`. Reserve and App
+  stage, verify, and promote exact immutable deployments.
   App's promote is verified at `candidate`, exactly like every other target:
   `promote` and `ordinary_rollback` are the only operation types, and there is
   no bridge alias and no custom `v3` environment. The removed
@@ -552,15 +557,15 @@ The repository is set up with GitHub Actions for CI:
   closed. A bounded per-target transitional list adds extra exact GitHub-owned
   shapes the recognizer accepts while a target migrates to a new reviewed
   configuration, because the controller runs the default branch's constants;
-  the list is empty for all four targets today — App's MGP-18 `v2`-retirement
+  the list is empty for both targets today — App's MGP-18 `v2`-retirement
   entry was removed once that migration completed — and an entry is added only
   while a migration is in flight.
   During rollback, `Vercel Preview` proves owner selection and journal drain
   only; native Vercel deployment status and browser evidence separately prove
   that the preview works. The native `deployment_status` smoke adapter remains
-  solely for bounded App/Governance rollback verification and does not imply
+  solely for bounded App rollback verification and does not imply
   that ordinary native branch previews remain enabled. It exists only for the
-  documented App and Governance target-local preview rollback paths. A
+  documented App target-local preview rollback path. A
   target-local main rollback restores
   only the target's native `main` path and changes only its main ownership mode
   to `shadow`; previews remain GitHub-owned. A target-local preview rollback
@@ -574,7 +579,7 @@ The repository is set up with GitHub Actions for CI:
   worker-dispatch authentication boundary, and
   [ADR 0005](docs/adr/0005-stable-main-release-identity-and-rerun-admission.md)
   for stable release identity and provider-side rerun reconciliation, and
-  [`docs/vercel-deployments.md`](docs/vercel-deployments.md) for the four-target
+  [`docs/vercel-deployments.md`](docs/vercel-deployments.md) for the two-target
   preview controller, active main transaction, staged-candidate verification,
   and rollback procedures.
 
@@ -594,11 +599,11 @@ The repository is set up with GitHub Actions for CI:
   after its exact-attempt success gate proves that run and its literal
   `Build and Test` job succeeded. It plans from each target's
   currently served SHA, so coalesced pushes cannot omit an affected change.
-  Governance, Reserve, UI, and App stage immutable production candidates with
+  Reserve and App stage immutable production candidates with
   `--prod --skip-domain` and run direct browser smoke before exact promotion.
   App promotes last, verified at `candidate`, exactly like every other target
   — `promote` and `ordinary_rollback` are the only operation types, and there
-  is no bridge alias and no custom `v3` environment. All four
+  is no bridge alias and no custom `v3` environment. Both
   public custom domains are their only protected runtime and rollback aliases;
   generated Vercel aliases are candidate evidence only. A durable redacted journal
   records intent and verified state around every public mutation. The final

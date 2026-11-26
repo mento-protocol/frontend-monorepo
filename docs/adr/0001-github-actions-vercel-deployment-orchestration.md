@@ -8,6 +8,7 @@ scope: ci/deployment
 date: 2026-07
 superseded_in_part_by:
   - "0017"
+  - "0018"
 ---
 
 # ADR 0001 — GitHub Actions owns Vercel build and deployment orchestration; Vercel remains hosting and runtime
@@ -20,6 +21,9 @@ Amended 2026-11-24 by
 [ADR 0017](0017-retire-governance-from-vercel-deployment.md) to retire
 Governance as a preview and main deployment target; every four-target
 statement below is history.
+Amended 2026-11-26 by
+[ADR 0018](0018-retire-ui-from-vercel-deployment.md) to retire UI the same
+way; every three-target statement below is history.
 **Scope:** ci/deployment
 
 ## Context

@@ -19,7 +19,7 @@ const action = parse(actionSource);
 const preparedFixture = JSON.parse(
   read("scripts/fixtures/vercel-main-transaction/prepared-shadow.json"),
 );
-const TARGETS = ["app", "reserve", "ui"];
+const TARGETS = ["app", "reserve"];
 
 function preparedFor(activeTargets) {
   const journal = structuredClone(preparedFixture);

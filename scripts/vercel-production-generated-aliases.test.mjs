@@ -7,7 +7,7 @@ import {
   PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES,
 } from "./vercel-production-generated-aliases.mjs";
 
-const ORDINARY_TARGETS = ["reserve", "ui"];
+const ORDINARY_TARGETS = ["reserve"];
 const CREATOR_USERNAME = "fixture-author";
 
 function creatorAlias(target, creatorUsername = CREATOR_USERNAME) {
@@ -117,7 +117,7 @@ test("an operator-added project domain on a served prior never fails the release
         creatorUsername: CREATOR_USERNAME,
         logicalTarget: "app",
         mode: PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.SERVED_PRIOR,
-        foreignProtectedAliases: ["reserve.mento.org", "ui.mento.org"],
+        foreignProtectedAliases: ["reserve.mento.org"],
       }),
       aliases,
       alias,
@@ -190,7 +190,10 @@ test("served-prior mode tolerates unowned project domains but rejects malformed 
 test("served-prior mode fails closed on another target's reviewed protected domain", () => {
   for (const [name, aliases] of [
     ["one foreign reviewed domain", ["app.mento.org"]],
-    ["several foreign reviewed domains", ["app.mento.org", "ui.mento.org"]],
+    [
+      "foreign reviewed domain beside the retired UI domain",
+      ["app.mento.org", "ui.mento.org"],
+    ],
     [
       "foreign reviewed domain beside a legitimate project domain",
       ["app.mento.org", "reservementoorg.vercel.app"],
@@ -203,7 +206,7 @@ test("served-prior mode fails closed on another target's reviewed protected doma
           creatorUsername: CREATOR_USERNAME,
           logicalTarget: "reserve",
           mode: PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.SERVED_PRIOR,
-          foreignProtectedAliases: ["app.mento.org", "ui.mento.org"],
+          foreignProtectedAliases: ["app.mento.org"],
         }),
       /carries another target's reviewed protected domain/,
       name,
@@ -216,7 +219,7 @@ test("served-prior mode fails closed on another target's reviewed protected doma
       creatorUsername: CREATOR_USERNAME,
       logicalTarget: "reserve",
       mode: PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES.SERVED_PRIOR,
-      foreignProtectedAliases: ["app.mento.org", "ui.mento.org"],
+      foreignProtectedAliases: ["app.mento.org"],
     }),
     ["reserve.mento.org"],
   );
@@ -299,7 +302,7 @@ test("candidate mode rejects non-candidate generated aliases", () => {
       "wrong target",
       [
         contract.generatedProjectAlias,
-        PRODUCTION_GENERATED_ALIAS_CONTRACTS.ui.generatedProjectAlias,
+        PRODUCTION_GENERATED_ALIAS_CONTRACTS.app.generatedProjectAlias,
       ].toSorted(),
     ],
     [
@@ -333,7 +336,7 @@ test("reused-candidate mode rejects aliases outside the finite candidate set", (
     ["unknown", ["reserve-preview.mento.org"]],
     [
       "wrong target",
-      [PRODUCTION_GENERATED_ALIAS_CONTRACTS.ui.generatedProjectAlias],
+      [PRODUCTION_GENERATED_ALIAS_CONTRACTS.app.generatedProjectAlias],
     ],
     [
       "creator near miss",
@@ -378,10 +381,36 @@ test("generated-alias mode is mandatory and exact", () => {
         assertOnlyExpectedProductionGeneratedAliases({
           aliases: [],
           creatorUsername: null,
-          logicalTarget: "ui",
+          logicalTarget: "reserve",
           mode,
         }),
       /topology mode is malformed/,
     );
+  }
+});
+
+// UI (ADR 0018) and Governance (ADR 0017) are no longer main targets, so they
+// have no reviewed generated-alias contract in any mode.
+test("retired targets have no generated-alias contract", () => {
+  assert.deepEqual(Object.keys(PRODUCTION_GENERATED_ALIAS_CONTRACTS), [
+    "app",
+    "reserve",
+  ]);
+  for (const logicalTarget of ["ui", "governance"]) {
+    for (const mode of Object.values(
+      PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES,
+    )) {
+      assert.throws(
+        () =>
+          assertOnlyExpectedProductionGeneratedAliases({
+            aliases: [`${logicalTarget}mentoorg-mentolabs.vercel.app`],
+            creatorUsername: CREATOR_USERNAME,
+            logicalTarget,
+            mode,
+          }),
+        /Target does not support production generated-alias verification/,
+        `${logicalTarget} ${mode}`,
+      );
+    }
   }
 });

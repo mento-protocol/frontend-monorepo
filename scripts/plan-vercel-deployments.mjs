@@ -5,12 +5,11 @@ import process from "node:process";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const VERCEL_DEPLOYMENTS = ["app", "reserve", "ui"];
+export const VERCEL_DEPLOYMENTS = ["app", "reserve"];
 
 const PACKAGE_TO_DEPLOYMENT = new Map([
   ["app.mento.org", "app"],
   ["reserve.mento.org", "reserve"],
-  ["ui.mento.org", "ui"],
 ]);
 
 const GLOBAL_BUILD_INPUTS = new Set([
@@ -34,15 +33,16 @@ const PROVEN_NON_RUNTIME_EXACT_PATHS = new Set(
   VERCEL_PROVEN_NON_RUNTIME_EXACT_PATHS,
 );
 
-// `apps/governance.mento.org/` is listed whole because that app is no longer a
-// Vercel deployment target (ADR 0017). It still builds and tests in CI, but no
-// path under it can change a deployed runtime, so a governance-only diff plans
-// no deployment instead of failing closed to every target.
+// `apps/governance.mento.org/` (ADR 0017) and `apps/ui.mento.org/` (ADR 0018)
+// are listed whole because those apps are no longer Vercel deployment targets.
+// They still build and test in CI, but no path under them can change a
+// deployed runtime, so a diff confined to them plans no deployment instead of
+// failing closed to every target.
 const PROVEN_NON_RUNTIME_DIRECTORIES = [
   "docs/",
   "apps/app.mento.org/e2e/",
   "apps/governance.mento.org/",
-  "apps/ui.mento.org/e2e/",
+  "apps/ui.mento.org/",
 ];
 
 class PlanningError extends Error {

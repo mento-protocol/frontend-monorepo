@@ -5,7 +5,6 @@ import process from "node:process";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { createBrowserDeploymentIdentityMonitor } from "../apps/ui.mento.org/e2e/vercel-preview-browser-smoke.mjs";
 import { loadTrustedChromium } from "./vercel-preview-browser-smoke.mjs";
 
 const SHA_PATTERN = /^[0-9a-f]{40}$/;
@@ -33,12 +32,6 @@ export const MAIN_RUNTIME_TARGETS = Object.freeze({
     landingPath: "/",
     finalPath: "/",
     interaction: "reserve-overview-data-and-supply-tab",
-  }),
-  ui: Object.freeze({
-    publicUrl: "https://ui.mento.org/",
-    landingPath: "/basic-components",
-    finalPath: "/form-components",
-    interaction: "ui-search-navigation-and-checkbox",
   }),
 });
 
@@ -76,7 +69,7 @@ function exactTarget(value) {
   const target = boundedText(value, "Main runtime target", 32);
   invariant(
     Object.hasOwn(MAIN_RUNTIME_TARGETS, target),
-    "Main runtime target must be app, reserve, or ui",
+    "Main runtime target must be app or reserve",
   );
   return target;
 }
@@ -308,15 +301,6 @@ export function reserveSupplyStateMatches({
   }
 }
 
-export function uiCheckboxStateMatches({
-  checkbox = document.querySelector("#checkbox-demo"),
-} = {}) {
-  return (
-    checkbox?.getAttribute("aria-checked") === "true" &&
-    checkbox?.getAttribute("data-state") === "checked"
-  );
-}
-
 function reserveSupplyState(expectedOrigin) {
   return { expectedOrigin };
 }
@@ -371,49 +355,9 @@ async function interactWithReserve(page, origin) {
   );
 }
 
-async function interactWithUi(
-  page,
-  origin,
-  deploymentIdentityMonitor,
-  timeoutMs,
-) {
-  await page
-    .getByRole("heading", { name: "Basic Components", exact: true })
-    .waitFor({ state: "visible" });
-  await page
-    .getByPlaceholder("Search components...", { exact: true })
-    .fill("Textarea");
-  await page.getByRole("link", { name: "Textarea", exact: true }).click();
-  await page.waitForURL(new URL("/form-components", origin).toString(), {
-    waitUntil: "domcontentloaded",
-  });
-  await page
-    .getByRole("heading", { name: "Form Components", exact: true })
-    .waitFor({ state: "visible" });
-  const checkbox = page.getByRole("checkbox", {
-    name: "Checkbox option",
-    exact: true,
-  });
-  await checkbox.waitFor({ state: "visible" });
-  await deploymentIdentityMonitor.waitForIdle(timeoutMs);
-  await checkbox.click();
-  await page.waitForFunction(uiCheckboxStateMatches);
-  invariant(
-    await checkbox.isChecked(),
-    "UI public smoke checkbox interaction did not update",
-  );
-}
-
-async function runTargetInteraction(
-  page,
-  target,
-  origin,
-  deploymentIdentityMonitor,
-  timeoutMs,
-) {
+async function runTargetInteraction(page, target, origin) {
   if (target === "app") return interactWithApp(page);
-  if (target === "reserve") return interactWithReserve(page, origin);
-  return interactWithUi(page, origin, deploymentIdentityMonitor, timeoutMs);
+  return interactWithReserve(page, origin);
 }
 
 function assertExactPageLocation(page, expectedUrl, label) {
@@ -457,10 +401,6 @@ export async function runMainRuntimeSmoke({
     page.setDefaultTimeout(timeoutMs);
     page.setDefaultNavigationTimeout(timeoutMs);
     const monitor = createMainRuntimeMonitor(page, publicUrl.origin);
-    const deploymentIdentityMonitor =
-      input.logicalTarget === "ui"
-        ? createBrowserDeploymentIdentityMonitor(page, publicUrl.origin)
-        : undefined;
     const response = await page.goto(publicUrl.toString(), {
       waitUntil: "domcontentloaded",
     });
@@ -478,13 +418,7 @@ export async function runMainRuntimeSmoke({
     assertMainRuntimeSecurityHeaders(response.headers(), input.deploySha);
 
     await page.waitForLoadState("load");
-    await runTargetInteraction(
-      page,
-      input.logicalTarget,
-      publicUrl.origin,
-      deploymentIdentityMonitor,
-      timeoutMs,
-    );
+    await runTargetInteraction(page, input.logicalTarget, publicUrl.origin);
     await page.waitForTimeout(500);
     const expectedFinalUrl = new URL(config.finalPath, publicUrl);
     if (input.logicalTarget === "reserve") {

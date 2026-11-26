@@ -24,11 +24,7 @@ const INHERITED_CLI_LOADER_SUPPORTED = ["linux", "darwin"].includes(
 
 // Every main target promotes and rolls back through the same two commands.
 // The order is the release activation order.
-export const MAIN_ACTIVE_PROMOTABLE_TARGETS = Object.freeze([
-  "reserve",
-  "ui",
-  "app",
-]);
+export const MAIN_ACTIVE_PROMOTABLE_TARGETS = Object.freeze(["reserve", "app"]);
 export const MAIN_ACTIVE_COMMAND_TIMEOUT_MS = 120_000;
 
 const TARGET_ALIASES = Object.freeze(

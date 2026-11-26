@@ -8,6 +8,7 @@ scope: ci/deployment/preview-build-environment
 date: 2026-07
 superseded_in_part_by:
   - "0017"
+  - "0018"
 ---
 
 # ADR 0004 — Vercel-pulled build variables cross into preview candidates only through one-way exact-allowlist materialization
@@ -16,6 +17,9 @@ superseded_in_part_by:
 Amended 2026-11-24 by
 [ADR 0017](0017-retire-governance-from-vercel-deployment.md): Governance is no
 longer built, so no preview candidate receives `ETHERSCAN_API_KEY`.
+Amended 2026-11-26 by
+[ADR 0018](0018-retire-ui-from-vercel-deployment.md): UI is no longer built
+for Vercel either.
 **Scope:** ci/deployment/preview-build-environment
 
 ## Context

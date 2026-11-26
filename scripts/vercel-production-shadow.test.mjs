@@ -76,7 +76,7 @@ const productionShadowScript = fileURLToPath(
 );
 
 function ordinaryCandidateMetadata(overrides = {}) {
-  const targets = ["app", "reserve", "ui"];
+  const targets = ["app", "reserve"];
   const priorSha = "1111111111111111111111111111111111111111";
   const plan = {
     schema: "vercel-main-plan:v2",
@@ -114,7 +114,7 @@ function ordinaryCandidateMetadata(overrides = {}) {
     upstreamRunId: "700",
     plan,
     originalPriors: Object.fromEntries(
-      ["reserve", "ui", "app"].map((target) => {
+      ["reserve", "app"].map((target) => {
         const contract = MAIN_TARGET_CONTRACTS[target];
         const aliases = [...contract.aliases].sort();
         const prior = {
@@ -647,7 +647,7 @@ test("staged candidates allow only the optional base alias plus one exact option
     [generatedProjectAlias, "reserve.mento.org"].sort(),
     [
       generatedProjectAlias,
-      PRODUCTION_SHADOW_TARGETS.ui.generatedProjectAlias,
+      PRODUCTION_SHADOW_TARGETS.app.generatedProjectAlias,
     ].sort(),
     [
       generatedAuthorAlias,
@@ -842,7 +842,7 @@ test("staged candidates allow only the optional base alias plus one exact option
       assertOnlyExpectedVercelGeneratedAliases(
         {
           ...expected,
-          projectName: "ui.mento.org",
+          projectName: "app.mento.org",
         },
         "reserve",
       ),
@@ -921,9 +921,11 @@ test("staged candidates allow only the optional base alias plus one exact option
 });
 
 test("ordinary production targets pin reviewed generated project aliases", () => {
+  // UI (ADR 0018) and Governance (ADR 0017) are no longer shadow targets.
+  assert.deepEqual(Object.keys(PRODUCTION_SHADOW_TARGETS), ["app", "reserve"]);
   assert.deepEqual(
     Object.fromEntries(
-      ["app", "reserve", "ui"].map((target) => [
+      ["app", "reserve"].map((target) => [
         target,
         PRODUCTION_SHADOW_TARGETS[target].generatedProjectAlias,
       ]),
@@ -931,12 +933,11 @@ test("ordinary production targets pin reviewed generated project aliases", () =>
     {
       app: "appmentoorg-mentolabs.vercel.app",
       reserve: "reservementoorg-mentolabs.vercel.app",
-      ui: "uimentoorg-mentolabs.vercel.app",
     },
   );
   assert.deepEqual(
     Object.fromEntries(
-      ["app", "reserve", "ui"].map((target) => [
+      ["app", "reserve"].map((target) => [
         target,
         {
           projectSlug: PRODUCTION_SHADOW_TARGETS[target].generatedProjectSlug,
@@ -947,7 +948,6 @@ test("ordinary production targets pin reviewed generated project aliases", () =>
     {
       app: { projectSlug: "appmentoorg", scopeSlug: "mentolabs" },
       reserve: { projectSlug: "reservementoorg", scopeSlug: "mentolabs" },
-      ui: { projectSlug: "uimentoorg", scopeSlug: "mentolabs" },
     },
   );
   assert.deepEqual(
@@ -965,7 +965,7 @@ test("ordinary production targets pin reviewed generated project aliases", () =>
 });
 
 test("production pull selects production without a preview-only branch override", () => {
-  for (const target of ["app", "reserve", "ui"]) {
+  for (const target of ["app", "reserve"]) {
     assert.deepEqual(
       buildProductionShadowPullArguments({
         logicalTarget: target,
@@ -984,7 +984,7 @@ test("production pull selects production without a preview-only branch override"
 });
 
 test("pinned CLI build and deploy arguments bind each literal project and target", () => {
-  for (const target of ["app", "reserve", "ui"]) {
+  for (const target of ["app", "reserve"]) {
     assert.deepEqual(
       buildProductionShadowBuildArguments({
         logicalTarget: target,
@@ -1126,7 +1126,7 @@ test("ordinary deploy entrypoint plumbing passes stable metadata and drops attem
   assert.equal(result.deployment.deploymentId, "dpl_reserveCandidate123");
 });
 
-test("repo-linked settings use exact repo identity for all three targets", () => {
+test("repo-linked settings use exact repo identity for both targets", () => {
   for (const [target, contract] of Object.entries(PRODUCTION_SHADOW_TARGETS)) {
     const directory = mkdtempSync(join(tmpdir(), `shadow-${target}-`));
     const projectId = `prj_${target}123`;
@@ -1725,7 +1725,7 @@ test("runner pull staging, candidate copy, and upload proof reject external refe
         output,
       );
 
-      if (target === "ui") {
+      if (target === "reserve") {
         const functionDirectory = join(output, "functions", "api.func");
         const functionConfig = join(functionDirectory, ".vc-config.json");
         mkdirSync(functionDirectory, { recursive: true, mode: 0o700 });
@@ -1818,10 +1818,10 @@ test("Vercel pull inherits a private umask and restores the runner umask", () =>
     isolationRoot,
     "mento-vercel-production-pull-staging",
   );
-  const logicalTarget = "ui";
+  const logicalTarget = "reserve";
   const contract = PRODUCTION_SHADOW_TARGETS[logicalTarget];
   const orgId = "team_fixture123";
-  const projectId = "prj_ui123";
+  const projectId = "prj_reserve123";
   const priorUmask = process.umask();
   try {
     chmodSync(isolationRoot, 0o711);
@@ -1892,11 +1892,11 @@ test("handoff enforces distinct candidate and runner ownership contracts", () =>
     isolationRoot,
     "mento-vercel-production-upload-source",
   );
-  const logicalTarget = "ui";
+  const logicalTarget = "reserve";
   const contract = PRODUCTION_SHADOW_TARGETS[logicalTarget];
   const orgId = "team_fixture123";
-  const projectId = "prj_ui123";
-  const deploymentId = "m-ui-0123456789abcdef012";
+  const projectId = "prj_reserve123";
+  const deploymentId = "m-reserve-0123456789abcdef012";
   const runnerUid = process.getuid();
   const runnerGid = process.getgid();
   const candidateUid = runnerUid + 10_000;
@@ -2112,11 +2112,11 @@ test("handoff final validation rejects a copied-link tamper", () => {
     isolationRoot,
     "mento-vercel-production-upload-source",
   );
-  const logicalTarget = "ui";
+  const logicalTarget = "reserve";
   const contract = PRODUCTION_SHADOW_TARGETS[logicalTarget];
   const orgId = "team_fixture123";
-  const projectId = "prj_ui123";
-  const deploymentId = "m-ui-0123456789abcdef012";
+  const projectId = "prj_reserve123";
+  const deploymentId = "m-reserve-0123456789abcdef012";
   let finalValidationCalls = 0;
   try {
     chmodSync(isolationRoot, 0o711);
@@ -2659,7 +2659,7 @@ test("trusted child processes strip GitHub command files", () => {
 });
 
 // The App is an ordinary staged shadow target since MGP-18: it uploads the
-// same `--prod --skip-domain` deployment the other three do, so the retired
+// same `--prod --skip-domain` deployment Reserve does, so the retired
 // build-only proof and its CLI verb are gone and cannot re-enter.
 test("the retired app build-only proof cannot re-enter", () => {
   const source = readFileSync(

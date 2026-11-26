@@ -13,8 +13,8 @@ import { createMainReleaseManifest } from "./vercel-main-release-reconciliation.
 
 const SHA = "a".repeat(40);
 const PRIOR_SHA = "b".repeat(40);
-const TARGETS = ["app", "reserve", "ui"];
-const RELEASE_ORDER = ["reserve", "ui", "app"];
+const TARGETS = ["app", "reserve"];
+const RELEASE_ORDER = ["reserve", "app"];
 
 function plan(stagedTargets = TARGETS) {
   const selected = TARGETS.filter((target) => stagedTargets.includes(target));
@@ -128,7 +128,6 @@ test("release execution derives its entire operational projection from the stabl
   assert.deepEqual(value.projection, {
     projectIds: {
       reserve: "prj_reserve",
-      ui: "prj_ui",
       app: "prj_app",
     },
     stagedTargets: ["reserve", "app"],
@@ -168,7 +167,7 @@ test("execution encoding is canonical and identity-bound", () => {
 });
 
 test("execution rejects an altered projection, selection, or current upstream", () => {
-  const value = execution(["ui"]);
+  const value = execution(["app"]);
   assert.throws(
     () =>
       assertMainReleaseExecution({
@@ -217,7 +216,15 @@ test("execution selection binds discovery, projects, manifest, and ownership", (
       ...value.selection,
       mainOwnershipMode: {
         ...value.selection.mainOwnershipMode,
-        ui: "shadow",
+        app: "shadow",
+      },
+    },
+    {
+      // UI left the release universe (ADR 0018); its key is now foreign.
+      ...value.selection,
+      mainOwnershipMode: {
+        ...value.selection.mainOwnershipMode,
+        ui: "github",
       },
     },
     {
@@ -252,10 +259,10 @@ test("execution rechecks fresh rollback-only coverage for reuse", () => {
           reason,
           selection: {
             ...value.selection,
-            rollbackOnlyTargets: ["ui"],
+            rollbackOnlyTargets: ["app"],
           },
         }),
-      /omits fresh rollback-only targets: ui/,
+      /omits fresh rollback-only targets: app/,
       decision,
     );
   }

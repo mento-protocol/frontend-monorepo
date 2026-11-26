@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       logical_target:
-        description: Literal app, reserve, or ui target
+        description: Literal app or reserve target
         required: true
         type: string
       deployment_url:
@@ -172,17 +172,9 @@ jobs:
         run: pnpm exec playwright test --config apps/app.mento.org/playwright.preview.config.ts
 
       - name: Run App or Reserve browser smoke
-        if: inputs.logical_target != 'ui'
         env:
           PLAYWRIGHT_BROWSER_CHANNEL: bundled
         run: node scripts/vercel-preview-browser-smoke.mjs
-
-      - name: Run UI deployment identity and interaction smoke
-        if: inputs.logical_target == 'ui'
-        env:
-          DEPLOYMENT_IDEMPOTENCY_KEY: ${{ inputs.verification_key }}
-          PLAYWRIGHT_BROWSER_CHANNEL: bundled
-        run: node apps/ui.mento.org/e2e/vercel-preview-browser-smoke.mjs
 
       - name: Upload target-bound Playwright artifacts on failure
         if: failure()

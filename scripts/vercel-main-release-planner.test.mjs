@@ -9,11 +9,10 @@ import { PRODUCTION_GENERATED_ALIAS_CONTRACTS } from "./vercel-production-genera
 
 const HEAD = "a".repeat(40);
 const BASE = "b".repeat(40);
-const TARGETS = ["app", "reserve", "ui"];
+const TARGETS = ["app", "reserve"];
 const ALIASES = {
   app: ["app.mento.org"],
   reserve: ["reserve.mento.org"],
-  ui: ["ui.mento.org"],
 };
 const PRODUCTION_PRIORS = JSON.parse(
   readFileSync(
@@ -81,7 +80,7 @@ function baseline(planningSnapshot = snapshot()) {
     },
     runPlanner: () => ({
       base: BASE,
-      deployments: ["reserve", "ui"],
+      deployments: ["reserve"],
       head: HEAD,
       reason: "affected-packages",
     }),
@@ -144,9 +143,9 @@ function productionBaseline(planningSnapshot = productionSnapshot()) {
 
 test("baseline creates one exact manifest directly from the provider planning snapshot", () => {
   const value = baseline();
-  assert.deepEqual(value.planning.stagedTargets, ["reserve", "ui"]);
-  assert.deepEqual(value.manifest.stagedTargets, ["reserve", "ui"]);
-  assert.deepEqual(value.manifest.activeTargets, ["reserve", "ui"]);
+  assert.deepEqual(value.planning.stagedTargets, ["reserve"]);
+  assert.deepEqual(value.manifest.stagedTargets, ["reserve"]);
+  assert.deepEqual(value.manifest.activeTargets, ["reserve"]);
   assert.equal(value.manifest.deploySha, HEAD);
   assert.equal(value.manifest.upstreamRunId, "123");
   assert.equal(value.manifest.originalPriors.app.planningLeaves.length, 1);
@@ -156,7 +155,7 @@ test("baseline creates one exact manifest directly from the provider planning sn
 });
 
 test("baseline canonicalizes production generated-alias supersets and recomputes the exact plan", () => {
-  for (const target of ["reserve", "ui"]) {
+  for (const target of ["reserve"]) {
     assert.ok(
       PRODUCTION_PRIORS.priorStates[target].states[0].aliases.length >
         MAIN_TARGET_CONTRACTS[target].aliases.length,
@@ -178,7 +177,7 @@ test("baseline canonicalizes production generated-alias supersets and recomputes
 });
 
 test("production fixture matches the observed native-Git generated-alias topology", () => {
-  for (const target of ["reserve", "ui"]) {
+  for (const target of ["reserve"]) {
     const contract = PRODUCTION_GENERATED_ALIAS_CONTRACTS[target];
     assert.deepEqual(
       PRODUCTION_PRIORS.priorStates[target].states[0].aliases,
@@ -194,7 +193,7 @@ test("production fixture matches the observed native-Git generated-alias topolog
 });
 
 test("baseline accepts every finite ordinary generated-alias subset and recomputes exactly", () => {
-  for (const target of ["reserve", "ui"]) {
+  for (const target of ["reserve"]) {
     for (const generatedAliases of ordinaryGeneratedAliasSubsets(target)) {
       const census = productionSnapshot();
       for (const state of census.states.filter(
@@ -259,7 +258,7 @@ test("production-shaped baseline alias supersets remain fail-closed", () => {
     },
     {
       name: "duplicate alias",
-      target: "ui",
+      target: "reserve",
       mutate(aliases) {
         aliases.push(aliases.at(-1));
       },
@@ -267,7 +266,7 @@ test("production-shaped baseline alias supersets remain fail-closed", () => {
     },
     {
       name: "malformed alias",
-      target: "ui",
+      target: "reserve",
       mutate(aliases) {
         aliases.push("https://attacker.invalid/path");
         aliases.sort();

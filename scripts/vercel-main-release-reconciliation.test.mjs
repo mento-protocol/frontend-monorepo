@@ -8,7 +8,7 @@ import { inflateRawSync } from "node:zlib";
 import {
   MAIN_RELEASE_ACTIVATION_ORDER,
   assertBridgeEraReleaseManifest,
-  assertGovernanceEraReleaseManifest,
+  assertRetiredEraReleaseManifest,
   assertMainReleaseManifest,
   createInheritedRollbackAuthorization,
   createMainReleaseManifest,
@@ -26,7 +26,7 @@ import { PRODUCTION_GENERATED_ALIAS_CONTRACTS } from "./vercel-production-genera
 
 const SHA = "abcdef0123456789abcdef0123456789abcdef01";
 const PRIOR_SHA = "1111111111111111111111111111111111111111";
-const TARGET_ORDER = ["app", "reserve", "ui"];
+const TARGET_ORDER = ["app", "reserve"];
 
 function deploymentId(target, kind) {
   return `dpl_${target}${kind}123`;
@@ -55,7 +55,6 @@ function plan(
     mainOwnershipMode: {
       app: canonicalShadow.includes("app") ? "shadow" : "github",
       reserve: canonicalShadow.includes("reserve") ? "shadow" : "github",
-      ui: canonicalShadow.includes("ui") ? "shadow" : "github",
     },
     mode: "active",
     plan: canonicalSelected,
@@ -306,11 +305,11 @@ function appRecoveryResidualState() {
   return state;
 }
 
-test("release manifest binds the canonical planner result and all three rollback priors", () => {
+test("release manifest binds the canonical planner result and both rollback priors", () => {
   const first = manifest();
   const second = manifest();
   assert.deepEqual(first, second);
-  assert.deepEqual(first.stagedTargets, ["reserve", "ui", "app"]);
+  assert.deepEqual(first.stagedTargets, ["reserve", "app"]);
   assert.deepEqual(first.activeTargets, first.stagedTargets);
   assert.deepEqual(first.rollbackOnlyTargets, []);
   assert.deepEqual(assertMainReleaseManifest(first), first);
@@ -396,7 +395,6 @@ test("rollback-only targets persist canonically and reproduce the forced plan", 
     mainOwnershipMode: {
       app: "github",
       reserve: "github",
-      ui: "github",
     },
     deploySha: SHA,
     projectIds,
@@ -422,7 +420,7 @@ test("rollback-only targets persist canonically and reproduce the forced plan", 
   );
 
   const noncanonical = structuredClone(releaseManifest);
-  noncanonical.rollbackOnlyTargets = ["ui", "app"];
+  noncanonical.rollbackOnlyTargets = ["reserve", "app"];
   assert.throws(
     () => assertMainReleaseManifest(noncanonical),
     /rollback-only targets is not canonical/,
@@ -456,7 +454,6 @@ test("no-target plan keeps an exact empty release identity and recomputes", () =
     mainOwnershipMode: {
       app: "github",
       reserve: "github",
-      ui: "github",
     },
     deploySha: SHA,
     projectIds,
@@ -614,7 +611,6 @@ for (const [name, appGit, servedSha, plannerSelectsApp] of [
       mainOwnershipMode: {
         app: "github",
         reserve: "github",
-        ui: "github",
       },
       deploySha: SHA,
       projectIds,
@@ -653,7 +649,7 @@ for (const [name, appGit, servedSha, plannerSelectsApp] of [
   });
 }
 
-for (const inheritedCount of [1, 2]) {
+for (const inheritedCount of [1]) {
   test(`${inheritedCount} inherited promoted target(s) form a resumable activation prefix`, () => {
     const reconciliation = reconcileMainRelease(
       releaseState({ candidateCount: inheritedCount }),
@@ -712,7 +708,7 @@ for (const inheritedCount of [1, 2]) {
 }
 
 test("a stale main restores a proven inherited prefix but leaves an untouched release alone", () => {
-  const partial = reconcileMainRelease(releaseState({ candidateCount: 2 }));
+  const partial = reconcileMainRelease(releaseState({ candidateCount: 1 }));
   assert.equal(
     decideMainReleaseReconciliation({
       reconciliation: partial,
@@ -738,7 +734,7 @@ test("a stale main restores a proven inherited prefix but leaves an untouched re
 
 test("all-candidate is a verification-only no-op and never reader-authorized rollback", () => {
   const reconciliation = reconcileMainRelease(
-    releaseState({ candidateCount: 3 }),
+    releaseState({ candidateCount: 2 }),
   );
   assert.equal(reconciliation.allCandidate, true);
   assert.deepEqual(
@@ -767,7 +763,7 @@ test("all-candidate is a verification-only no-op and never reader-authorized rol
 // whole-target candidate state; a mixed state is malformed evidence.
 test("an App candidate frontier is a complete activation prefix", () => {
   const reconciliation = reconcileMainRelease(
-    releaseState({ candidateCount: 2, appCandidateFrontier: true }),
+    releaseState({ candidateCount: 1, appCandidateFrontier: true }),
   );
   assert.equal(reconciliation.frontier, null);
   assert.equal(reconciliation.targets.at(-1).state, "candidate");
@@ -803,7 +799,6 @@ test("only an exact terminal App residual remains recoverable after ordinary rol
       ]),
       [
         ["reserve", "prior"],
-        ["ui", "prior"],
         ["app", "candidate"],
       ],
     );
@@ -881,11 +876,16 @@ test("an App-only active candidate is a complete release, not a recovery residua
 });
 
 test("unsupported non-prefix, third-party, missing-candidate, and disagreeing-manifest states fail closed", () => {
+  // With Reserve the only ordinary target, the only non-prefix shape is an
+  // App candidate ahead of an unmapped Reserve.
   const nonPrefix = releaseState({ candidateCount: 2 });
   nonPrefix.currentMappings.reserve = [
     mapping("reserve.mento.org", "reserve", "prior"),
   ];
-  assert.throws(() => reconcileMainRelease(nonPrefix), /activation prefix/);
+  assert.throws(
+    () => reconcileMainRelease(nonPrefix),
+    /(?:activation prefix|outside the release frontier)/,
+  );
 
   const thirdParty = releaseState({ candidateCount: 1 });
   thirdParty.currentMappings.reserve[0] = {
@@ -906,39 +906,31 @@ test("unsupported non-prefix, third-party, missing-candidate, and disagreeing-ma
   );
 
   const disagreeing = releaseState({ candidateCount: 2 });
-  disagreeing.candidates.ui.manifest = manifest(["ui"]);
+  disagreeing.candidates.app.manifest = manifest(["app"]);
   assert.throws(
     () => reconcileMainRelease(disagreeing),
     /disagree on their stable manifest/,
   );
 
-  const ordinarySuffix = releaseState();
-  ordinarySuffix.candidates.ui = candidate("ui", ordinarySuffix.manifest);
-  ordinarySuffix.currentMappings.ui =
-    ordinarySuffix.manifest.originalPriors.ui.aliases.map((alias) =>
-      mappingFor(alias, ordinarySuffix.candidates.ui),
-    );
-  assert.throws(
-    () => reconcileMainRelease(ordinarySuffix),
-    /activation prefix/,
-  );
-
   // An App candidate ahead of an unmapped ordinary target is not a prefix.
+  // With Reserve the only ordinary target, that shape is exactly the terminal
+  // App recovery residual, which only the recovery path admits.
   const appAheadOfOrdinary = releaseState({
-    candidateCount: 1,
+    candidateCount: 0,
     appCandidateFrontier: true,
   });
   assert.throws(
     () => reconcileMainRelease(appAheadOfOrdinary),
-    /activation prefix/,
+    /(?:activation prefix|outside the release frontier)/,
   );
-  assert.throws(
-    () => reconcileMainReleaseForRecovery(ordinarySuffix),
-    /activation prefix/,
-  );
-  assert.throws(
-    () => reconcileMainReleaseForRecovery(appAheadOfOrdinary),
-    /activation prefix/,
+  assert.deepEqual(
+    reconcileMainReleaseForRecovery(appAheadOfOrdinary).targets.map(
+      ({ target, state }) => [target, state],
+    ),
+    [
+      ["reserve", "prior"],
+      ["app", "candidate"],
+    ],
   );
 });
 
@@ -960,10 +952,19 @@ test("selected subsets use activation order and never authorize unselected targe
     ["reserve"],
   );
 
-  const driftedUnselected = structuredClone(state);
-  driftedUnselected.currentMappings.ui[0] = mapping(
-    driftedUnselected.currentMappings.ui[0].alias,
-    "ui",
+  const reserveOnly = releaseState({
+    selected: ["reserve"],
+    candidateCount: 1,
+  });
+  assert.deepEqual(reserveOnly.manifest.stagedTargets, ["reserve"]);
+  assert.deepEqual(
+    reconcileMainRelease(reserveOnly).targets.map(({ target }) => target),
+    ["reserve"],
+  );
+  const driftedUnselected = structuredClone(reserveOnly);
+  driftedUnselected.currentMappings.app[0] = mapping(
+    driftedUnselected.currentMappings.app[0].alias,
+    "app",
     "candidate",
   );
   assert.throws(
@@ -973,15 +974,15 @@ test("selected subsets use activation order and never authorize unselected targe
 });
 
 test("shadow-staged candidates are reusable evidence but never gain activation authority", () => {
-  const releaseManifest = manifest(["reserve", "ui"], {
+  const releaseManifest = manifest(["reserve", "app"], {
     active: ["reserve"],
-    shadow: ["ui"],
+    shadow: ["app"],
   });
   const state = {
     manifest: releaseManifest,
     candidates: {
       reserve: candidate("reserve", releaseManifest),
-      ui: candidate("ui", releaseManifest),
+      app: candidate("app", releaseManifest),
     },
     currentMappings: Object.fromEntries(
       MAIN_RELEASE_ACTIVATION_ORDER.map((target) => {
@@ -1006,9 +1007,9 @@ test("shadow-staged candidates are reusable evidence but never gain activation a
   );
   assert.deepEqual(reconciliation.inheritedCandidateTargets, ["reserve"]);
 
-  state.currentMappings.ui[0] = mapping(
-    state.currentMappings.ui[0].alias,
-    "ui",
+  state.currentMappings.app[0] = mapping(
+    state.currentMappings.app[0].alias,
+    "app",
     "candidate",
   );
   assert.throws(
@@ -1017,7 +1018,7 @@ test("shadow-staged candidates are reusable evidence but never gain activation a
   );
 });
 
-for (const inheritedCount of [1, 2]) {
+for (const inheritedCount of [1]) {
   test(`fresh run restores ${inheritedCount}-target interrupted older release before planning`, () => {
     const state = releaseState({ candidateCount: inheritedCount });
     const decision = decideMainPreplanReconciliation({
@@ -1040,7 +1041,7 @@ for (const inheritedCount of [1, 2]) {
 }
 
 test("pre-plan inspection resumes the same interrupted release and accepts a complete older release as baseline", () => {
-  const partial = releaseState({ candidateCount: 2 });
+  const partial = releaseState({ candidateCount: 1 });
   assert.equal(
     decideMainPreplanReconciliation({
       nextDeploySha: SHA,
@@ -1062,7 +1063,7 @@ test("pre-plan inspection resumes the same interrupted release and accepts a com
     "restore-before-planning",
   );
 
-  const complete = releaseState({ candidateCount: 3 });
+  const complete = releaseState({ candidateCount: 2 });
   assert.equal(
     decideMainPreplanReconciliation({
       nextDeploySha: "2222222222222222222222222222222222222222",
@@ -1097,35 +1098,26 @@ test("same-release reuse requires every fresh rollback-only target to be staged"
         nextUpstreamRunId: "700",
         candidateReleases: [candidateRelease(verifyState)],
         currentMappings: verifyState.currentMappings,
-        rollbackOnlyTargets: ["ui"],
-      }),
-    /omits fresh rollback-only targets: ui/,
-  );
-
-  const resumeState = releaseState({
-    selected: ["reserve", "ui"],
-    candidateCount: 1,
-  });
-  assert.throws(
-    () =>
-      decideMainPreplanReconciliation({
-        nextDeploySha: SHA,
-        nextUpstreamRunId: "700",
-        candidateReleases: [candidateRelease(resumeState)],
-        currentMappings: resumeState.currentMappings,
         rollbackOnlyTargets: ["app"],
       }),
     /omits fresh rollback-only targets: app/,
   );
+
+  // An interrupted release has staged both remaining targets, so every fresh
+  // rollback-only target is covered by the release it resumes.
+  const resumeState = releaseState({
+    selected: ["reserve", "app"],
+    candidateCount: 1,
+  });
   const covered = decideMainPreplanReconciliation({
     nextDeploySha: SHA,
     nextUpstreamRunId: "700",
     candidateReleases: [candidateRelease(resumeState)],
     currentMappings: resumeState.currentMappings,
-    rollbackOnlyTargets: ["ui"],
+    rollbackOnlyTargets: ["app"],
   });
   assert.equal(covered.decision, "resume-existing-release");
-  assert.deepEqual(covered.rollbackOnlyTargets, ["ui"]);
+  assert.deepEqual(covered.rollbackOnlyTargets, ["app"]);
 });
 
 test("fresh uncovered targets preserve safe older-release recovery decisions", () => {
@@ -1139,13 +1131,13 @@ test("fresh uncovered targets preserve safe older-release recovery decisions", (
       nextUpstreamRunId: "800",
       candidateReleases: [candidateRelease(olderComplete)],
       currentMappings: olderComplete.currentMappings,
-      rollbackOnlyTargets: ["ui"],
+      rollbackOnlyTargets: ["app"],
     }).decision,
     "capture-new-baseline",
   );
 
   const olderPartial = releaseState({
-    selected: ["reserve", "ui"],
+    selected: ["reserve", "app"],
     candidateCount: 1,
   });
   assert.equal(
@@ -1161,7 +1153,7 @@ test("fresh uncovered targets preserve safe older-release recovery decisions", (
 });
 
 test("pre-plan inspection restores an older App-frontier release", () => {
-  const state = releaseState({ candidateCount: 2 });
+  const state = releaseState({ candidateCount: 1 });
   const decision = decideMainPreplanReconciliation({
     nextDeploySha: "2222222222222222222222222222222222222222",
     nextUpstreamRunId: "800",
@@ -1170,10 +1162,9 @@ test("pre-plan inspection restores an older App-frontier release", () => {
     rollbackOnlyTargets: [],
   });
   assert.equal(decision.decision, "restore-before-planning");
-  assert.deepEqual(decision.rollbackAuthorization.targets, ["reserve", "ui"]);
+  assert.deepEqual(decision.rollbackAuthorization.targets, ["reserve"]);
   assert.deepEqual(decision.rollbackAuthorization.aliases, [
     "reserve.mento.org",
-    "ui.mento.org",
   ]);
 });
 
@@ -1219,23 +1210,23 @@ test("pre-plan inspection selects the unique partial frontier across completed p
     MAIN_RELEASE_ACTIVATION_ORDER.map((target) => [target, prior(target)]),
   );
   const releaseOne = manifestWithPriors({
-    selected: ["ui"],
+    selected: ["app"],
     originalPriors: nativePriors,
     upstreamRunId: "701",
   });
-  const uiOne = candidate("ui", releaseOne, "r1candidate");
+  const appOne = candidate("app", releaseOne, "r1candidate");
 
   const afterReleaseOne = structuredClone(nativePriors);
-  afterReleaseOne.ui = recapturedPrior(afterReleaseOne.ui, uiOne);
+  afterReleaseOne.app = recapturedPrior(afterReleaseOne.app, appOne);
   const releaseTwo = manifestWithPriors({
-    selected: ["ui"],
+    selected: ["app"],
     originalPriors: afterReleaseOne,
     upstreamRunId: "702",
   });
-  const uiTwo = candidate("ui", releaseTwo, "r2candidate");
+  const appTwo = candidate("app", releaseTwo, "r2candidate");
 
   const afterReleaseTwo = structuredClone(afterReleaseOne);
-  afterReleaseTwo.ui = recapturedPrior(afterReleaseTwo.ui, uiTwo);
+  afterReleaseTwo.app = recapturedPrior(afterReleaseTwo.app, appTwo);
   const releaseThree = manifestWithPriors({
     selected: ["reserve", "app"],
     originalPriors: afterReleaseTwo,
@@ -1244,12 +1235,7 @@ test("pre-plan inspection selects the unique partial frontier across completed p
   const reserveThree = candidate("reserve", releaseThree, "r3candidate");
   const currentMappings = Object.fromEntries(
     MAIN_RELEASE_ACTIVATION_ORDER.map((target) => {
-      const record =
-        target === "ui"
-          ? uiTwo
-          : target === "reserve"
-            ? reserveThree
-            : afterReleaseTwo.app;
+      const record = target === "reserve" ? reserveThree : appTwo;
       return [
         target,
         afterReleaseTwo[target].aliases.map((alias) =>
@@ -1264,11 +1250,11 @@ test("pre-plan inspection selects the unique partial frontier across completed p
     candidateReleases: [
       {
         manifest: releaseOne,
-        candidates: { ui: uiOne },
+        candidates: { app: appOne },
       },
       {
         manifest: releaseTwo,
-        candidates: { ui: uiTwo },
+        candidates: { app: appTwo },
       },
       {
         manifest: releaseThree,
@@ -1284,10 +1270,10 @@ test("pre-plan inspection selects the unique partial frontier across completed p
     releaseThree.releaseId,
   );
   assert.deepEqual(decision.rollbackAuthorization.targets, ["reserve"]);
-  assert.equal(releaseTwo.originalPriors.ui.deploymentId, uiOne.deploymentId);
+  assert.equal(releaseTwo.originalPriors.app.deploymentId, appOne.deploymentId);
   assert.equal(
-    decision.reconciliation.manifest.originalPriors.ui.deploymentId,
-    uiTwo.deploymentId,
+    decision.reconciliation.manifest.originalPriors.app.deploymentId,
+    appTwo.deploymentId,
   );
 });
 
@@ -1310,7 +1296,7 @@ test("all-prior preparation failure has no rollback authority or mutation", () =
 
 for (const [name, candidateCount, expectedDecision] of [
   ["before any current command", 0, "fail-no-mutation"],
-  ["during suffix or App preparation", 2, "restore-inherited"],
+  ["during suffix or App preparation", 1, "restore-inherited"],
 ]) {
   test(`runner loss ${name} does not wait for a vanished producer`, () => {
     const reconciliation = reconcileMainRelease(
@@ -1360,9 +1346,9 @@ function sealedManifest(era) {
 
 // ADR 0017 retired `governance` as a main target. Every manifest sealed before
 // then is four-target, and exactly one validator owns each era: a current
-// manifest, a governance-era manifest, and a bridge-era manifest are mutually
+// manifest, a retired-era manifest, and a bridge-era manifest are mutually
 // exclusive shapes.
-test("governance-era manifests are admitted only by the governance-era validator", () => {
+test("governance-era manifests are admitted only by the retired-era validator", () => {
   const governanceEra = sealedManifest("governanceEra");
   assert.deepEqual(Object.keys(governanceEra.originalPriors), [
     "governance",
@@ -1371,7 +1357,7 @@ test("governance-era manifests are admitted only by the governance-era validator
     "app",
   ]);
   assert.deepEqual(
-    assertGovernanceEraReleaseManifest(structuredClone(governanceEra)),
+    assertRetiredEraReleaseManifest(structuredClone(governanceEra)),
     governanceEra,
   );
   assert.throws(
@@ -1384,6 +1370,30 @@ test("governance-era manifests are admitted only by the governance-era validator
   );
 });
 
+// ADR 0018 then retired `ui`. Every manifest sealed between the two
+// retirements is three-target, and it too is admitted only as a retired era.
+test("ui-era manifests are admitted only by the retired-era validator", () => {
+  const uiEra = sealedManifest("uiEra");
+  assert.deepEqual(Object.keys(uiEra.originalPriors), ["reserve", "ui", "app"]);
+  assert.deepEqual(Object.keys(uiEra.mainOwnershipMode), [
+    "app",
+    "reserve",
+    "ui",
+  ]);
+  assert.deepEqual(
+    assertRetiredEraReleaseManifest(structuredClone(uiEra)),
+    uiEra,
+  );
+  assert.throws(
+    () => assertMainReleaseManifest(uiEra),
+    /Main release manifest/,
+  );
+  assert.throws(
+    () => assertBridgeEraReleaseManifest(uiEra),
+    /Main release manifest/,
+  );
+});
+
 test("bridge-era manifests stay admitted against the four-target universe", () => {
   const bridgeEra = sealedManifest("bridgeEra");
   assert.deepEqual(
@@ -1391,7 +1401,7 @@ test("bridge-era manifests stay admitted against the four-target universe", () =
     bridgeEra,
   );
   assert.throws(
-    () => assertGovernanceEraReleaseManifest(bridgeEra),
+    () => assertRetiredEraReleaseManifest(bridgeEra),
     /Main release manifest/,
   );
   assert.throws(
@@ -1400,11 +1410,12 @@ test("bridge-era manifests stay admitted against the four-target universe", () =
   );
 });
 
-test("a current three-target manifest is never admitted by a legacy validator", () => {
+test("a current two-target manifest is never admitted by a legacy validator", () => {
   const current = manifest();
+  assert.deepEqual(Object.keys(current.originalPriors), ["reserve", "app"]);
   assert.deepEqual(assertMainReleaseManifest(current), current);
   assert.throws(
-    () => assertGovernanceEraReleaseManifest(current),
+    () => assertRetiredEraReleaseManifest(current),
     /Main release manifest/,
   );
   assert.throws(
@@ -1509,8 +1520,140 @@ test("no corruption of a governance-era manifest is admitted", () => {
     const corrupted = structuredClone(genuine);
     corrupt(corrupted);
     assert.throws(
-      () => assertGovernanceEraReleaseManifest(corrupted),
+      () => assertRetiredEraReleaseManifest(corrupted),
       /Main release manifest/,
+      name,
+    );
+    assert.throws(() => assertMainReleaseManifest(corrupted), Error, name);
+  }
+});
+
+// The ui-era universe is an allowance for one exact retired shape, never a
+// bypass: every field of every prior, the retired orders, and the stable
+// identity are still validated.
+test("no corruption of a ui-era manifest is admitted", () => {
+  const genuine = sealedManifest("uiEra");
+  const reorderKeys = (value, last) => {
+    const { [last]: moved, ...rest } = value;
+    return { ...rest, [last]: moved };
+  };
+  for (const [name, corrupt] of [
+    [
+      "UI prior aliases",
+      (value) => {
+        value.originalPriors.ui.aliases = ["app.mento.org"];
+      },
+    ],
+    [
+      "UI prior project name",
+      (value) => {
+        value.originalPriors.ui.projectName = "reserve.mento.org";
+      },
+    ],
+    [
+      "UI prior environment",
+      (value) => {
+        const prior = value.originalPriors.ui;
+        prior.target = null;
+        prior.customEnvironmentSlug = "v3";
+        for (const leaf of prior.planningLeaves) {
+          leaf.target = null;
+          leaf.customEnvironmentSlug = "v3";
+        }
+      },
+    ],
+    [
+      "UI prior planning leaf",
+      (value) => {
+        value.originalPriors.ui.planningLeaves[0].deploymentId = "dpl_other123";
+      },
+    ],
+    [
+      "UI prior removed",
+      (value) => {
+        delete value.originalPriors.ui;
+      },
+    ],
+    [
+      "a Governance prior added",
+      (value) => {
+        value.originalPriors = {
+          governance: sealedManifest("governanceEra").originalPriors.governance,
+          ...value.originalPriors,
+        };
+      },
+    ],
+    [
+      "current activation order of priors",
+      (value) => {
+        value.originalPriors = reorderKeys(value.originalPriors, "ui");
+      },
+    ],
+    [
+      "ownership without UI",
+      (value) => {
+        delete value.mainOwnershipMode.ui;
+      },
+    ],
+    [
+      "ownership with Governance",
+      (value) => {
+        value.mainOwnershipMode = {
+          app: value.mainOwnershipMode.app,
+          governance: value.mainOwnershipMode.reserve,
+          reserve: value.mainOwnershipMode.reserve,
+          ui: value.mainOwnershipMode.ui,
+        };
+      },
+    ],
+    [
+      "ownership out of the retired order",
+      (value) => {
+        value.mainOwnershipMode = reorderKeys(value.mainOwnershipMode, "app");
+      },
+    ],
+    [
+      "mixed ownership under global shadow mode",
+      (value) => {
+        value.mainOwnershipMode.ui = "github";
+      },
+    ],
+    [
+      "staged targets out of the retired order",
+      (value) => {
+        value.stagedTargets = [...value.stagedTargets].reverse();
+      },
+    ],
+    [
+      "an unknown fourth target",
+      (value) => {
+        value.mainOwnershipMode.docs = "shadow";
+      },
+    ],
+    [
+      "an unknown staged target",
+      (value) => {
+        value.stagedTargets = [...value.stagedTargets, "docs"];
+      },
+    ],
+    [
+      "release ID",
+      (value) => {
+        value.releaseId = `mr-${"0".repeat(24)}`;
+      },
+    ],
+    [
+      "release plan digest",
+      (value) => {
+        value.releasePlanDigest = "not-a-digest";
+      },
+    ],
+  ]) {
+    const corrupted = structuredClone(genuine);
+    corrupt(corrupted);
+    assert.throws(
+      () => assertRetiredEraReleaseManifest(corrupted),
+      /Main release manifest|Main ownership mode|Global shadow mode/,
       name,
     );
     assert.throws(() => assertMainReleaseManifest(corrupted), Error, name);

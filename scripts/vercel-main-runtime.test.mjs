@@ -14,7 +14,6 @@ import {
   reserveSupplyStateMatches,
   runMainRuntimeSmoke,
   runMainRuntimeSmokeFromEnvironment,
-  uiCheckboxStateMatches,
   validateMainRuntimeInput,
 } from "./vercel-main-runtime.mjs";
 
@@ -22,7 +21,6 @@ const SHA = "0123456789abcdef0123456789abcdef01234567";
 const ACTUAL_LANDING_PATHS = Object.freeze({
   app: "/pools",
   reserve: "/",
-  ui: "/basic-components",
 });
 
 function securityHeaders(sha = SHA) {
@@ -84,23 +82,7 @@ class FakeLocator {
       this.page.navigate("/?tab=stablecoins");
       return;
     }
-    if (this.kind === "link" && this.name === "Textarea") {
-      this.page.navigate("/form-components");
-      return;
-    }
-    if (this.kind === "checkbox" && this.name === "Checkbox option") {
-      this.page.checkboxChecked = this.page.uiRouteAssetFinished;
-      return;
-    }
     throw new Error(`Unexpected click: ${this.kind}/${this.name}`);
-  }
-
-  async fill(value) {
-    assert.equal(this.kind, "placeholder");
-    assert.equal(this.name, "Search components...");
-    assert.equal(value, "Textarea");
-    this.page.searchValue = value;
-    this.page.calls.push(["fill", value]);
   }
 
   async getAttribute(attribute) {
@@ -122,11 +104,6 @@ class FakeLocator {
     assert.equal(this.name, "E2E Test Wallet");
     return this.page.mockWalletVisible ? 1 : 0;
   }
-
-  async isChecked() {
-    assert.equal(this.name, "Checkbox option");
-    return this.page.checkboxChecked;
-  }
 }
 
 class FakePage extends EventEmitter {
@@ -138,7 +115,6 @@ class FakePage extends EventEmitter {
       mockWalletVisible = false,
       omitResource,
       initialLanding,
-      delayedUiRouteAsset = false,
       waitForUrlNavigation,
       walletFlagsAbsent = true,
       wrongLanding,
@@ -152,8 +128,6 @@ class FakePage extends EventEmitter {
     this.mockWalletVisible = mockWalletVisible;
     this.omitResource = omitResource;
     this.initialLanding = initialLanding;
-    this.delayedUiRouteAsset = delayedUiRouteAsset;
-    this.uiRouteAssetFinished = !delayedUiRouteAsset;
     this.waitForUrlNavigation = waitForUrlNavigation;
     this.walletFlagsAbsent = walletFlagsAbsent;
     this.wrongLanding = wrongLanding;
@@ -162,7 +136,6 @@ class FakePage extends EventEmitter {
     this.calls = [];
     this.walletOpened = false;
     this.supplySelected = false;
-    this.checkboxChecked = false;
   }
 
   setDefaultTimeout(timeout) {
@@ -198,23 +171,6 @@ class FakePage extends EventEmitter {
     this.currentUrl = new URL(path, this.config.publicUrl).toString();
     this.emit("framenavigated", this.frame);
     this.emit("response", this.response(`${path}?_rsc=fixture`, "fetch"));
-    if (
-      this.delayedUiRouteAsset &&
-      this.target === "ui" &&
-      path === "/form-components"
-    ) {
-      const request = {
-        redirectedFrom: () => null,
-        resourceType: () => "script",
-        url: () => `${this.config.publicUrl}_next/static/form-components.js`,
-      };
-      this.emit("request", request);
-      setTimeout(() => {
-        this.uiRouteAssetFinished = true;
-        this.calls.push(["route-asset-finished"]);
-        this.emit("requestfinished", request);
-      }, 0);
-    }
   }
 
   async goto(url, options) {
@@ -266,10 +222,6 @@ class FakePage extends EventEmitter {
     return new FakeLocator(this, "text", name);
   }
 
-  getByPlaceholder(name) {
-    return new FakeLocator(this, "placeholder", name);
-  }
-
   async waitForURL(expected) {
     const expectedUrl =
       typeof expected === "string" ? expected : expected.toString();
@@ -295,9 +247,6 @@ class FakePage extends EventEmitter {
         currentHref: this.currentUrl,
         selectedTabLabel: this.supplySelected ? "Supply" : "Overview",
       });
-    }
-    if (predicate === uiCheckboxStateMatches) {
-      return this.checkboxChecked;
     }
     throw new Error("Unexpected page evaluator");
   }
@@ -329,6 +278,7 @@ function fakeChromium(page) {
 }
 
 test("hard-binds each logical target to its literal public URL and SHA", () => {
+  assert.deepEqual(Object.keys(MAIN_RUNTIME_TARGETS), ["app", "reserve"]);
   for (const target of Object.keys(MAIN_RUNTIME_TARGETS)) {
     assert.deepEqual(validateMainRuntimeInput(inputFor(target)), {
       deploySha: SHA,
@@ -339,6 +289,8 @@ test("hard-binds each logical target to its literal public URL and SHA", () => {
 
   for (const invalid of [
     { ...inputFor("app"), logicalTarget: "unknown" },
+    { ...inputFor("app"), logicalTarget: "ui" },
+    { ...inputFor("app"), logicalTarget: "governance" },
     { ...inputFor("app"), publicUrl: "https://example.com/" },
     { ...inputFor("app"), publicUrl: "https://app.mento.org/path" },
     { ...inputFor("app"), publicUrl: "http://app.mento.org/" },
@@ -388,7 +340,7 @@ test("requires the exact deployment SHA and complete security-header contract", 
   assert.throws(() => assertMainRuntimeSecurityHeaders(null, SHA), /malformed/);
 });
 
-test("runs the literal interaction contract for all three public targets", async () => {
+test("runs the literal interaction contract for both public targets", async () => {
   for (const target of Object.keys(MAIN_RUNTIME_TARGETS)) {
     const page = new FakePage(target);
     const fake = fakeChromium(page);
@@ -409,26 +361,6 @@ test("runs the literal interaction contract for all three public targets", async
     assert.deepEqual(fake.state.contextOptions, { colorScheme: "dark" });
     assert.equal(fake.state.closed, true);
   }
-});
-
-test("UI waits for delayed same-origin route assets before its checkbox interaction", async () => {
-  const page = new FakePage("ui", { delayedUiRouteAsset: true });
-  await runMainRuntimeSmoke({
-    chromium: fakeChromium(page).chromium,
-    values: inputFor("ui"),
-  });
-  const routeAssetFinished = page.calls.findIndex(
-    ([operation]) => operation === "route-asset-finished",
-  );
-  const checkboxClick = page.calls.findIndex(
-    ([operation, kind, name]) =>
-      operation === "click" &&
-      kind === "checkbox" &&
-      name === "Checkbox option",
-  );
-  assert.ok(routeAssetFinished >= 0);
-  assert.ok(checkboxClick > routeAssetFinished);
-  assert.equal(page.checkboxChecked, true);
 });
 
 test("App proves real production wallets without enabling preview flags", async () => {
@@ -499,21 +431,6 @@ test("Reserve state predicate binds origin, route, query, and selected tab", () 
   ]) {
     assert.equal(reserveSupplyStateMatches({ ...valid, ...invalid }), false);
   }
-});
-
-test("UI checkbox predicate requires semantic and component checked state", () => {
-  const attributes = new Map([
-    ["aria-checked", "true"],
-    ["data-state", "checked"],
-  ]);
-  const checkbox = { getAttribute: (name) => attributes.get(name) ?? null };
-  assert.equal(uiCheckboxStateMatches({ checkbox }), true);
-  attributes.set("aria-checked", "false");
-  assert.equal(uiCheckboxStateMatches({ checkbox }), false);
-  attributes.set("aria-checked", "true");
-  attributes.set("data-state", "unchecked");
-  assert.equal(uiCheckboxStateMatches({ checkbox }), false);
-  assert.equal(uiCheckboxStateMatches({ checkbox: null }), false);
 });
 
 function barePage(origin) {
@@ -720,17 +637,17 @@ test("monitor requires successful same-origin documents, scripts, styles, and fo
 test("rejects wrong landing, final location, SHA header, and browser policy", async () => {
   const cases = [
     {
-      page: new FakePage("ui", { wrongLanding: "/form-components" }),
-      target: "ui",
+      page: new FakePage("app", { wrongLanding: "/" }),
+      target: "app",
       pattern: /public landing URL mismatch/,
     },
     {
-      page: new FakePage("ui", {
+      page: new FakePage("app", {
         afterInteraction(currentPage) {
           currentPage.navigate("/");
         },
       }),
-      target: "ui",
+      target: "app",
       pattern: /public interaction URL mismatch/,
     },
     {
@@ -792,15 +709,15 @@ test("environment entrypoint writes canonical outputs and summary", async () => 
   writeFileSync(output, "");
   writeFileSync(summary, "");
   try {
-    const page = new FakePage("ui");
+    const page = new FakePage("app");
     const result = await runMainRuntimeSmokeFromEnvironment({
       chromium: fakeChromium(page).chromium,
       environment: {
         DEPLOY_SHA: SHA,
         GITHUB_OUTPUT: output,
         GITHUB_STEP_SUMMARY: summary,
-        LOGICAL_TARGET: "ui",
-        PUBLIC_URL: MAIN_RUNTIME_TARGETS.ui.publicUrl,
+        LOGICAL_TARGET: "app",
+        PUBLIC_URL: MAIN_RUNTIME_TARGETS.app.publicUrl,
       },
     });
     const outputText = readFileSync(output, "utf8");

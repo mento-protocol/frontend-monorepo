@@ -8,6 +8,7 @@ scope: ci/deployment/preview-worker-dispatch-authentication
 date: 2026-07
 superseded_in_part_by:
   - "0017"
+  - "0018"
 ---
 
 # ADR 0003 — A dedicated repository-scoped credential dispatches preview workers
@@ -16,6 +17,9 @@ superseded_in_part_by:
 Amended 2026-11-24 by
 [ADR 0017](0017-retire-governance-from-vercel-deployment.md): Governance is no
 longer a preview target, so its rollback below is history.
+Amended 2026-11-26 by
+[ADR 0018](0018-retire-ui-from-vercel-deployment.md): UI is no longer a
+preview target either.
 **Scope:** ci/deployment/preview-worker-dispatch-authentication
 
 ## Context

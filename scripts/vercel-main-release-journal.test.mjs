@@ -13,8 +13,8 @@ import { createMainReleaseManifest } from "./vercel-main-release-reconciliation.
 
 const SHA = "a".repeat(40);
 const PRIOR_SHA = "b".repeat(40);
-const TARGETS = ["app", "reserve", "ui"];
-const RELEASE_ORDER = ["reserve", "ui", "app"];
+const TARGETS = ["app", "reserve"];
+const RELEASE_ORDER = ["reserve", "app"];
 const UPSTREAM_RUN_ID = "123";
 const IDENTITY = Object.freeze({ runId: "800", runAttempt: "3" });
 
@@ -134,7 +134,7 @@ function priorMappings(releaseExecution) {
 }
 
 function emptyReceipts() {
-  return { app: null, reserve: null, ui: null };
+  return { app: null, reserve: null };
 }
 
 function forwardJournal(overrides = {}) {
@@ -148,15 +148,11 @@ function forwardJournal(overrides = {}) {
   });
 }
 
-test("forward journal binds exactly the three reviewed protected targets", () => {
+test("forward journal binds exactly the two reviewed protected targets", () => {
   const journal = forwardJournal();
-  assert.deepEqual(Object.keys(journal.prior), ["app", "reserve", "ui"]);
-  assert.deepEqual(Object.keys(journal.startMappings), [
-    "app",
-    "reserve",
-    "ui",
-  ]);
-  assert.deepEqual(Object.keys(journal.candidates), ["app", "reserve", "ui"]);
+  assert.deepEqual(Object.keys(journal.prior), ["app", "reserve"]);
+  assert.deepEqual(Object.keys(journal.startMappings), ["app", "reserve"]);
+  assert.deepEqual(Object.keys(journal.candidates), ["app", "reserve"]);
   assert.equal(journal.status, "prepared");
   assert.equal(journal.sequence, 0);
   assert.equal(journal.deploySha, SHA);
@@ -167,7 +163,7 @@ test("forward journal binds exactly the three reviewed protected targets", () =>
 test("prior state copies each target's exact manifest prior identity", () => {
   const releaseExecution = execution();
   const journal = forwardJournal({ execution: releaseExecution });
-  for (const target of ["app", "reserve", "ui"]) {
+  for (const target of ["app", "reserve"]) {
     const prior = releaseExecution.manifest.originalPriors[target];
     assert.deepEqual(journal.prior[target], {
       deploymentId: prior.deploymentId,
@@ -186,7 +182,7 @@ test("prior state copies each target's exact manifest prior identity", () => {
 });
 
 // MGP-18 retired the legacy App deployment. The canonical mapping set is
-// exactly the three release targets; a retired target can never re-enter it.
+// exactly the two release targets; a retired target can never re-enter it.
 test("canonical mappings reject a retired legacy target, extra keys, and gaps", () => {
   const releaseExecution = execution();
   const base = priorMappings(releaseExecution);
@@ -225,8 +221,26 @@ test("canonical mappings reject a retired legacy target, extra keys, and gaps", 
     /mapping targets contains forbidden or missing fields/,
   );
 
+  // UI left the release universe too (ADR 0018); its key is foreign as well.
+  const withUi = structuredClone(base);
+  withUi.mappings.ui = [
+    {
+      alias: "ui.mento.org",
+      deploymentId: "dpl_uiPrior123",
+      deploymentUrl: "https://ui-prior.vercel.app",
+    },
+  ];
+  assert.throws(
+    () =>
+      forwardJournal({
+        execution: releaseExecution,
+        currentMappings: withUi,
+      }),
+    /mapping targets contains forbidden or missing fields/,
+  );
+
   const missingTarget = structuredClone(base);
-  delete missingTarget.mappings.ui;
+  delete missingTarget.mappings.reserve;
   assert.throws(
     () =>
       forwardJournal({
@@ -239,7 +253,7 @@ test("canonical mappings reject a retired legacy target, extra keys, and gaps", 
   const reordered = {
     schema: base.schema,
     mappings: Object.fromEntries(
-      ["app", "reserve", "ui"].map((target) => [target, base.mappings[target]]),
+      ["app", "reserve"].map((target) => [target, base.mappings[target]]),
     ),
   };
   assert.throws(
@@ -326,9 +340,9 @@ test("forward journal rejects a receipt for an unselected target", () => {
     () =>
       forwardJournal({
         execution: releaseExecution,
-        candidateReceipts: { ...emptyReceipts(), ui: { forged: true } },
+        candidateReceipts: { ...emptyReceipts(), reserve: { forged: true } },
       }),
-    /receipt exists for unselected ui/,
+    /receipt exists for unselected reserve/,
   );
   assert.throws(
     () =>
@@ -337,8 +351,15 @@ test("forward journal rejects a receipt for an unselected target", () => {
         candidateReceipts: {
           reserve: null,
           app: null,
-          ui: null,
         },
+      }),
+    /candidate receipts contains forbidden or missing fields/,
+  );
+  assert.throws(
+    () =>
+      forwardJournal({
+        execution: releaseExecution,
+        candidateReceipts: { ...emptyReceipts(), ui: null },
       }),
     /candidate receipts contains forbidden or missing fields/,
   );

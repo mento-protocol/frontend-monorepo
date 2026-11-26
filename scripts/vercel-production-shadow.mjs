@@ -127,22 +127,6 @@ export const PRODUCTION_SHADOW_TARGETS = {
       "--yes",
     ],
   },
-  ui: {
-    projectName: "ui.mento.org",
-    rootDirectory: "apps/ui.mento.org",
-    pullEnvironment: "production",
-    buildArguments: ["build", "--yes", "--standalone", "--prod"],
-    ...PRODUCTION_GENERATED_ALIAS_CONTRACTS.ui,
-    deployArguments: [
-      "deploy",
-      "--prebuilt",
-      "--prod",
-      "--skip-domain",
-      "--archive=tgz",
-      "--format=json",
-      "--yes",
-    ],
-  },
 };
 
 function requireString(value, label, pattern) {

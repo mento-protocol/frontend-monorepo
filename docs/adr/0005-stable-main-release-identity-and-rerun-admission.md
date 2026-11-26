@@ -8,6 +8,7 @@ scope: ci/deployment/main-reruns
 date: 2026-07
 superseded_in_part_by:
   - "0017"
+  - "0018"
 ---
 
 # ADR 0005 — Stable active-main release identity and provider-side rerun reconciliation
@@ -19,6 +20,10 @@ Amended 2026-11-24 by
 [ADR 0017](0017-retire-governance-from-vercel-deployment.md): releases are
 three-target, and four-target manifests sealed before the retirement are
 read only as rollback-only priors.
+Amended 2026-11-26 by
+[ADR 0018](0018-retire-ui-from-vercel-deployment.md): releases are
+two-target, and three-target manifests sealed before that retirement are read
+only as rollback-only priors too.
 **Scope:** ci/deployment/main-reruns
 
 ## Context

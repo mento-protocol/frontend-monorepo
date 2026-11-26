@@ -457,7 +457,7 @@ test("candidate builds are standalone and external references fail before handof
   );
   assert.match(
     build.run,
-    /app\|reserve\|ui\) build_arguments=\(build --yes --standalone --prod --project "\$VERCEL_PROJECT_ID"\)/,
+    /app\|reserve\) build_arguments=\(build --yes --standalone --prod --project "\$VERCEL_PROJECT_ID"\)/,
   );
   assert.ok(
     build.run.indexOf("validate-candidate-pull") <
@@ -573,7 +573,7 @@ test("candidate build action validates inputs and builds without a Vercel token"
 });
 
 test("every target binds the exact deployment SHA into its runtime and cache", () => {
-  for (const target of ["app", "reserve", "ui"]) {
+  for (const target of ["app", "reserve"]) {
     const nextConfig = readFileSync(
       new URL(`../apps/${target}.mento.org/next.config.ts`, import.meta.url),
       "utf8",

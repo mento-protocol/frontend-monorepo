@@ -99,7 +99,7 @@ function activeReleaseManifest({
   rollbackOnly = false,
   stagedTargets,
 }) {
-  const targets = ["app", "reserve", "ui"];
+  const targets = ["app", "reserve"];
   const plannedTargets =
     stagedTargets === undefined
       ? targets
@@ -204,15 +204,6 @@ function activeStateSpec({ rollbackOnly = false } = {}) {
       target: "production",
       customEnvironmentSlug: null,
     },
-    ui: {
-      projectId: "prj_uiactive123",
-      projectName: "ui.mento.org",
-      expectedDisposition: "githubPrebuilt",
-      deploymentId: "dpl_uiactive123",
-      deploymentUrl: "https://ui-active-immutable.vercel.app",
-      target: "production",
-      customEnvironmentSlug: null,
-    },
   };
   return {
     schema: ACTIVE_DEPLOYMENT_STATE_SPEC_SCHEMA,
@@ -229,25 +220,24 @@ function activeStateSpec({ rollbackOnly = false } = {}) {
     mainOwnershipMode: {
       app: "github",
       reserve: "github",
-      ui: "github",
     },
-    stagedTargets: ["app", "reserve", "ui"],
-    activeTargets: ["app", "reserve", "ui"],
+    stagedTargets: ["app", "reserve"],
+    activeTargets: ["app", "reserve"],
     shadowTargets: [],
     projects,
   };
 }
 
-function activeStateSpecWithInactiveUi() {
+function activeStateSpecWithInactiveReserve() {
   const spec = activeStateSpec();
-  spec.projects.ui = {
-    ...spec.projects.ui,
+  spec.projects.reserve = {
+    ...spec.projects.reserve,
     expectedDisposition: null,
     deploymentId: null,
     deploymentUrl: null,
   };
-  spec.stagedTargets = ["app", "reserve"];
-  spec.activeTargets = ["app", "reserve"];
+  spec.stagedTargets = ["app"];
+  spec.activeTargets = ["app"];
   spec.releaseManifest = activeReleaseManifest({
     deploySha: spec.deploySha,
     projects: spec.projects,
@@ -270,7 +260,7 @@ test("a selected App state requires its exact staged candidate", () => {
     () =>
       createActiveDeploymentStateProof({
         spec,
-        deployments: { app: [], reserve: [], ui: [] },
+        deployments: { app: [], reserve: [] },
       }),
     /app planned active deployment ID is missing or malformed/,
   );
@@ -356,15 +346,15 @@ function activeDeploymentInspections(spec) {
   );
 }
 
-function inactiveUiInspection(
+function inactiveReserveInspection(
   spec,
   { readyState = "CANCELED", source = "git" } = {},
 ) {
   const deploymentId = "dpl_FnzVkA6HCgEaubHhF3DNgivYKqkk";
-  const project = spec.projects.ui;
+  const project = spec.projects.reserve;
   const response = {
     id: deploymentId,
-    url: "uimento-lxu9dr6ck-mentolabs.vercel.app",
+    url: "reservemento-lxu9dr6ck-mentolabs.vercel.app",
     projectId: project.projectId,
     name: project.projectName,
     readyState,
@@ -521,7 +511,7 @@ test("main planning capture keeps every non-Git activation-state check strict", 
     {
       label: "name",
       mutate(value) {
-        value.deploymentResponse.name = "ui.mento.org";
+        value.deploymentResponse.name = "app.mento.org";
       },
     },
     {
@@ -833,7 +823,7 @@ test("minimal alias mapping exposes only read-only drift fields", () => {
 test("active alias mapping set captures exactly every protected alias", () => {
   const spec = {
     schema: ACTIVE_ALIAS_MAPPING_SET_SCHEMA,
-    aliases: ["app.mento.org", "reserve.mento.org", "ui.mento.org"],
+    aliases: ["app.mento.org", "reserve.mento.org"],
   };
   assert.equal(assertActiveAliasMappingSet(spec), spec);
   const mappings = assertActiveAliasMappings(
@@ -843,7 +833,7 @@ test("active alias mapping set captures exactly every protected alias", () => {
       deploymentUrl: `https://active-${index}.vercel.app`,
     })),
   );
-  assert.equal(mappings.length, 3);
+  assert.equal(mappings.length, 2);
   // Neither the retired legacy App topology nor the retiring custom
   // environment may re-enter the protected set.
   for (const retired of [
@@ -2136,10 +2126,10 @@ test("active deployment proof binds every GitHub prebuilt across exactly seven c
 });
 
 test("active deployment proof records an exact canceled inactive deployment as inert evidence", () => {
-  const spec = activeStateSpecWithInactiveUi();
+  const spec = activeStateSpecWithInactiveReserve();
   const deployments = activeDeploymentInspections(spec);
-  const canceled = inactiveUiInspection(spec);
-  deployments.ui = [canceled];
+  const canceled = inactiveReserveInspection(spec);
+  deployments.reserve = [canceled];
 
   const proof = createActiveDeploymentStateProof({
     spec,
@@ -2147,8 +2137,8 @@ test("active deployment proof records an exact canceled inactive deployment as i
   });
 
   assert.equal(proof.outcome, "proven");
-  assert.equal(proof.projects.ui.expectedDisposition, null);
-  assert.deepEqual(proof.projects.ui.counts, {
+  assert.equal(proof.projects.reserve.expectedDisposition, null);
+  assert.deepEqual(proof.projects.reserve.counts, {
     scanned: 1,
     githubPrebuilt: 0,
     githubShadowStage: 0,
@@ -2158,15 +2148,15 @@ test("active deployment proof records an exact canceled inactive deployment as i
     inertCanceled: 1,
     unknown: 0,
   });
-  assert.deepEqual(proof.projects.ui.ids.inertCanceled, [
+  assert.deepEqual(proof.projects.reserve.ids.inertCanceled, [
     canceled.deploymentId,
   ]);
-  assert.deepEqual(proof.projects.ui.records.inertCanceled, [
+  assert.deepEqual(proof.projects.reserve.records.inertCanceled, [
     {
       deploymentId: canceled.deploymentId,
-      deploymentUrl: "https://uimento-lxu9dr6ck-mentolabs.vercel.app",
-      projectId: spec.projects.ui.projectId,
-      projectName: spec.projects.ui.projectName,
+      deploymentUrl: "https://reservemento-lxu9dr6ck-mentolabs.vercel.app",
+      projectId: spec.projects.reserve.projectId,
+      projectName: spec.projects.reserve.projectName,
       readyState: "CANCELED",
       target: "production",
       customEnvironmentSlug: null,
@@ -2183,7 +2173,7 @@ test("active deployment proof records an exact canceled inactive deployment as i
   assert.equal(assertActiveDeploymentStateProof(proof), proof);
 
   const tampered = structuredClone(proof);
-  tampered.projects.ui.records.inertCanceled[0].readyState = "ERROR";
+  tampered.projects.reserve.records.inertCanceled[0].readyState = "ERROR";
   assert.throws(
     () => assertActiveDeploymentStateProof(tampered),
     /inertCanceled deployment record is malformed/,
@@ -2193,7 +2183,7 @@ test("active deployment proof records an exact canceled inactive deployment as i
 test("active deployment proof does not let a canceled expected candidate satisfy its disposition", () => {
   const spec = activeStateSpec();
   const deployments = activeDeploymentInspections(spec);
-  deployments.ui[0].response.readyState = "CANCELED";
+  deployments.reserve[0].response.readyState = "CANCELED";
 
   const proof = createActiveDeploymentStateProof({
     spec,
@@ -2201,10 +2191,10 @@ test("active deployment proof does not let a canceled expected candidate satisfy
   });
 
   assert.equal(proof.outcome, "unproven");
-  assert.deepEqual(proof.projects.ui.ids.githubPrebuilt, []);
-  assert.deepEqual(proof.projects.ui.ids.inertCanceled, []);
-  assert.deepEqual(proof.projects.ui.ids.unknown, [
-    spec.projects.ui.deploymentId,
+  assert.deepEqual(proof.projects.reserve.ids.githubPrebuilt, []);
+  assert.deepEqual(proof.projects.reserve.ids.inertCanceled, []);
+  assert.deepEqual(proof.projects.reserve.ids.unknown, [
+    spec.projects.reserve.deploymentId,
   ]);
 });
 
@@ -2216,10 +2206,10 @@ test("active deployment proof keeps errors and pending deployments unknown", () 
     "INITIALIZING",
     "QUEUED",
   ]) {
-    const spec = activeStateSpecWithInactiveUi();
+    const spec = activeStateSpecWithInactiveReserve();
     const deployments = activeDeploymentInspections(spec);
-    const entry = inactiveUiInspection(spec, { readyState });
-    deployments.ui = [entry];
+    const entry = inactiveReserveInspection(spec, { readyState });
+    deployments.reserve = [entry];
 
     const proof = createActiveDeploymentStateProof({
       spec,
@@ -2228,11 +2218,11 @@ test("active deployment proof keeps errors and pending deployments unknown", () 
 
     assert.equal(proof.outcome, "unproven", readyState);
     assert.deepEqual(
-      proof.projects.ui.ids.unknown,
+      proof.projects.reserve.ids.unknown,
       [entry.deploymentId],
       readyState,
     );
-    assert.equal(proof.projects.ui.counts.inertCanceled, 0, readyState);
+    assert.equal(proof.projects.reserve.counts.inertCanceled, 0, readyState);
   }
 });
 
@@ -2247,7 +2237,7 @@ test("active deployment proof fails closed when canceled identity fields do not 
     {
       label: "project name",
       mutate(entry) {
-        entry.response.name = "wrong-ui.mento.org";
+        entry.response.name = "wrong-reserve.mento.org";
       },
     },
     {
@@ -2271,11 +2261,11 @@ test("active deployment proof fails closed when canceled identity fields do not 
   ];
 
   for (const scenario of scenarios) {
-    const spec = activeStateSpecWithInactiveUi();
+    const spec = activeStateSpecWithInactiveReserve();
     const deployments = activeDeploymentInspections(spec);
-    const entry = inactiveUiInspection(spec);
+    const entry = inactiveReserveInspection(spec);
     scenario.mutate(entry);
-    deployments.ui = [entry];
+    deployments.reserve = [entry];
 
     const proof = createActiveDeploymentStateProof({
       spec,
@@ -2284,18 +2274,22 @@ test("active deployment proof fails closed when canceled identity fields do not 
 
     assert.equal(proof.outcome, "unproven", scenario.label);
     assert.deepEqual(
-      proof.projects.ui.ids.unknown,
+      proof.projects.reserve.ids.unknown,
       [entry.deploymentId],
       scenario.label,
     );
-    assert.equal(proof.projects.ui.counts.inertCanceled, 0, scenario.label);
+    assert.equal(
+      proof.projects.reserve.counts.inertCanceled,
+      0,
+      scenario.label,
+    );
   }
 
-  const spec = activeStateSpecWithInactiveUi();
+  const spec = activeStateSpecWithInactiveReserve();
   const deployments = activeDeploymentInspections(spec);
-  const mismatchedId = inactiveUiInspection(spec);
+  const mismatchedId = inactiveReserveInspection(spec);
   mismatchedId.response.id = "dpl_wrongresponseid123";
-  deployments.ui = [mismatchedId];
+  deployments.reserve = [mismatchedId];
   assert.throws(
     () =>
       createActiveDeploymentStateProof({
@@ -2305,11 +2299,11 @@ test("active deployment proof fails closed when canceled identity fields do not 
     /Git identity is missing/,
   );
 
-  const wrongShaSpec = activeStateSpecWithInactiveUi();
+  const wrongShaSpec = activeStateSpecWithInactiveReserve();
   const wrongShaDeployments = activeDeploymentInspections(wrongShaSpec);
-  const wrongSha = inactiveUiInspection(wrongShaSpec);
+  const wrongSha = inactiveReserveInspection(wrongShaSpec);
   wrongSha.response.meta.githubCommitSha = "e".repeat(40);
-  wrongShaDeployments.ui = [wrongSha];
+  wrongShaDeployments.reserve = [wrongSha];
   assert.throws(
     () =>
       createActiveDeploymentStateProof({
@@ -2321,10 +2315,10 @@ test("active deployment proof fails closed when canceled identity fields do not 
 });
 
 test("active deployment proof keeps an unexpected ready inactive deployment as a duplicate", () => {
-  const spec = activeStateSpecWithInactiveUi();
+  const spec = activeStateSpecWithInactiveReserve();
   const deployments = activeDeploymentInspections(spec);
-  const ready = inactiveUiInspection(spec, { readyState: "READY" });
-  deployments.ui = [ready];
+  const ready = inactiveReserveInspection(spec, { readyState: "READY" });
+  deployments.reserve = [ready];
 
   const proof = createActiveDeploymentStateProof({
     spec,
@@ -2332,11 +2326,11 @@ test("active deployment proof keeps an unexpected ready inactive deployment as a
   });
 
   assert.equal(proof.outcome, "unproven");
-  assert.deepEqual(proof.projects.ui.ids.manualDuplicates, [
+  assert.deepEqual(proof.projects.reserve.ids.manualDuplicates, [
     ready.deploymentId,
   ]);
-  assert.equal(proof.projects.ui.counts.inertCanceled, 0);
-  assert.equal(proof.projects.ui.counts.unknown, 0);
+  assert.equal(proof.projects.reserve.counts.inertCanceled, 0);
+  assert.equal(proof.projects.reserve.counts.unknown, 0);
 });
 
 test("active deployment proof keeps a Vercel-skipped canceled deployment inert beside a staged candidate", () => {
@@ -2346,14 +2340,14 @@ test("active deployment proof keeps a Vercel-skipped canceled deployment inert b
   // exact candidate in the same-SHA census and must not make it unproven.
   const spec = activeStateSpec();
   const deployments = activeDeploymentInspections(spec);
-  const skipped = inactiveUiInspection(spec);
-  deployments.ui = [...deployments.ui, skipped];
+  const skipped = inactiveReserveInspection(spec);
+  deployments.reserve = [...deployments.reserve, skipped];
 
   const proof = createActiveDeploymentStateProof({ spec, deployments });
 
   assert.equal(proof.outcome, "proven");
-  assert.equal(proof.projects.ui.expectedDisposition, "githubPrebuilt");
-  assert.deepEqual(proof.projects.ui.counts, {
+  assert.equal(proof.projects.reserve.expectedDisposition, "githubPrebuilt");
+  assert.deepEqual(proof.projects.reserve.counts, {
     scanned: 2,
     githubPrebuilt: 1,
     githubShadowStage: 0,
@@ -2363,10 +2357,12 @@ test("active deployment proof keeps a Vercel-skipped canceled deployment inert b
     inertCanceled: 1,
     unknown: 0,
   });
-  assert.deepEqual(proof.projects.ui.ids.githubPrebuilt, [
-    spec.projects.ui.deploymentId,
+  assert.deepEqual(proof.projects.reserve.ids.githubPrebuilt, [
+    spec.projects.reserve.deploymentId,
   ]);
-  assert.deepEqual(proof.projects.ui.ids.inertCanceled, [skipped.deploymentId]);
+  assert.deepEqual(proof.projects.reserve.ids.inertCanceled, [
+    skipped.deploymentId,
+  ]);
   assert.equal(assertActiveDeploymentStateProof(proof), proof);
 
   // The relaxation is only for canceled deployments: a second READY one is
@@ -2377,41 +2373,41 @@ test("active deployment proof keeps a Vercel-skipped canceled deployment inert b
     ["BUILDING", "unknown"],
   ]) {
     const variant = activeDeploymentInspections(spec);
-    const entry = inactiveUiInspection(spec, { readyState });
-    variant.ui = [...variant.ui, entry];
+    const entry = inactiveReserveInspection(spec, { readyState });
+    variant.reserve = [...variant.reserve, entry];
     const unproven = createActiveDeploymentStateProof({
       spec,
       deployments: variant,
     });
     assert.equal(unproven.outcome, "unproven", readyState);
     assert.deepEqual(
-      unproven.projects.ui.ids[classification],
+      unproven.projects.reserve.ids[classification],
       [entry.deploymentId],
       readyState,
     );
-    assert.equal(unproven.projects.ui.counts.inertCanceled, 0, readyState);
+    assert.equal(unproven.projects.reserve.counts.inertCanceled, 0, readyState);
   }
 
   // A tampered proof cannot relabel the expected candidate itself as inert.
   const tampered = structuredClone(proof);
   const candidateRecord = {
-    ...tampered.projects.ui.records.githubPrebuilt[0],
+    ...tampered.projects.reserve.records.githubPrebuilt[0],
     readyState: "CANCELED",
   };
-  tampered.projects.ui.records.inertCanceled = [
+  tampered.projects.reserve.records.inertCanceled = [
     candidateRecord,
-    ...tampered.projects.ui.records.inertCanceled,
+    ...tampered.projects.reserve.records.inertCanceled,
   ].toSorted((left, right) =>
     left.deploymentId.localeCompare(right.deploymentId),
   );
-  tampered.projects.ui.ids.inertCanceled =
-    tampered.projects.ui.records.inertCanceled.map(
+  tampered.projects.reserve.ids.inertCanceled =
+    tampered.projects.reserve.records.inertCanceled.map(
       ({ deploymentId }) => deploymentId,
     );
-  tampered.projects.ui.records.githubPrebuilt = [];
-  tampered.projects.ui.ids.githubPrebuilt = [];
-  tampered.projects.ui.counts.githubPrebuilt = 0;
-  tampered.projects.ui.counts.inertCanceled = 2;
+  tampered.projects.reserve.records.githubPrebuilt = [];
+  tampered.projects.reserve.ids.githubPrebuilt = [];
+  tampered.projects.reserve.counts.githubPrebuilt = 0;
+  tampered.projects.reserve.counts.inertCanceled = 2;
   tampered.outcome = "unproven";
   assert.throws(
     () => assertActiveDeploymentStateProof(tampered),
@@ -2656,19 +2652,19 @@ test("active deployment proof rejects retired and mismatched candidate metadata"
     for (const key of Object.keys(response.meta)) {
       if (key.startsWith("mento")) delete response.meta[key];
     }
-    const ui = spec.projects.ui;
+    const app = spec.projects.app;
     Object.assign(
       response.meta,
       createMainCandidateVercelMetadata({
         intent: createMainCandidateIntent({
-          target: "ui",
+          target: "app",
           deploySha: spec.deploySha,
           upstreamRunId: spec.releaseManifest.upstreamRunId,
           originRunId: spec.runId,
           originAttempt: spec.runAttempt,
           originTransactionId: spec.transactionId,
-          projectId: ui.projectId,
-          projectName: ui.projectName,
+          projectId: app.projectId,
+          projectName: app.projectName,
           releaseManifest: spec.releaseManifest,
         }),
       }),
@@ -2683,8 +2679,8 @@ test("active deployment proof rejects retired and mismatched candidate metadata"
     /conflicts/,
   );
   const wrongManifestTarget = structuredClone(spec);
-  wrongManifestTarget.releaseManifest.stagedTargets = ["reserve", "ui"];
-  wrongManifestTarget.releaseManifest.activeTargets = ["reserve", "ui"];
+  wrongManifestTarget.releaseManifest.stagedTargets = ["reserve"];
+  wrongManifestTarget.releaseManifest.activeTargets = ["reserve"];
   assert.throws(
     () => assertActiveDeploymentStateSpec(wrongManifestTarget),
     /release manifest conflicts with state identity/,
@@ -2774,7 +2770,7 @@ test("active deployment state validation rejects ambiguity and noncanonical or e
   );
 
   const duplicateInspection = activeDeploymentInspections(spec);
-  duplicateInspection.ui.push(duplicateInspection.ui[0]);
+  duplicateInspection.app.push(duplicateInspection.app[0]);
   assert.throws(
     () =>
       createActiveDeploymentStateProof({
@@ -2799,8 +2795,8 @@ test("active deployment state validation rejects ambiguity and noncanonical or e
     /count is malformed/,
   );
   const collidingUrl = structuredClone(proof);
-  collidingUrl.projects.ui.expectedDeploymentUrl =
-    proof.projects.reserve.expectedDeploymentUrl;
+  collidingUrl.projects.reserve.expectedDeploymentUrl =
+    proof.projects.app.expectedDeploymentUrl;
   assert.throws(
     () => assertActiveDeploymentStateProof(collidingUrl),
     /proof is malformed/,
@@ -3095,7 +3091,6 @@ test("active deployment capture rejects a changing paginated set and otherwise e
   assert.deepEqual(Object.fromEntries(listCalls), {
     app: 3,
     reserve: 3,
-    ui: 3,
   });
 
   const racingClient = {

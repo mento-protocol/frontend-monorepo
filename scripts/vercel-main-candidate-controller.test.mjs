@@ -20,7 +20,7 @@ const fixtureUrl = new URL(
 
 function intent() {
   const input = JSON.parse(readFileSync(fixtureUrl, "utf8"));
-  for (const target of ["app", "reserve", "ui"]) {
+  for (const target of ["app", "reserve"]) {
     for (const state of input.priorStates[target].states) {
       state.git.sha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     }
@@ -40,12 +40,12 @@ function intent() {
     runPlanner: ({ base, head }) => ({
       base,
       head,
-      deployments: ["app", "reserve", "ui"],
+      deployments: ["app", "reserve"],
       reason: "global-build-input",
     }),
   });
   const originalPriors = Object.fromEntries(
-    ["reserve", "ui", "app"].map((target) => {
+    ["reserve", "app"].map((target) => {
       const state = input.priorStates[target].states[0];
       const prior = plan.priors.find((entry) => entry.target === target);
       return [
@@ -82,13 +82,13 @@ function intent() {
     originalPriors,
   });
   return createMainCandidateIntent({
-    target: "ui",
+    target: "reserve",
     deploySha: "dddddddddddddddddddddddddddddddddddddddd",
     upstreamRunId: "700",
     originRunId: "800",
     originAttempt: "1",
     originTransactionId: "main-0123456789abcdef0123456789abcdef",
-    projectId: releaseManifest.originalPriors.ui.projectId,
+    projectId: releaseManifest.originalPriors.reserve.projectId,
     releaseManifest,
   });
 }
@@ -112,7 +112,7 @@ function mappingsFromManifest(manifest) {
 
 function projectIdsFromManifest(manifest) {
   return Object.fromEntries(
-    ["app", "reserve", "ui"].map((target) => [
+    ["app", "reserve"].map((target) => [
       target,
       manifest.originalPriors[target].projectId,
     ]),
@@ -230,7 +230,7 @@ test("pre-plan discovery expands mapped release metadata into exact staged candi
     },
   });
   assert.equal(result.schema, "vercel-main-preplan-candidate-discovery:v2");
-  assert.deepEqual(result.rollbackOnlyTargets, ["app", "ui"]);
+  assert.deepEqual(result.rollbackOnlyTargets, ["app"]);
   assert.equal(result.candidateReleases.length, 1);
   assert.deepEqual(
     Object.keys(result.candidateReleases[0].candidates),
@@ -264,6 +264,6 @@ test("pre-plan discovery marks every fully native mapping rollback-only", async 
     },
   });
   assert.deepEqual(result.candidateReleases, []);
-  assert.deepEqual(result.rollbackOnlyTargets, ["app", "reserve", "ui"]);
+  assert.deepEqual(result.rollbackOnlyTargets, ["app", "reserve"]);
   assert.equal(resolutions, 0);
 });

@@ -631,7 +631,7 @@ test("browser smoke rejects a late cross-origin redirect after interaction", asy
   assert.equal(fake.state.closed, true);
 });
 
-test("generic target smoke rejects UI so the stronger deployment-identity path cannot be bypassed", async () => {
+test("browser smoke rejects the retired UI target before launching a browser", async () => {
   const values = controllerTuple("app");
   const uiValues = {
     ...values,
@@ -644,13 +644,15 @@ test("generic target smoke rejects UI so the stronger deployment-identity path c
     metadataProjectId: "prj_ui",
     metadataUrl: "https://uimento-abc123-mentolabs.vercel.app/",
   };
+  const fake = fakeChromium(new FakePage(uiValues));
   await assert.rejects(
     runBrowserSmoke({
-      chromium: fakeChromium(new FakePage(uiValues)).chromium,
+      chromium: fake.chromium,
       values: uiValues,
     }),
-    /UI must use its deployment-identity browser smoke/,
+    /Logical target is missing or invalid/,
   );
+  assert.equal(fake.state.launchOptions, null);
 });
 
 test("trusted checkout resolves the pinned Playwright package", async () => {
