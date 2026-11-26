@@ -59,6 +59,16 @@ const nextConfig: NextConfig = {
         runtimeServerDeploymentId: false,
       }
     : undefined,
+  async redirects() {
+    // The in-app swap page was removed in favour of Squid. The landing page is
+    // Pools, and old /swap links (bookmarks, docs) land there too. Temporary
+    // redirects, so browsers don't cache them if the landing page changes.
+    return [
+      { source: "/", destination: "/pools", permanent: false },
+      { source: "/swap", destination: "/pools", permanent: false },
+      { source: "/swap/:path*", destination: "/pools", permanent: false },
+    ];
+  },
   async headers() {
     return [
       {

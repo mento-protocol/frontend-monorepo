@@ -411,7 +411,7 @@ function verifiedReleaseExecution(releaseManifest) {
 
 function currentReleaseRuntimeSmoke(target) {
   const finalUrls = {
-    app: "https://app.mento.org/swap/celo",
+    app: "https://app.mento.org/pools",
     reserve: "https://reserve.mento.org/?tab=stablecoins",
     ui: "https://ui.mento.org/form-components",
   };

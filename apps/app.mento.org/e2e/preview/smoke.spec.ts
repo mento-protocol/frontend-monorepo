@@ -84,8 +84,7 @@ function attachBrowserFailureMonitor(page: Page, expectedOrigin: string) {
 
 // Preflight: playwright.preview.config.ts deliberately does NOT validate
 // PREVIEW_URL at config-load time (that would break knip's static config
-// introspection) — fail fast here instead, same convention as the anvil
-// preflight in e2e/connected/swap.spec.ts.
+// introspection) — fail fast here instead.
 test.beforeAll(() => {
   if (!process.env.PREVIEW_URL) {
     throw new Error(
@@ -118,11 +117,9 @@ test("deployed bundle boots and lists real wallets", async ({ page }) => {
   // (`md:block hidden`) ConnectButton simultaneously (see
   // packages/web3/src/components/connect-button.tsx: text="Connect" on
   // mobile, default "Connect Wallet" on desktop) — filter to the one
-  // actually visible at this project's 1280x900 viewport, same technique as
-  // e2e/connected/swap.spec.ts uses for the connected address. Scoped to the
-  // header landmark: the disconnected swap form ALSO renders its own inline
-  // ConnectButton (text="Connect", swap-submit-button.tsx), which is not
-  // viewport-gated and would otherwise make this locator ambiguous.
+  // actually visible at this project's 1280x900 viewport. Scoped to the
+  // header landmark so a page-level ConnectButton (some pages render their
+  // own inline prompt) cannot make this locator ambiguous.
   const connectButton = page
     .getByRole("banner")
     .getByRole("button", { name: "Connect" })

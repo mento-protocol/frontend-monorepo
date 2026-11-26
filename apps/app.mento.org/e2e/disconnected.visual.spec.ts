@@ -18,7 +18,6 @@ const PAGES: {
   name: string;
   ready?: (page: Page) => Promise<void>;
 }[] = [
-  { url: "/swap/celo", name: "swap-celo" },
   { url: "/borrow/open", name: "borrow-open" },
   { url: "/earn", name: "earn" },
   { url: "/pools", name: "pools" },

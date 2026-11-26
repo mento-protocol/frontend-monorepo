@@ -2,9 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { Button, CoinInput, TokenIcon } from "@mento-protocol/ui";
-import Link from "next/link";
 import { ArrowRightLeft } from "lucide-react";
-import { getStabilitySwapRoute } from "@/lib/stability-route";
+import { SQUID_SWAP_URL } from "@/lib/external-links";
 import {
   useSpDeposit,
   formatCompactBalance,
@@ -208,10 +207,10 @@ export function DepositForm({
 
       {showSwapCta && (
         <Button variant="outline" size="lg" className="w-full" asChild>
-          <Link href={getStabilitySwapRoute(debtToken.symbol, targetChainId)}>
+          <a href={SQUID_SWAP_URL} target="_blank" rel="noopener noreferrer">
             <ArrowRightLeft className="h-4 w-4" />
             Swap USDm for {debtToken.symbol}
-          </Link>
+          </a>
         </Button>
       )}
     </div>

@@ -130,7 +130,7 @@ test("Dependabot PRs keep repository credentials and caches disabled", () => {
       planJob: "changes",
     },
     {
-      expectedSecretCount: 6,
+      expectedSecretCount: 2,
       gate: "needs.e2e-plan.outputs.allow_repository_credentials",
       path: ".github/workflows/e2e.yml",
       planJob: "e2e-plan",
@@ -322,7 +322,7 @@ test("Dependabot PRs keep repository credentials and caches disabled", () => {
   assert.equal(trunk.with?.["save-annotations"], true);
 });
 
-test("the shared fork clock selects every connected E2E lane", () => {
+test("the shared fork clock selects the connected E2E lane", () => {
   const e2e = yaml(".github/workflows/e2e.yml");
   const impact = e2e.jobs["e2e-plan"].steps.find(
     (step) => step.name === "Detect E2E impact",
@@ -330,7 +330,7 @@ test("the shared fork clock selects every connected E2E lane", () => {
   assert.ok(impact);
   assert.match(
     impact.run,
-    /scripts\/fork-test-clock\.mjs \| scripts\/fork-test-clock\.test\.mjs\)\n\s+run_app=true\n\s+run_gov=true\n\s+run_monad=true/u,
+    /scripts\/fork-test-clock\.mjs \| scripts\/fork-test-clock\.test\.mjs\)\n\s+run_gov=true\n\s+;;/u,
   );
 });
 

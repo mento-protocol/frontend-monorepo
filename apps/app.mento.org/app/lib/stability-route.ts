@@ -187,19 +187,3 @@ export function getStabilityRoute(
     DEFAULT_CHAIN_SLUG;
   return `/earn/stability/${chainSlug}/${symbol.toLowerCase()}`;
 }
-
-export function getStabilitySwapRoute(
-  symbol: string,
-  chainId: number = DEFAULT_STABILITY_CHAIN_ID,
-): string {
-  const params = new URLSearchParams({
-    from: "USDm",
-    to: symbol,
-  });
-
-  const chainSlug =
-    chainIdToSlug(chainId) ??
-    chainIdToSlug(DEFAULT_STABILITY_CHAIN_ID) ??
-    DEFAULT_CHAIN_SLUG;
-  return `/swap/${chainSlug}?${params.toString()}`;
-}

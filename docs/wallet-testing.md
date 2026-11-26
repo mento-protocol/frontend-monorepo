@@ -2,7 +2,7 @@
 
 # Wallet-Connected Testing (local anvil fork)
 
-How to test connected-wallet flows (swap, approve, lock) in the local apps
+How to test connected-wallet flows (approve, borrow, lock) in the local apps
 without a real wallet or real funds. Works for AI agents and humans. Everything
 runs against an anvil fork of Celo mainnet — no real network is ever touched.
 
@@ -72,10 +72,9 @@ runs against an anvil fork of Celo mainnet — no real network is ever touched.
    "E2E Test Wallet". Click it. You are connected as
    `0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266` (anvil junk account 0).
 
-5. Drive the UI (e.g. swap 1 EURm -> USDm — native CELO is not a selectable
-   swap token: the pinned mento-sdk's token map has no CELO entry for Celo
-   mainnet, so `?from=CELO` silently falls back to the default pair), then
-   verify on-chain (next section).
+5. Drive the UI (e.g. add liquidity on a pool or open a borrow position), then
+   verify on-chain (next section). The app has no swap page; swapping links
+   out to Squid.
 
 ## Monad fork (chain 143)
 
@@ -107,31 +106,21 @@ you can run both forks at once.
      pnpm exec turbo run dev --filter app.mento.org
    ```
 
-3. Open [http://localhost:3000/swap/monad?from=EURm&to=USDm](http://localhost:3000/swap/monad?from=EURm&to=USDm),
+3. Open [http://localhost:3000/pools?chain=143](http://localhost:3000/pools?chain=143),
    connect the E2E Test Wallet. It joins on Celo (the first configured chain),
-   so a "Switch to Monad" banner appears — click it to move the wallet to chain
-   143, then swap. Verify on-chain against port 8546 (`--rpc-url
+   so switch the wallet to Monad (chain 143) before transacting. Verify on-chain against port 8546 (`--rpc-url
 http://127.0.0.1:8546` in the `cast` recipes below).
 
 ## Automated Playwright specs
 
-Instead of driving the UI by hand, both apps have a `connected` Playwright
+Instead of driving the UI by hand, governance has a `connected` Playwright
 project that does steps 3-5 above automatically against the same seeded fork:
-`pnpm --filter app.mento.org test:connected` (swap) and
-`pnpm --filter governance.mento.org test:connected` (governance). See
-`CLAUDE.md`'s "Connected-Wallet E2E" section for the exact build + run
-commands per app.
+`pnpm --filter governance.mento.org test:connected`. See `CLAUDE.md`'s
+"Connected-Wallet E2E" section for the exact build + run commands.
+app.mento.org has no connected suite since its swap page was removed.
 
-The Monad swap has its own project + spec
-(`apps/app.mento.org/e2e/connected/swap-monad.spec.ts`), run with
-`pnpm --filter app.mento.org test:connected:monad` against a `pnpm fork:monad` +
-`pnpm fork:seed:monad` fork (port 8546). It is kept separate from the Celo
-`test:connected` project so that job never needs the 8546 fork; the spec drives
-the "Switch to Monad" banner before swapping and asserts UI + network (8546) +
-on-chain balance delta.
-
-The Celo and Monad swap suites retain real oracle reports, quotes, approvals,
-and swaps when the runner clock is inside a real FX closure. The seed scripts
+The fork suites retain real oracle reports and transactions when the runner
+clock is inside a real FX closure. The seed scripts
 advance only the local fork clock to the next modeled opening. They do not
 disable or change `MarketHoursBreaker`.
 

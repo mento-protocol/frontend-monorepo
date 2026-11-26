@@ -45,9 +45,6 @@ vi.mock("next/link", () => ({
     href: string;
   }) => <a href={href}>{children}</a>,
 }));
-vi.mock("@/lib/stability-route", () => ({
-  getStabilitySwapRoute: (symbol: string) => `/swap/${symbol}`,
-}));
 vi.mock("@mento-protocol/mento-sdk", () => ({
   getTokenAddress: () => "0xtoken",
 }));
@@ -167,14 +164,13 @@ describe("DepositForm", () => {
     expect(screen.getByRole("button", { name: "Depositing..." })).toBeTruthy();
   });
 
-  it("offers a swap to connected users with zero balance and no position", () => {
+  it("offers a Squid swap to connected users with zero balance and no position", () => {
     mocks.balance = 0n;
     render(deposit());
-    expect(
-      screen
-        .getByRole("link", { name: /Swap USDm for GBPm/ })
-        .getAttribute("href"),
-    ).toBe("/swap/GBPm");
+    const link = screen.getByRole("link", { name: /Swap USDm for GBPm/ });
+    expect(link.getAttribute("href")).toBe("https://app.squidrouter.com/");
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(link.getAttribute("rel")).toBe("noopener noreferrer");
   });
 
   it("ignores presets without a balance", () => {

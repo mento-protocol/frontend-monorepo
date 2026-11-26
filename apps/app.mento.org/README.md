@@ -63,21 +63,11 @@ that union of visual-impact paths controls whether the workflow starts; every
 started run executes both the app and UI suites so its workflow-level success
 is valid recovery evidence for the CI failure notifier.
 
-## Connected-Wallet E2E
+## Swapping
 
-The same Playwright setup also hosts a functional connected-wallet swap E2E
-suite (not VRT) that runs against a seeded local anvil `--celo` fork. From the
-repository root, start `pnpm fork:mainnet`, run `pnpm fork:seed`, and build the
-app first (`pnpm exec turbo run build --filter app.mento.org` — the suite
-starts `next start`). Then run `pnpm --filter app.mento.org test:connected`.
-See [#445](https://github.com/mento-protocol/frontend-monorepo/issues/445) for
-the full runbook.
-
-A sibling Monad-fork variant exercises the same flow on a Monad mainnet fork
-(chain 143, port 8546, no `--celo`). Start `pnpm fork:monad`, run
-`pnpm fork:seed:monad`, build the app, then run
-`pnpm --filter app.mento.org test:connected:monad`. See
-[#489](https://github.com/mento-protocol/frontend-monorepo/issues/489).
+The app has no swap page. The header's "Swap" link and the Earn
+"Swap USDm for …" button open Squid (`app/lib/external-links.ts`). `/` and
+old `/swap/...` URLs redirect to `/pools` (`next.config.ts`).
 
 ## Learn More
 
