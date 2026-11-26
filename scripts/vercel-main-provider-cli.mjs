@@ -72,6 +72,7 @@ const MAIN_PROVIDER_DISCOVERY_SCHEMA = "vercel-main-provider-discovery:v2";
 
 const PROJECT_TARGETS = Object.freeze(["app", "reserve", "ui"]);
 const MAIN_CANDIDATE_SMOKE_PATHS = Object.freeze({
+  app: "/pools",
   ui: "/basic-components",
 });
 const MAIN_CANDIDATE_SMOKE_MAX_ATTEMPTS = 4;
