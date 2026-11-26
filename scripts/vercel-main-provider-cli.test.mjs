@@ -1619,7 +1619,7 @@ test("candidate smoke uses the target's direct immutable route and preserves the
       listDeploymentAliases: async () => ({ aliases: [] }),
     });
     const expectedUrl = new URL(
-      target === "ui" ? "/basic-components" : "/",
+      { app: "/pools", ui: "/basic-components" }[target] ?? "/",
       `https://${response.url}`,
     ).toString();
     const result = await runMainProviderCli({
