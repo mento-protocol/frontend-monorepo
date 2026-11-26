@@ -596,9 +596,9 @@ candidate absent from that preflight still requires the generated project
 alias. A changed candidate, protected/custom alias, Git/default alias,
 wrong-target alias, or unknown alias fails closed.
 
-The candidate HTTP smoke reads the immutable deployment root directly for App
-and Reserve. UI reads `/basic-components` on that same immutable
-host because its root intentionally redirects there. Each request uses manual
+The candidate HTTP smoke reads the immutable deployment root directly for
+Reserve. App reads `/pools` and UI reads `/basic-components` on that same
+immutable host because their roots intentionally redirect there. Each request uses manual
 redirect handling and requires an exact same-URL 2xx response with the expected
 `X-Mento-Deployment-Sha`; the candidate receipt continues to record the root
 immutable deployment URL.
