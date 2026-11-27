@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   atomTab: "pool",
+  chainId: 42220,
   pathname: "/",
   setTheme: vi.fn(),
   theme: "light",
@@ -27,7 +28,16 @@ vi.mock("next/link", () => ({
   ),
 }));
 vi.mock("@/atoms/navigation", () => ({ activeTabAtom: {} }));
+vi.mock("@repo/web3/wagmi", () => ({ useChainId: () => mocks.chainId }));
 vi.mock("@repo/web3", () => ({
+  ChainId: {
+    CeloSepolia: 11142220,
+    Celo: 42220,
+    MonadTestnet: 10143,
+    Monad: 143,
+    Polygon: 137,
+    PolygonAmoy: 80002,
+  },
   ChainButton: () => <span>chain</span>,
   ConnectButton: ({ text }: { text?: string }) => (
     <span>{text ?? "Connect wallet"}</span>
@@ -56,6 +66,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   Object.assign(mocks, {
     atomTab: "pool",
+    chainId: 42220,
     pathname: "/",
     theme: "light",
   });
@@ -99,6 +110,26 @@ describe("Header", () => {
     expect(swap.getAttribute("href")).toBe("https://app.squidrouter.com/");
     expect(swap.getAttribute("target")).toBe("_blank");
     expect(swap.getAttribute("rel")).toBe("noopener noreferrer");
+  });
+
+  it.each([
+    [137, "Polygon"],
+    [80002, "Polygon Amoy"],
+    [143, "Monad"],
+    [10143, "Monad testnet"],
+  ])("links Swap to Matcha on chain %i (%s)", (chainId) => {
+    mocks.chainId = chainId;
+    render(<Header />);
+    const swap = screen.getByRole("link", { name: /Swap/ });
+    expect(swap.getAttribute("href")).toBe("https://matcha.xyz/");
+    expect(swap.textContent).toContain("(opens Matcha in a new tab)");
+  });
+
+  it("links Swap to Squid on Celo Sepolia", () => {
+    mocks.chainId = 11142220;
+    render(<Header />);
+    const swap = screen.getByRole("link", { name: /Swap/ });
+    expect(swap.getAttribute("href")).toBe("https://app.squidrouter.com/");
   });
 
   it.each(["/pools", "/borrow", "/earn", "/bridge"])(

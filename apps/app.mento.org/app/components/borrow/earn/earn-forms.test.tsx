@@ -54,6 +54,14 @@ vi.mock("@repo/web3/wagmi", () => ({
   useReadContract: () => ({ data: mocks.balance }),
 }));
 vi.mock("@repo/web3", () => ({
+  ChainId: {
+    CeloSepolia: 11142220,
+    Celo: 42220,
+    MonadTestnet: 10143,
+    Monad: 143,
+    Polygon: 137,
+    PolygonAmoy: 80002,
+  },
   useSpDeposit: () => ({
     mutate: mocks.depositMutate,
     isPending: mocks.depositPending,
@@ -162,6 +170,13 @@ describe("DepositForm", () => {
     mocks.depositPending = true;
     rerender(deposit());
     expect(screen.getByRole("button", { name: "Depositing..." })).toBeTruthy();
+  });
+
+  it("offers a Matcha swap when the pool is on Monad", () => {
+    mocks.balance = 0n;
+    render(deposit({ targetChainId: 143 }));
+    const link = screen.getByRole("link", { name: /Swap USDm for GBPm/ });
+    expect(link.getAttribute("href")).toBe("https://matcha.xyz/");
   });
 
   it("offers a Squid swap to connected users with zero balance and no position", () => {
