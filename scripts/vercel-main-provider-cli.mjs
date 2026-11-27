@@ -70,10 +70,9 @@ export const MAIN_CANONICAL_MAPPINGS_SCHEMA =
   "vercel-main-canonical-mappings:v1";
 const MAIN_PROVIDER_DISCOVERY_SCHEMA = "vercel-main-provider-discovery:v2";
 
-const PROJECT_TARGETS = Object.freeze(["app", "reserve", "ui"]);
+const PROJECT_TARGETS = Object.freeze(["app", "reserve"]);
 const MAIN_CANDIDATE_SMOKE_PATHS = Object.freeze({
   app: "/pools",
-  ui: "/basic-components",
 });
 const MAIN_CANDIDATE_SMOKE_MAX_ATTEMPTS = 4;
 const MAIN_CANDIDATE_SMOKE_RETRY_DELAY_MS = 1_000;
@@ -218,7 +217,6 @@ function projectIdsFromEnvironment(env) {
   return canonicalProjectIds({
     app: env.VERCEL_PROJECT_ID_APP,
     reserve: env.VERCEL_PROJECT_ID_RESERVE,
-    ui: env.VERCEL_PROJECT_ID_UI,
   });
 }
 

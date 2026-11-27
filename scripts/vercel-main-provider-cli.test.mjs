@@ -65,7 +65,7 @@ const MAIN_PREPLAN_HANDOFF_ENV_OVERHEAD_BYTES = Buffer.byteLength(
 
 function fixtureInput() {
   const input = JSON.parse(readFileSync(fixtureUrl, "utf8"));
-  for (const target of ["app", "reserve", "ui"]) {
+  for (const target of ["app", "reserve"]) {
     for (const state of input.priorStates[target].states) {
       state.git.sha = PRIOR_SHA;
     }
@@ -86,7 +86,6 @@ function releaseManifest({
     input.mainOwnershipMode = {
       app: "github",
       reserve: "github",
-      ui: "github",
     };
   }
   if (productionIdPaddingBytes > 0) {
@@ -119,12 +118,12 @@ function releaseManifest({
     runPlanner: ({ base, head }) => ({
       base,
       head,
-      deployments: ["app", "reserve", "ui"],
+      deployments: ["app", "reserve"],
       reason: "global-build-input",
     }),
   });
   const originalPriors = Object.fromEntries(
-    ["reserve", "ui", "app"].map((target) => {
+    ["reserve", "app"].map((target) => {
       const state = input.priorStates[target].states[0];
       const prior = plan.priors.find((entry) => entry.target === target);
       return [
@@ -159,15 +158,16 @@ function releaseManifest({
 }
 
 // The padding stands in for production-length identifiers. It was raised when
-// Governance left the main pipeline (ADR 0017) so three targets still produce a
-// handoff above the legacy 64 KiB encoded limit.
-function productionShapedDecision({ productionIdPaddingBytes = 240 } = {}) {
+// Governance (ADR 0017) and then UI (ADR 0018) left the main pipeline so the
+// remaining targets still produce a handoff above the legacy 64 KiB encoded
+// limit.
+function productionShapedDecision({ productionIdPaddingBytes = 600 } = {}) {
   const manifest = releaseManifest({
     active: true,
     productionIdPaddingBytes,
   });
   const candidates = Object.fromEntries(
-    ["reserve", "ui", "app"].map((target) => [
+    ["reserve", "app"].map((target) => [
       target,
       {
         deploymentId: `dpl_${target}${"D".repeat(productionIdPaddingBytes)}`,
@@ -181,7 +181,7 @@ function productionShapedDecision({ productionIdPaddingBytes = 240 } = {}) {
     nextUpstreamRunId: "701",
     candidateReleases: [{ manifest, candidates }],
     currentMappings: Object.fromEntries(
-      ["reserve", "ui", "app"].map((target) => {
+      ["reserve", "app"].map((target) => {
         const current =
           target === "app"
             ? candidates[target]
@@ -200,7 +200,7 @@ function productionShapedDecision({ productionIdPaddingBytes = 240 } = {}) {
   });
 }
 
-function candidateIntent(target = "ui") {
+function candidateIntent(target = "reserve") {
   const manifest = releaseManifest();
   return createMainCandidateIntent({
     target,
@@ -248,7 +248,6 @@ function testContext(t) {
     VERCEL_ORG_ID: "team_fixture",
     VERCEL_PROJECT_ID_APP: values.app,
     VERCEL_PROJECT_ID_RESERVE: values.reserve,
-    VERCEL_PROJECT_ID_UI: values.ui,
     DEPLOY_SHA: SHA,
     UPSTREAM_RUN_ID: "700",
   };
@@ -365,13 +364,13 @@ function aliasSubsets(values) {
   );
 }
 
-test("canonical mappings preserve exactly the three reviewed target alias sets", async (t) => {
+test("canonical mappings preserve exactly the two reviewed target alias sets", async (t) => {
   const context = testContext(t);
   const expected = createMainCanonicalMappings({
     planningSnapshot: planningSnapshot(),
     projectIds: projectIds(),
   });
-  assert.deepEqual(Object.keys(expected.mappings), ["reserve", "ui", "app"]);
+  assert.deepEqual(Object.keys(expected.mappings), ["reserve", "app"]);
   assert.deepEqual(
     expected.mappings.app.map(({ alias }) => alias),
     ["app.mento.org"],
@@ -400,7 +399,7 @@ test("canonical mappings preserve exactly the three reviewed target alias sets",
   assert.equal(statSync(output).mode & 0o777, 0o600);
 
   const wrongProject = planningSnapshot({
-    "ui.mento.org": { projectId: "prj_wrong" },
+    "reserve.mento.org": { projectId: "prj_wrong" },
   });
   assert.throws(
     () =>
@@ -427,7 +426,7 @@ test("canonical mappings preserve exactly the three reviewed target alias sets",
     () =>
       createMainCanonicalMappings({
         planningSnapshot: planningSnapshot({
-          "ui.mento.org": { deploymentId: "not-a-deployment-id" },
+          "reserve.mento.org": { deploymentId: "not-a-deployment-id" },
         }),
         projectIds: projectIds(),
       }),
@@ -458,98 +457,124 @@ test("preplan discovery groups mapped manifests and marks unowned mappings rollb
     upstreamRunId: "699",
   });
   const second = releaseManifest({ deploySha: SHA, upstreamRunId: "700" });
-  const snapshot = planningSnapshot({
-    "ui.mento.org": {
-      deploymentId: "dpl_uiCandidate123",
-      deploymentUrl: "https://ui-candidate.vercel.app",
-    },
-    "reserve.mento.org": {
-      deploymentId: "dpl_reserveCandidate123",
-      deploymentUrl: "https://reserve-candidate.vercel.app",
-    },
-  });
-  const planningPath = writeJson(context.directory, "planning.json", snapshot);
   const projectsPath = writeJson(
     context.directory,
     "projects.json",
     projectIds(),
   );
-  const output = join(context.directory, "discovery.json");
-  const providerFactory = ({ client, intent }) => {
-    assert.equal(client.kind, "fake-client");
-    assert.equal(
-      intent,
-      undefined,
-      "pre-plan discovery must not use a current intent",
-    );
-    return {
-      inspectMappedCandidate: async ({ deploymentId }) => {
-        return {
-          canonicalState: {},
-          metadata:
-            deploymentId === "dpl_uiCandidate123"
-              ? { releaseManifest: first }
-              : deploymentId === "dpl_reserveCandidate123"
-                ? { releaseManifest: second }
-                : null,
-        };
-      },
-      resolveReleaseCandidate: async ({ manifest, target }) => {
-        const selectedTarget =
-          manifest.releaseId === first.releaseId ? "ui" : "reserve";
-        return target === selectedTarget
-          ? {
-              intent: {},
-              candidate: {
-                deploymentId: `dpl_${target}Candidate123`,
-                deploymentUrl: `https://${target}-candidate.vercel.app`,
-              },
-            }
-          : null;
-      },
-    };
-  };
-  const result = await runMainProviderCli({
-    argv: [
-      "preplan-discover",
-      "--planning-snapshot",
-      planningPath,
-      "--project-ids",
-      projectsPath,
-      "--output",
-      output,
+  // Each scenario maps a release-bound candidate to some targets; every other
+  // target's mapping carries no release metadata and is rollback-only.
+  for (const [name, manifestsByTarget, expectedReleases, expectedRollback] of [
+    [
+      "two-releases",
+      { app: first, reserve: second },
+      [first.releaseId, second.releaseId].sort(),
+      [],
     ],
-    env: context.env,
-    stdout: context.stdout,
-    stateClientFactory: ({ token, teamId }) => {
-      assert.equal(token, context.env.VERCEL_TOKEN);
-      assert.equal(teamId, context.env.VERCEL_ORG_ID);
-      return { kind: "fake-client" };
-    },
-    providerFactory,
-  });
-  assert.deepEqual(
-    result.discovery.candidateReleases.map(
-      ({ manifest }) => manifest.releaseId,
-    ),
-    [first.releaseId, second.releaseId].sort(),
-  );
-  assert.equal(readJson(output).discovery.candidateReleases.length, 2);
-  assert.deepEqual(result.discovery.rollbackOnlyTargets, ["app"]);
-  for (const rollbackOnlyTargets of [
-    ["ui", "app"],
-    ["app", "app"],
-    ["unknown"],
+    ["unowned-app", { reserve: second }, [second.releaseId], ["app"]],
   ]) {
-    const malformed = structuredClone(result);
-    malformed.discovery.rollbackOnlyTargets = rollbackOnlyTargets;
-    assert.throws(
-      () => assertMainProviderDiscovery(malformed),
-      /candidate discovery is malformed/,
+    const snapshot = planningSnapshot(
+      Object.fromEntries(
+        Object.keys(manifestsByTarget).map((target) => [
+          `${target}.mento.org`,
+          {
+            deploymentId: `dpl_${target}Candidate123`,
+            deploymentUrl: `https://${target}-candidate.vercel.app`,
+          },
+        ]),
+      ),
     );
+    const planningPath = writeJson(
+      context.directory,
+      `${name}-planning.json`,
+      snapshot,
+    );
+    const output = join(context.directory, `${name}-discovery.json`);
+    const providerFactory = ({ client, intent }) => {
+      assert.equal(client.kind, "fake-client");
+      assert.equal(
+        intent,
+        undefined,
+        "pre-plan discovery must not use a current intent",
+      );
+      return {
+        inspectMappedCandidate: async ({ deploymentId }) => {
+          const target = Object.keys(manifestsByTarget).find(
+            (candidate) => deploymentId === `dpl_${candidate}Candidate123`,
+          );
+          return {
+            canonicalState: {},
+            metadata:
+              target === undefined
+                ? null
+                : { releaseManifest: manifestsByTarget[target] },
+          };
+        },
+        resolveReleaseCandidate: async ({ manifest, target }) =>
+          manifestsByTarget[target]?.releaseId === manifest.releaseId
+            ? {
+                intent: {},
+                candidate: {
+                  deploymentId: `dpl_${target}Candidate123`,
+                  deploymentUrl: `https://${target}-candidate.vercel.app`,
+                },
+              }
+            : null,
+      };
+    };
+    const result = await runMainProviderCli({
+      argv: [
+        "preplan-discover",
+        "--planning-snapshot",
+        planningPath,
+        "--project-ids",
+        projectsPath,
+        "--output",
+        output,
+      ],
+      env: context.env,
+      stdout: context.stdout,
+      stateClientFactory: ({ token, teamId }) => {
+        assert.equal(token, context.env.VERCEL_TOKEN);
+        assert.equal(teamId, context.env.VERCEL_ORG_ID);
+        return { kind: "fake-client" };
+      },
+      providerFactory,
+    });
+    assert.deepEqual(
+      result.discovery.candidateReleases.map(
+        ({ manifest }) => manifest.releaseId,
+      ),
+      expectedReleases,
+      name,
+    );
+    assert.equal(
+      readJson(output).discovery.candidateReleases.length,
+      expectedReleases.length,
+      name,
+    );
+    assert.deepEqual(
+      result.discovery.rollbackOnlyTargets,
+      expectedRollback,
+      name,
+    );
+    for (const rollbackOnlyTargets of [
+      ["reserve", "app"],
+      ["app", "app"],
+      ["ui"],
+      ["unknown"],
+    ]) {
+      const malformed = structuredClone(result);
+      malformed.discovery.rollbackOnlyTargets = rollbackOnlyTargets;
+      assert.throws(
+        () => assertMainProviderDiscovery(malformed),
+        /candidate discovery is malformed/,
+        `${name}: ${rollbackOnlyTargets.join(",")}`,
+      );
+    }
+    assert.deepEqual(result.projectIds, projectIds());
+    assert.match(result.planningSnapshotDigest, /^[a-f0-9]{64}$/);
   }
-  assert.deepEqual(result.projectIds, projectIds());
-  assert.match(result.planningSnapshotDigest, /^[a-f0-9]{64}$/);
   assert.doesNotMatch(
     context.stdout.value,
     /test-secret-token|releaseManifest/,
@@ -768,7 +793,7 @@ test("preplan decision restores a manifest-bound App recovery residual", async (
   });
   // App now maps exactly one alias, so its single mapped deployment carries
   // the release metadata and App is no longer rollback-only.
-  assert.deepEqual(result.rollbackOnlyTargets, ["reserve", "ui"]);
+  assert.deepEqual(result.rollbackOnlyTargets, ["reserve"]);
   assert.deepEqual(readJson(output), result);
 });
 
@@ -785,7 +810,7 @@ test("preplan materialization accepts only inherited restore and exposes ordered
     manifest: inherited,
   };
   const currentMappings = Object.fromEntries(
-    ["reserve", "ui", "app"].map((target) => {
+    ["reserve", "app"].map((target) => {
       const prior = inherited.originalPriors[target];
       const current = target === "reserve" ? reserveCandidate : prior;
       return [
@@ -806,7 +831,6 @@ test("preplan materialization accepts only inherited restore and exposes ordered
         manifest: inherited,
         candidates: {
           reserve: reserveCandidate,
-          ui: null,
           app: null,
         },
       },
@@ -820,7 +844,7 @@ test("preplan materialization accepts only inherited restore and exposes ordered
     nextUpstreamRunId: "700",
   });
   const completeCandidates = Object.fromEntries(
-    ["reserve", "ui", "app"].map((target) => [
+    ["reserve", "app"].map((target) => [
       target,
       {
         deploymentId: `dpl_${target}MaximumShape123`,
@@ -839,7 +863,7 @@ test("preplan materialization accepts only inherited restore and exposes ordered
       },
     ],
     currentMappings: Object.fromEntries(
-      ["reserve", "ui", "app"].map((target) => [
+      ["reserve", "app"].map((target) => [
         target,
         inherited.originalPriors[target].aliases.map((alias) => ({
           alias,
@@ -1045,7 +1069,7 @@ test("preplan decision rejects alias drift after discovery before baseline or ro
     }),
   });
   const changed = planningSnapshot({
-    "ui.mento.org": {
+    "reserve.mento.org": {
       deploymentId: "dpl_changedAfterDiscovery123",
       deploymentUrl: "https://changed-after-discovery.vercel.app",
     },
@@ -1270,7 +1294,8 @@ test("candidate finalization reuses one fresh candidate and rejects smoke mismat
     listDeploymentAliases: async () => ({
       aliases: [
         {
-          alias: PRODUCTION_GENERATED_ALIAS_CONTRACTS.ui.generatedProjectAlias,
+          alias:
+            PRODUCTION_GENERATED_ALIAS_CONTRACTS.reserve.generatedProjectAlias,
         },
       ],
     }),
@@ -1490,7 +1515,7 @@ test("candidate finalization reuses one fresh candidate and rejects smoke mismat
 // through the served-prior contract.
 test("inherited candidate finalization uses the fixed served-prior alias contract", async (t) => {
   const context = testContext(t);
-  for (const target of ["app", "reserve", "ui"]) {
+  for (const target of ["app", "reserve"]) {
     const intent = candidateIntent(target);
     const response = deploymentResponse(intent);
     const intentPath = writeJson(
@@ -1545,7 +1570,7 @@ test("inherited candidate finalization uses the fixed served-prior alias contrac
       assert.equal(result.action, "reuse");
       assert.deepEqual(result.canonicalState.aliases, aliases);
     }
-    const otherTarget = target === "reserve" ? "ui" : "reserve";
+    const otherTarget = target === "reserve" ? "app" : "reserve";
     for (const [name, aliases, expected] of [
       [
         "missing-protected",
@@ -1600,7 +1625,7 @@ test("inherited candidate finalization uses the fixed served-prior alias contrac
 
 test("candidate smoke uses the target's direct immutable route and preserves the SHA-bound receipt URL", async (t) => {
   const context = testContext(t);
-  for (const target of ["app", "reserve", "ui"]) {
+  for (const target of ["app", "reserve"]) {
     const intent = candidateIntent(target);
     const response = deploymentResponse(intent);
     const intentPath = writeJson(
@@ -1619,7 +1644,7 @@ test("candidate smoke uses the target's direct immutable route and preserves the
       listDeploymentAliases: async () => ({ aliases: [] }),
     });
     const expectedUrl = new URL(
-      { app: "/pools", ui: "/basic-components" }[target] ?? "/",
+      { app: "/pools" }[target] ?? "/",
       `https://${response.url}`,
     ).toString();
     const result = await runMainProviderCli({
@@ -1842,9 +1867,9 @@ test("candidate smoke classifies exhausted transport retries without exposing tr
   assert.equal(mainProviderCliFailureExitCode(error), 1);
 });
 
-test("candidate smoke fails closed for UI redirects, host or path changes, SHA mismatches, and non-2xx responses", async (t) => {
+test("candidate smoke fails closed for App redirects, host or path changes, SHA mismatches, and non-2xx responses", async (t) => {
   const context = testContext(t);
-  const intent = candidateIntent("ui");
+  const intent = candidateIntent("app");
   const response = deploymentResponse(intent);
   const intentPath = writeJson(context.directory, "intent.json", intent);
   const stateClientFactory = () => ({
@@ -1859,8 +1884,8 @@ test("candidate smoke fails closed for UI redirects, host or path changes, SHA m
   for (const [name, patch] of [
     ["redirect", { status: 307 }],
     ["followed-redirect", { redirected: true }],
-    ["wrong-host", { url: "https://attacker.example/basic-components" }],
-    ["wrong-path", { url: `https://${response.url}/form-components` }],
+    ["wrong-host", { url: "https://attacker.example/pools" }],
+    ["wrong-path", { url: `https://${response.url}/` }],
     [
       "wrong-sha",
       {

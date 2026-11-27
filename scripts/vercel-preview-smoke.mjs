@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 
 import { assertHtmlDocumentDeploymentIdentity } from "./vercel-html-deployment-identity.mjs";
 
-export const PREVIEW_SMOKE_TARGETS = ["app", "reserve", "ui"];
+export const PREVIEW_SMOKE_TARGETS = ["app", "reserve"];
 
 const REPOSITORY = "mento-protocol/frontend-monorepo";
 const VERCEL_ACTOR = Object.freeze({
@@ -36,11 +36,6 @@ const TARGET_CONTRACTS = Object.freeze({
     hostPattern: /^reservemento-[a-z0-9]{6,64}-mentolabs\.vercel\.app$/,
     nativeEnvironment: "Preview – reserve.mento.org",
     documentMarkers: ["Mento Reserve", "Supply Breakdown"],
-  }),
-  ui: Object.freeze({
-    hostPattern: /^uimento-[a-z0-9]{6,64}-mentolabs\.vercel\.app$/,
-    nativeEnvironment: "Preview – ui.mento.org",
-    documentMarkers: ["Basic Components"],
   }),
 });
 
@@ -611,10 +606,7 @@ export async function smokePreviewHttp({
     ),
     "Preview did not render a target-specific document marker",
   );
-  if (
-    tuple.nextDeploymentId &&
-    ["reserve", "ui"].includes(tuple.logicalTarget)
-  ) {
+  if (tuple.nextDeploymentId && tuple.logicalTarget === "reserve") {
     requireCustomHtmlDeploymentIdentity(
       tuple.logicalTarget,
       html,

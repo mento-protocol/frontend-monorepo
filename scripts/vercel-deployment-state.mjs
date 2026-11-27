@@ -53,13 +53,12 @@ export const ACTIVE_ALIAS_MAPPING_SPEC_SCHEMA =
   "vercel-active-alias-mapping-spec:v2";
 
 const CANONICAL_GIT_KEYS = ["org", "repo", "ref", "sha"];
-const ACTIVE_STATE_TARGETS = Object.freeze(["app", "reserve", "ui"]);
+const ACTIVE_STATE_TARGETS = Object.freeze(["app", "reserve"]);
 const ACTIVE_PROTECTED_ALIASES = Object.freeze([
   "app.mento.org",
   "reserve.mento.org",
-  "ui.mento.org",
 ]);
-const ACTIVE_MAPPING_TARGETS = Object.freeze(["app", "reserve", "ui"]);
+const ACTIVE_MAPPING_TARGETS = Object.freeze(["app", "reserve"]);
 const ACTIVE_STATE_SPEC_KEYS = Object.freeze([
   "schema",
   "deploySha",

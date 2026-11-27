@@ -179,9 +179,6 @@ export async function runBrowserSmoke({
   browserChannel = "bundled",
 }) {
   const tuple = validatePreviewSmokeTuple(values);
-  if (tuple.logicalTarget === "ui") {
-    throw new Error("UI must use its deployment-identity browser smoke");
-  }
   if (browserChannel !== "chrome" && browserChannel !== "bundled") {
     throw new Error("Browser smoke channel is invalid");
   }

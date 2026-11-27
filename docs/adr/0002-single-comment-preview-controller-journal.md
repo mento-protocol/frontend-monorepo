@@ -8,6 +8,7 @@ scope: ci/deployment/preview-controller-state
 date: 2026-07
 superseded_in_part_by:
   - "0017"
+  - "0018"
 ---
 
 # ADR 0002 — One canonical pull-request comment stores the preview controller journal
@@ -17,6 +18,10 @@ Amended 2026-11-24 by
 [ADR 0017](0017-retire-governance-from-vercel-deployment.md): the journal now
 keys App, Reserve, and UI, and a four-target journal that adds only
 `governance` is normalized on read.
+Amended 2026-11-26 by
+[ADR 0018](0018-retire-ui-from-vercel-deployment.md): the journal now keys App
+and Reserve, and a three-target journal that adds only `ui` is normalized on
+read too.
 **Scope:** ci/deployment/preview-controller-state
 
 ## Context

@@ -17,11 +17,10 @@
     "mode": "active",
     "mainOwnershipMode": {
       "app": "github",
-      "reserve": "github",
-      "ui": "github"
+      "reserve": "github"
     },
-    "stagedTargets": ["reserve", "ui", "app"],
-    "activeTargets": ["reserve", "ui", "app"],
+    "stagedTargets": ["reserve", "app"],
+    "activeTargets": ["reserve", "app"],
     "rollbackOnlyTargets": [],
     "originalPriors": {
       "reserve": {
@@ -41,37 +40,6 @@
             "aliases": ["reserve.mento.org"],
             "projectId": "prj_reserve123",
             "projectName": "reserve.mento.org",
-            "readyState": "READY",
-            "target": "production",
-            "customEnvironmentSlug": null,
-            "git": {
-              "status": "complete",
-              "org": "mento-protocol",
-              "repo": "frontend-monorepo",
-              "ref": "main",
-              "sha": "1111111111111111111111111111111111111111"
-            }
-          }
-        ],
-        "servedSha": "1111111111111111111111111111111111111111"
-      },
-      "ui": {
-        "deploymentId": "dpl_uiprior123",
-        "deploymentUrl": "https://ui-prior.vercel.app",
-        "aliases": ["ui.mento.org"],
-        "projectId": "prj_ui123",
-        "projectName": "ui.mento.org",
-        "readyState": "READY",
-        "target": "production",
-        "customEnvironmentSlug": null,
-        "planningLeaves": [
-          {
-            "alias": "ui.mento.org",
-            "deploymentId": "dpl_uiprior123",
-            "deploymentUrl": "https://ui-prior.vercel.app",
-            "aliases": ["ui.mento.org"],
-            "projectId": "prj_ui123",
-            "projectName": "ui.mento.org",
             "readyState": "READY",
             "target": "production",
             "customEnvironmentSlug": null,
@@ -130,11 +98,6 @@
       "deploymentId": "dpl_reserveprior123",
       "deploymentUrl": "https://reserve-prior.vercel.app",
       "aliases": ["reserve.mento.org"]
-    },
-    "ui": {
-      "deploymentId": "dpl_uiprior123",
-      "deploymentUrl": "https://ui-prior.vercel.app",
-      "aliases": ["ui.mento.org"]
     }
   },
   "startMappings": {
@@ -150,13 +113,6 @@
         "alias": "reserve.mento.org",
         "deploymentId": "dpl_reserveprior123",
         "deploymentUrl": "https://reserve-prior.vercel.app"
-      }
-    ],
-    "ui": [
-      {
-        "alias": "ui.mento.org",
-        "deploymentId": "dpl_uiprior123",
-        "deploymentUrl": "https://ui-prior.vercel.app"
       }
     ]
   },
@@ -199,30 +155,6 @@
         "customEnvironmentSlug": null,
         "immutableSmoke": {
           "immutableUrl": "https://reserve-candidate.vercel.app",
-          "servedSha": "abcdef0123456789abcdef0123456789abcdef01",
-          "status": "passed"
-        },
-        "metrics": {
-          "buildDurationMs": null,
-          "deploymentDurationMs": null,
-          "cacheHit": null
-        }
-      }
-    },
-    "ui": {
-      "deploymentId": "dpl_uicandidate123",
-      "deploymentUrl": "https://ui-candidate.vercel.app",
-      "aliases": ["ui.mento.org"],
-      "discovery": {
-        "releaseId": "mr-92e57318148798973a8f067a",
-        "candidateId": "candidate-ui-700",
-        "projectId": "prj_ui123",
-        "projectName": "ui.mento.org",
-        "deploySha": "abcdef0123456789abcdef0123456789abcdef01",
-        "target": "ui",
-        "customEnvironmentSlug": null,
-        "immutableSmoke": {
-          "immutableUrl": "https://ui-candidate.vercel.app",
           "servedSha": "abcdef0123456789abcdef0123456789abcdef01",
           "status": "passed"
         },

@@ -289,7 +289,7 @@ test("fd loader runs the pinned Vercel ESM entrypoint", () => {
   try {
     const result = runMainActiveVercelCommand({
       command: buildMainActivePromotionCommand({
-        target: "ui",
+        target: "reserve",
         ...CANDIDATE,
       }),
       cliPath,
@@ -384,7 +384,7 @@ test("execute writes canonical unknown evidence for nonzero, timeout, and lost r
     {
       name: "timeout",
       command: buildMainActivePromotionCommand({
-        target: "ui",
+        target: "reserve",
         ...CANDIDATE,
       }),
       result: {
@@ -452,7 +452,7 @@ test("execute rejects any command result that reports a candidate", async (t) =>
     ],
     [
       "ordinary-promote",
-      buildMainActivePromotionCommand({ target: "ui", ...CANDIDATE }),
+      buildMainActivePromotionCommand({ target: "reserve", ...CANDIDATE }),
     ],
   ]) {
     const descriptorPath = writePrivateJson(
@@ -483,7 +483,7 @@ test("execute rejects forged descriptors, unsafe runtime paths, and expanded res
   const directory = privateTestDirectory(t);
   const env = executionEnvironment(directory);
   const command = buildMainActivePromotionCommand({
-    target: "ui",
+    target: "reserve",
     ...CANDIDATE,
   });
   const forged = writePrivateJson(directory, "forged.json", {
@@ -707,7 +707,7 @@ test("private JSON boundaries reject permissive modes, symlinks, nesting, and re
   const directory = privateTestDirectory(t);
   const env = executionEnvironment(directory);
   const command = buildMainActivePromotionCommand({
-    target: "ui",
+    target: "reserve",
     ...CANDIDATE,
   });
   const permissive = writePrivateJson(

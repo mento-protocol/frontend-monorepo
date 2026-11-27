@@ -380,5 +380,144 @@
         }
       }
     }
+  },
+  "uiEra": {
+    "sealedAt": "618e6176",
+    "pullRequest": 1106,
+    "manifestPriorOrder": ["reserve", "ui", "app"],
+    "seals": {
+      "app": {
+        "stableBodyEnvironment": {
+          "target": "production",
+          "customEnvironmentSlug": null
+        },
+        "deployment": {
+          "id": "dpl_appUiEra0",
+          "url": "app-ui-era-candidate.vercel.app",
+          "projectId": "prj_app123",
+          "name": "app.mento.org",
+          "readyState": "READY",
+          "target": "production",
+          "customEnvironmentSlug": null,
+          "source": "cli",
+          "creator": {
+            "uid": "user_fixture123",
+            "username": "chapati"
+          },
+          "meta": {
+            "githubCommitOrg": "mento-protocol",
+            "githubCommitRepo": "frontend-monorepo",
+            "githubCommitRef": "main",
+            "githubCommitSha": "dddddddddddddddddddddddddddddddddddddddd",
+            "mentoCandidateSchema": "vercel-main-candidate-metadata:v3",
+            "mentoReleaseId": "mr-764c3b562bc9856d1171dd53",
+            "mentoCandidateId": "mr-app-13183bd9d06fa20b13",
+            "mentoNextDeploymentId": "mr-app-13183bd9d06fa20b13",
+            "mentoStableIntentDigest": "59a11d1bbf3e491e8823e8b1222333bb4356870126d97f58bc3fb5136ef94c59",
+            "mentoReleaseManifestEncoding": "deflate-raw-base64url:v1",
+            "mentoReleaseManifestChunkCount": "2",
+            "mentoReleaseManifestChunk0": "5VZNb9swDP0vPCsfdvNl37q1hwHbWjTbYRiCgZEYR50sCZKcIgjy3wfJWdJ0adBdemh1E_jIR71Hwt6A50uqEUpYkeOkOjVK3XGkCD11atRyQT6UqxwYOLLGy2DcGkqoSQfTsc4Ew43qLZzRgbTo1EabCEz4VOWTiHDXGY8G_GI-HOVzXkyGI5Fl40yI4QUwEGSVWU-XsQ_xwgMMGuuDI6zvGp1Ixv0-MKiNICjBL1GYh3hHqW8eNDm_lPZLCm4ArX2MceTJrY7SGnm4bRn4gBWJb-gqCh7Kn_uUhGSp4IwB8iBXdIDNGDij1Bz57xut1kcB42QlNapbJ43zsat9G5udJFHl9DRh1a9d9EOWHzSLgO9OQQnLEKwve70dqjVy3m1t7cb2GKCS6Olx-93kY9e4KnZvnbkn3jJad_-XsSXcBb9iHXX6Nz-qiGI9DRgi4O768uoHMAjpyamgEQ0P0mhgwBsfTH2tV9IZHWtMVVNBqRulGFiFWktdfSZcpW43",
+            "mentoReleaseManifestChunk1": "befP0L5nqSoZ4rT4gKGJ-nBTW0UhjmUkerqnuy2GEk4v7CJmoIy0Pm0jvvDAdjtjkN4ppv-Z2e7ayZFv5MfzFjaydY8_614jzxvXyFOeHWW9ymQ_YXwHYryN2U1fkpPDi9ZenjcMrW0dw2cdQ2vPW4bWnvLsOO9VJvgp5XuR5C3M8Xb_u3arUF_JinwUIRsXYr7IszwbDATHCYp8kuGkvyhEnxAFn-BolA8XA14Mx2JcCJ4PRhMxFFTgBeUFbP8A",
+            "mentoOriginRunId": "800",
+            "mentoOriginRunAttempt": "1",
+            "mentoOriginTransactionId": "main-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        },
+        "context": {
+          "target": "app",
+          "projectId": "prj_app123",
+          "projectName": "app.mento.org",
+          "deploySha": "dddddddddddddddddddddddddddddddddddddddd"
+        }
+      },
+      "reserve": {
+        "stableBodyEnvironment": {
+          "target": "production",
+          "customEnvironmentSlug": null
+        },
+        "deployment": {
+          "id": "dpl_reserveUiEra1",
+          "url": "reserve-ui-era-candidate.vercel.app",
+          "projectId": "prj_reserve123",
+          "name": "reserve.mento.org",
+          "readyState": "READY",
+          "target": "production",
+          "customEnvironmentSlug": null,
+          "source": "cli",
+          "creator": {
+            "uid": "user_fixture123",
+            "username": "chapati"
+          },
+          "meta": {
+            "githubCommitOrg": "mento-protocol",
+            "githubCommitRepo": "frontend-monorepo",
+            "githubCommitRef": "main",
+            "githubCommitSha": "dddddddddddddddddddddddddddddddddddddddd",
+            "mentoCandidateSchema": "vercel-main-candidate-metadata:v3",
+            "mentoReleaseId": "mr-764c3b562bc9856d1171dd53",
+            "mentoCandidateId": "mr-reserve-382eee5699b425016e",
+            "mentoNextDeploymentId": "mr-reserve-382eee5699b425016e",
+            "mentoStableIntentDigest": "d43ef963a79c1763895e19f8dccdcc69faba17954e95a7fffac8143ea3e66a90",
+            "mentoReleaseManifestEncoding": "deflate-raw-base64url:v1",
+            "mentoReleaseManifestChunkCount": "2",
+            "mentoReleaseManifestChunk0": "5VZNb9swDP0vPCsfdvNl37q1hwHbWjTbYRiCgZEYR50sCZKcIgjy3wfJWdJ0adBdemh1E_jIR71Hwt6A50uqEUpYkeOkOjVK3XGkCD11atRyQT6UqxwYOLLGy2DcGkqoSQfTsc4Ew43qLZzRgbTo1EabCEz4VOWTiHDXGY8G_GI-HOVzXkyGI5Fl40yI4QUwEGSVWU-XsQ_xwgMMGuuDI6zvGp1Ixv0-MKiNICjBL1GYh3hHqW8eNDm_lPZLCm4ArX2MceTJrY7SGnm4bRn4gBWJb-gqCh7Kn_uUhGSp4IwB8iBXdIDNGDij1Bz57xut1kcB42QlNapbJ43zsat9G5udJFHl9DRh1a9d9EOWHzSLgO9OQQnLEKwve70dqjVy3m1t7cb2GKCS6Olx-93kY9e4KnZvnbkn3jJad_-XsSXcBb9iHXX6Nz-qiGI9DRgi4O768uoHMAjpyamgEQ0P0mhgwBsfTH2tV9IZHWtMVVNBqRulGFiFWktdfSZcpW43",
+            "mentoReleaseManifestChunk1": "befP0L5nqSoZ4rT4gKGJ-nBTW0UhjmUkerqnuy2GEk4v7CJmoIy0Pm0jvvDAdjtjkN4ppv-Z2e7ayZFv5MfzFjaydY8_614jzxvXyFOeHWW9ymQ_YXwHYryN2U1fkpPDi9ZenjcMrW0dw2cdQ2vPW4bWnvLsOO9VJvgp5XuR5C3M8Xb_u3arUF_JinwUIRsXYr7IszwbDATHCYp8kuGkvyhEnxAFn-BolA8XA14Mx2JcCJ4PRhMxFFTgBeUFbP8A",
+            "mentoOriginRunId": "800",
+            "mentoOriginRunAttempt": "1",
+            "mentoOriginTransactionId": "main-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        },
+        "context": {
+          "target": "reserve",
+          "projectId": "prj_reserve123",
+          "projectName": "reserve.mento.org",
+          "deploySha": "dddddddddddddddddddddddddddddddddddddddd"
+        }
+      },
+      "ui": {
+        "stableBodyEnvironment": {
+          "target": "production",
+          "customEnvironmentSlug": null
+        },
+        "deployment": {
+          "id": "dpl_uiUiEra2",
+          "url": "ui-ui-era-candidate.vercel.app",
+          "projectId": "prj_ui123",
+          "name": "ui.mento.org",
+          "readyState": "READY",
+          "target": "production",
+          "customEnvironmentSlug": null,
+          "source": "cli",
+          "creator": {
+            "uid": "user_fixture123",
+            "username": "chapati"
+          },
+          "meta": {
+            "githubCommitOrg": "mento-protocol",
+            "githubCommitRepo": "frontend-monorepo",
+            "githubCommitRef": "main",
+            "githubCommitSha": "dddddddddddddddddddddddddddddddddddddddd",
+            "mentoCandidateSchema": "vercel-main-candidate-metadata:v3",
+            "mentoReleaseId": "mr-764c3b562bc9856d1171dd53",
+            "mentoCandidateId": "mr-ui-ec15caf0248ad35e73",
+            "mentoNextDeploymentId": "mr-ui-ec15caf0248ad35e73",
+            "mentoStableIntentDigest": "c1c5b3db8afb53eb586fece9081c849694e2fff5c440ef4d3af1ae9026c1bff7",
+            "mentoReleaseManifestEncoding": "deflate-raw-base64url:v1",
+            "mentoReleaseManifestChunkCount": "2",
+            "mentoReleaseManifestChunk0": "5VZNb9swDP0vPCsfdvNl37q1hwHbWjTbYRiCgZEYR50sCZKcIgjy3wfJWdJ0adBdemh1E_jIR71Hwt6A50uqEUpYkeOkOjVK3XGkCD11atRyQT6UqxwYOLLGy2DcGkqoSQfTsc4Ew43qLZzRgbTo1EabCEz4VOWTiHDXGY8G_GI-HOVzXkyGI5Fl40yI4QUwEGSVWU-XsQ_xwgMMGuuDI6zvGp1Ixv0-MKiNICjBL1GYh3hHqW8eNDm_lPZLCm4ArX2MceTJrY7SGnm4bRn4gBWJb-gqCh7Kn_uUhGSp4IwB8iBXdIDNGDij1Bz57xut1kcB42QlNapbJ43zsat9G5udJFHl9DRh1a9d9EOWHzSLgO9OQQnLEKwve70dqjVy3m1t7cb2GKCS6Olx-93kY9e4KnZvnbkn3jJad_-XsSXcBb9iHXX6Nz-qiGI9DRgi4O768uoHMAjpyamgEQ0P0mhgwBsfTH2tV9IZHWtMVVNBqRulGFiFWktdfSZcpW43",
+            "mentoReleaseManifestChunk1": "befP0L5nqSoZ4rT4gKGJ-nBTW0UhjmUkerqnuy2GEk4v7CJmoIy0Pm0jvvDAdjtjkN4ppv-Z2e7ayZFv5MfzFjaydY8_614jzxvXyFOeHWW9ymQ_YXwHYryN2U1fkpPDi9ZenjcMrW0dw2cdQ2vPW4bWnvLsOO9VJvgp5XuR5C3M8Xb_u3arUF_JinwUIRsXYr7IszwbDATHCYp8kuGkvyhEnxAFn-BolA8XA14Mx2JcCJ4PRhMxFFTgBeUFbP8A",
+            "mentoOriginRunId": "800",
+            "mentoOriginRunAttempt": "1",
+            "mentoOriginTransactionId": "main-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        },
+        "context": {
+          "target": "ui",
+          "projectId": "prj_ui123",
+          "projectName": "ui.mento.org",
+          "deploySha": "dddddddddddddddddddddddddddddddddddddddd"
+        }
+      }
+    }
   }
 }

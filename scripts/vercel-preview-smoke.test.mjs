@@ -12,8 +12,9 @@ const VERCEL_ACTOR = { login: "vercel[bot]", id: 35_613_825, type: "Bot" };
 const URLS = {
   app: "https://appmento-abc123-mentolabs.vercel.app/",
   reserve: "https://reservemento-abc123-mentolabs.vercel.app/",
-  ui: "https://uimento-abc123-mentolabs.vercel.app/",
 };
+// UI is no longer a preview target (ADR 0018); its host only proves refusal.
+const RETIRED_UI_URL = "https://uimento-abc123-mentolabs.vercel.app/";
 
 function controllerTuple(target, overrides = {}) {
   return {
@@ -116,8 +117,8 @@ function nativeSmokeValues(target, runtimeOverrides = {}) {
   };
 }
 
-test("controller smoke tuple is target, project, SHA, and build-ID bound for all three targets", () => {
-  for (const target of ["app", "reserve", "ui"]) {
+test("controller smoke tuple is target, project, SHA, and build-ID bound for both targets", () => {
+  for (const target of ["app", "reserve"]) {
     const tuple = validatePreviewSmokeTuple(controllerTuple(target));
     assert.equal(tuple.logicalTarget, target);
     assert.equal(tuple.expectedProjectId, `prj_${target}`);
@@ -133,10 +134,26 @@ test("controller smoke tuple is target, project, SHA, and build-ID bound for all
       () =>
         validatePreviewSmokeTuple(
           controllerTuple(target, {
-            nextDeploymentId: `${target === "ui" ? "m-app" : "m-ui"}-0123456789abcdef012`,
+            nextDeploymentId: `${target === "app" ? "m-reserve" : "m-app"}-0123456789abcdef012`,
           }),
         ),
       /Next\.js deployment ID is missing or invalid/,
+    );
+  }
+});
+
+test("controller smoke refuses the retired UI and Governance targets", () => {
+  for (const target of ["ui", "governance"]) {
+    assert.throws(
+      () =>
+        validatePreviewSmokeTuple(
+          controllerTuple(target, {
+            deploymentUrl: RETIRED_UI_URL.replace("ui", target),
+            metadataUrl: RETIRED_UI_URL.replace("ui", target),
+          }),
+        ),
+      /Logical target is missing or invalid/,
+      target,
     );
   }
 });
@@ -202,9 +219,10 @@ test("native classifier accepts only the exact Vercel actor and App preview succ
   }
 });
 
-// Governance is no longer a deployment target (ADR 0017), and Reserve and UI
-// previews are GitHub-owned, so a native success for any of them is never
-// eligible for the adapter, and a forged native tuple is refused outright.
+// Governance and UI are no longer deployment targets (ADR 0017, ADR 0018),
+// and Reserve previews are GitHub-owned, so a native success for any of them
+// is never eligible for the adapter, and a forged native tuple is refused
+// outright.
 test("native classifier refuses every non-App native preview success", () => {
   for (const target of ["governance", "reserve", "ui"]) {
     assert.deepEqual(
@@ -407,9 +425,9 @@ test("common HTTP smoke still requires representative JavaScript and CSS assets"
 });
 
 test("common HTTP smoke fails closed on missing headers and mixed deployment assets", async () => {
-  const values = controllerTuple("ui");
+  const values = controllerTuple("reserve");
   const html = `<html data-dpl-id="${values.nextDeploymentId}"><body>
-      <main><h1>Basic Components</h1></main>
+      <main><h1>Mento Reserve</h1></main>
       <script src="/_next/static/app.js?dpl=${values.nextDeploymentId}"></script>
       <link rel="stylesheet" href="/_next/static/app.css?dpl=wrong">
       <link rel="preload" href="/_next/static/font.woff2?dpl=${values.nextDeploymentId}">
@@ -436,12 +454,11 @@ test("common HTTP smoke fails closed on missing headers and mixed deployment ass
   );
 });
 
-test("custom-ID Reserve and UI HTTP smoke require exact server-rendered identity", async () => {
-  for (const target of ["reserve", "ui"]) {
+test("custom-ID Reserve HTTP smoke requires exact server-rendered identity", async () => {
+  for (const target of ["reserve"]) {
     const values = controllerTuple(target);
     const documentMarker = {
       reserve: "Mento Reserve",
-      ui: "Basic Components",
     }[target];
     const response = (deploymentMarker) => async (url) => {
       const parsed = new URL(url);

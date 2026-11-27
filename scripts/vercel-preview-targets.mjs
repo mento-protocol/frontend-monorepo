@@ -148,20 +148,6 @@ export const PREVIEW_TARGET_CONFIG = Object.freeze({
       PREVIEW_SHADOW_GITHUB_MAIN_VERCEL_CONFIGURATION,
     nativeVercelConfiguration: NATIVE_VERCEL_CONFIGURATION,
   }),
-  ui: targetConfiguration({
-    logicalTarget: "ui",
-    workspacePackage: "ui.mento.org",
-    expectedRootDirectory: "apps/ui.mento.org",
-    projectVariable: "VERCEL_PROJECT_ID_UI",
-    ownershipMode: PREVIEW_OWNERSHIP_MODES.GITHUB,
-    mainOwnershipMode: MAIN_OWNERSHIP_MODES.GITHUB,
-    vercelConfigurationPath: "apps/ui.mento.org/vercel.json",
-    activeVercelConfiguration: ACTIVE_GITHUB_VERCEL_CONFIGURATION,
-    mainShadowVercelConfiguration: MAIN_SHADOW_GITHUB_VERCEL_CONFIGURATION,
-    previewShadowVercelConfiguration:
-      PREVIEW_SHADOW_GITHUB_MAIN_VERCEL_CONFIGURATION,
-    nativeVercelConfiguration: NATIVE_VERCEL_CONFIGURATION,
-  }),
 });
 
 export const PREVIEW_TARGETS = Object.freeze(

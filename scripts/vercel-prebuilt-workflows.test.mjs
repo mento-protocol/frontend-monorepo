@@ -115,7 +115,7 @@ test("preview credentials carry no explorer secret and never expose Sentry", () 
     read(reusablePath),
     /SENTRY_AUTH_TOKEN|secrets:\s*inherit/,
   );
-  for (const target of ["app", "reserve", "ui"]) {
+  for (const target of ["app", "reserve"]) {
     assert.deepEqual(
       Object.keys(worker.jobs[`deploy-${target}-preview`].secrets),
       ["turbo_remote_cache_signature_key", "turbo_token", "vercel_token"],
@@ -156,7 +156,9 @@ test("runner-side validation never traverses the distinct candidate identity tre
 test("preview worker maps only preview credentials and never exposes a production path", () => {
   const raw = read(".github/workflows/vercel-preview-worker.yml");
   assert.match(raw, /VERCEL_TOKEN_PREVIEW/);
-  assert.match(raw, /VERCEL_PROJECT_ID_UI/);
+  assert.match(raw, /VERCEL_PROJECT_ID_APP/);
+  assert.match(raw, /VERCEL_PROJECT_ID_RESERVE/);
+  assert.doesNotMatch(raw, /VERCEL_PROJECT_ID_UI|VERCEL_PROJECT_ID_GOVERNANCE/);
   assert.doesNotMatch(raw, /VERCEL_AUTOMATION_BYPASS_SECRET|bypass/i);
   assert.doesNotMatch(raw, /VERCEL_TOKEN_PRODUCTION|vercel-cli-production/);
   assert.doesNotMatch(raw, /--prod|\bpromote\b|production_environment/);
@@ -893,10 +895,14 @@ test("prebuilt and resume paths use only the reusable smoke implementation", () 
     workflow(reusablePath).jobs.smoke.uses,
     "./.github/workflows/_vercel-preview-smoke.yml",
   );
-  assert.equal(
-    worker.jobs["resume-ui-smoke"].uses,
-    "./.github/workflows/_vercel-preview-smoke.yml",
-  );
+  for (const target of ["app", "reserve"]) {
+    assert.equal(
+      worker.jobs[`resume-${target}-smoke`].uses,
+      "./.github/workflows/_vercel-preview-smoke.yml",
+      target,
+    );
+  }
+  assert.equal(Object.hasOwn(worker.jobs, "resume-ui-smoke"), false);
   for (const path of [
     reusablePath,
     ".github/workflows/vercel-preview-worker.yml",

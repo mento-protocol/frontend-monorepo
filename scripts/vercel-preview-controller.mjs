@@ -84,19 +84,20 @@ const ALLOWED_PLAN_REASONS = new Set([
   "unsupported-trust-boundary",
   "closed",
 ]);
-// ADR 0017 retired `governance` as a preview target. Journals and event
-// receipts persisted before then name it alongside the current targets, in
-// this exact governance-era order. It is only ever read, never written: a
-// persisted plan may still name it, and it selects nothing, because every
-// consumer iterates PREVIEW_TARGETS; a governance-era journal is normalized on
-// read by `normalizeGovernanceEraPreviewJournal`.
-const RETIRED_PREVIEW_TARGET = "governance";
-const GOVERNANCE_ERA_PREVIEW_TARGETS = Object.freeze([
-  "app",
-  RETIRED_PREVIEW_TARGET,
-  "reserve",
-  "ui",
+// ADR 0017 retired `governance` and ADR 0018 retired `ui` as preview targets.
+// Journals and event receipts persisted before then name them alongside the
+// current targets, in exactly one of these retired-era orders, newest first.
+// Retired targets are only ever read, never written: a persisted plan may
+// still name one, and it selects nothing, because every consumer iterates
+// PREVIEW_TARGETS; a retired-era journal is normalized on read by
+// `normalizeRetiredEraPreviewJournal`.
+const RETIRED_ERA_PREVIEW_TARGETS = Object.freeze([
+  Object.freeze(["app", "reserve", "ui"]),
+  Object.freeze(["app", "governance", "reserve", "ui"]),
 ]);
+// Every target any persisted plan can name, in persisted order. Each retired
+// era and the current PREVIEW_TARGETS are ordered subsets of it.
+const PERSISTED_PREVIEW_TARGET_ORDER = RETIRED_ERA_PREVIEW_TARGETS.at(-1);
 const PREVIEW_CONTROLLER_MODES = new Set(["active", "observe-only"]);
 const TERMINAL_STATES = new Set(["success", "failure", "error"]);
 const RETRIABLE_TERMINAL_REASONS = new Set([
@@ -807,10 +808,11 @@ export function normalizePlannerResult(
 
 function validatePlan(plan, event) {
   plainObject(plan, "Event plan");
-  // A plan persisted before ADR 0017 may still name the retired target in its
-  // governance-era position. New plans cannot: `normalizePlannerResult` admits
-  // only PREVIEW_TARGETS, and PREVIEW_TARGETS is that order without it.
-  const persistedOrder = GOVERNANCE_ERA_PREVIEW_TARGETS;
+  // A plan persisted before ADR 0017 or ADR 0018 may still name a retired
+  // target in its retired-era position. New plans cannot:
+  // `normalizePlannerResult` admits only PREVIEW_TARGETS, and PREVIEW_TARGETS
+  // is that order without them.
+  const persistedOrder = PERSISTED_PREVIEW_TARGET_ORDER;
   invariant(
     Array.isArray(plan.targets) && plan.targets.length <= persistedOrder.length,
     "Plan targets are invalid",
@@ -1174,7 +1176,7 @@ function parseDependabotIntakeRunName(value) {
 
 export function parseWorkerRunName(value) {
   const match = String(value ?? "").match(
-    /^Vercel preview worker \| pr=([1-9][0-9]{0,9}) \| target=(app|reserve|ui) \| sha=([0-9a-f]{40}) \| key=([0-9a-f]{24})$/,
+    /^Vercel preview worker \| pr=([1-9][0-9]{0,9}) \| target=(app|reserve) \| sha=([0-9a-f]{40}) \| key=([0-9a-f]{24})$/,
   );
   invariant(match, WORKER_RUN_NAME_PARSE_ERROR);
   return {
@@ -5600,65 +5602,54 @@ function hasExactTargetKeys(value, targets) {
 }
 
 // Bounded legacy read for a journal written before ADR 0017 retired the
-// `governance` preview target. The controller runs main's constants, so
-// without it every open pull request's journal would fail closed forever.
-// Exactly one shape is admitted: every target-keyed map — controller target
-// states, every status decision, and checkpoint targets — holds exactly the
-// governance-era targets. The raw journal must still be canonical and match
-// its own digest. Only then are the governance entries dropped, including any
-// in-flight ownership, together with every governance selection, worker
-// evidence, and result receipt. Event receipts keep their plans untouched, so
-// semantic keys and basis digests do not move. The controller state's receipt
-// digest is deliberately not recomputed: dropping receipts can only make it
-// unrepresented, which reconciles again rather than trusting the new set. The
-// next write persists the current keys. Any other mismatch is returned as is
-// and fails closed in `validatePreviewJournal`.
-function normalizeGovernanceEraPreviewJournal(value, body) {
-  if (
-    !hasExactTargetKeys(
-      value?.state?.targets,
-      GOVERNANCE_ERA_PREVIEW_TARGETS,
-    ) &&
-    !hasExactTargetKeys(
-      value?.checkpoint?.targets,
-      GOVERNANCE_ERA_PREVIEW_TARGETS,
-    )
-  ) {
+// `governance` preview target or ADR 0018 retired the `ui` one. The controller
+// runs main's constants, so without it every open pull request's journal
+// would fail closed forever. Exactly the retired-era shapes are admitted:
+// every target-keyed map — controller target states, every status decision,
+// and checkpoint targets — holds exactly one retired era's targets. The raw
+// journal must still be canonical for that era and match its own digest. Only
+// then are the retired entries dropped, including any in-flight ownership,
+// together with every retired selection, worker evidence, and result receipt.
+// Event receipts keep their plans untouched, so semantic keys and basis
+// digests do not move. The controller state's receipt digest is deliberately
+// not recomputed: dropping receipts can only make it unrepresented, which
+// reconciles again rather than trusting the new set. The next write persists
+// the current keys. Any other mismatch is returned as is and fails closed in
+// `validatePreviewJournal`.
+function normalizeRetiredEraPreviewJournal(value, body) {
+  const eraTargets = RETIRED_ERA_PREVIEW_TARGETS.find(
+    (targets) =>
+      hasExactTargetKeys(value?.state?.targets, targets) ||
+      hasExactTargetKeys(value?.checkpoint?.targets, targets),
+  );
+  if (eraTargets === undefined) {
     return value;
   }
   const journal = plainObject(value, "Preview journal");
   invariant(
     journal.state === null ||
-      (hasExactTargetKeys(
-        journal.state.targets,
-        GOVERNANCE_ERA_PREVIEW_TARGETS,
-      ) &&
+      (hasExactTargetKeys(journal.state.targets, eraTargets) &&
         Array.isArray(journal.state.status_decisions) &&
         journal.state.status_decisions.every((decision) =>
-          hasExactTargetKeys(decision?.targets, GOVERNANCE_ERA_PREVIEW_TARGETS),
+          hasExactTargetKeys(decision?.targets, eraTargets),
         )),
-    "Governance-era controller target state keys are invalid",
+    "Retired-era controller target state keys are invalid",
   );
   invariant(
     journal.checkpoint === null ||
-      hasExactTargetKeys(
-        journal.checkpoint.targets,
-        GOVERNANCE_ERA_PREVIEW_TARGETS,
-      ),
-    "Governance-era preview checkpoint target keys are invalid",
+      hasExactTargetKeys(journal.checkpoint.targets, eraTargets),
+    "Retired-era preview checkpoint target keys are invalid",
   );
   const receipts = plainObject(journal.receipts, "Preview journal receipts");
   invariant(
     ["selections", "worker_evidence", "results"].every((name) =>
       Array.isArray(receipts[name]),
     ),
-    "Governance-era preview journal receipts are invalid",
+    "Retired-era preview journal receipts are invalid",
   );
   invariant(
     [JSON.stringify(journal), JSON.stringify(journal, null, 2)].some(
-      (json) =>
-        body ===
-        previewJournalBody(journal, json, GOVERNANCE_ERA_PREVIEW_TARGETS),
+      (json) => body === previewJournalBody(journal, json, eraTargets),
     ),
     "Preview journal body is not canonical",
   );
@@ -5672,19 +5663,24 @@ function normalizeGovernanceEraPreviewJournal(value, body) {
       ),
     "Preview journal digest mismatch",
   );
+  const retiredTargets = eraTargets.filter(
+    (target) => !PREVIEW_TARGETS.includes(target),
+  );
   const normalized = structuredClone(journal);
-  if (normalized.state !== null) {
-    delete normalized.state.targets[RETIRED_PREVIEW_TARGET];
-    for (const decision of normalized.state.status_decisions) {
-      delete decision.targets[RETIRED_PREVIEW_TARGET];
+  for (const target of retiredTargets) {
+    if (normalized.state !== null) {
+      delete normalized.state.targets[target];
+      for (const decision of normalized.state.status_decisions) {
+        delete decision.targets[target];
+      }
     }
-  }
-  if (normalized.checkpoint !== null) {
-    delete normalized.checkpoint.targets[RETIRED_PREVIEW_TARGET];
+    if (normalized.checkpoint !== null) {
+      delete normalized.checkpoint.targets[target];
+    }
   }
   for (const name of ["selections", "worker_evidence", "results"]) {
     normalized.receipts[name] = normalized.receipts[name].filter(
-      (receipt) => receipt?.target !== RETIRED_PREVIEW_TARGET,
+      (receipt) => !retiredTargets.includes(receipt?.target),
     );
   }
   normalized.journal_digest = previewJournalDigest(
@@ -5713,9 +5709,9 @@ export function parsePreviewJournalComments(
     return null;
   }
   const raw = parseJournalBody(matches[0].body);
-  const normalized = normalizeGovernanceEraPreviewJournal(raw, matches[0].body);
+  const normalized = normalizeRetiredEraPreviewJournal(raw, matches[0].body);
   const journal = validatePreviewJournal(normalized, pr);
-  // A normalized governance-era journal proved its raw body canonical above.
+  // A normalized retired-era journal proved its raw body canonical above.
   invariant(
     normalized !== raw ||
       matches[0].body === renderPreviewJournalBody(journal) ||

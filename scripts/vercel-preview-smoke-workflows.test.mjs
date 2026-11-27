@@ -96,18 +96,20 @@ test("reusable smoke validates metadata before common and target-specific browse
   const genericBrowser = smoke.steps.find(({ name }) =>
     name.startsWith("Run App or Reserve"),
   );
-  assert.equal(genericBrowser.if, "inputs.logical_target != 'ui'");
+  // App and Reserve are the only targets (ADR 0018), so the generic browser
+  // smoke runs unconditionally and no UI-specific browser step remains.
+  assert.equal(Object.hasOwn(genericBrowser, "if"), false);
   assert.match(
     genericBrowser.run,
     /scripts\/vercel-preview-browser-smoke\.mjs/,
   );
-  const uiBrowser = smoke.steps.find(({ name }) =>
-    name.startsWith("Run UI deployment"),
+  assert.equal(
+    smoke.steps.some(({ name }) => name.startsWith("Run UI deployment")),
+    false,
   );
-  assert.equal(uiBrowser.if, "inputs.logical_target == 'ui'");
-  assert.match(
-    uiBrowser.run,
-    /apps\/ui\.mento\.org\/e2e\/vercel-preview-browser-smoke\.mjs/,
+  assert.doesNotMatch(
+    read(reusablePath),
+    /logical_target [!=]= 'ui'|apps\/ui\.mento\.org/,
   );
 
   const walletSpec = read("apps/app.mento.org/e2e/preview/smoke.spec.ts");
@@ -122,11 +124,11 @@ test("reusable smoke validates metadata before common and target-specific browse
   assert.match(walletSpec, /test\.afterEach/);
 });
 
-test("all three automatic build and resume paths use the single reusable smoke", () => {
+test("both automatic build and resume paths use the single reusable smoke", () => {
   const prebuilt = workflow(".github/workflows/_vercel-prebuilt.yml");
   const worker = workflow(".github/workflows/vercel-preview-worker.yml");
   const buildSmoke = prebuilt.jobs.smoke;
-  const resumeSmokes = ["app", "reserve", "ui"].map(
+  const resumeSmokes = ["app", "reserve"].map(
     (target) => worker.jobs[`resume-${target}-smoke`],
   );
   for (const smoke of [buildSmoke, ...resumeSmokes]) {
@@ -161,7 +163,7 @@ test("all three automatic build and resume paths use the single reusable smoke",
   assert.equal(buildSmoke.with.logical_target, "${{ inputs.logical_target }}");
   assert.deepEqual(
     resumeSmokes.map(({ with: inputs }) => inputs.logical_target),
-    ["app", "reserve", "ui"],
+    ["app", "reserve"],
   );
   for (const resumeSmoke of resumeSmokes) {
     assert.equal(resumeSmoke.with.verification_mode, "controller");
@@ -175,9 +177,9 @@ test("all three automatic build and resume paths use the single reusable smoke",
     [
       ["deploy-app-preview", "app"],
       ["deploy-reserve-preview", "reserve"],
-      ["deploy-ui-preview", "ui"],
     ],
   );
+  assert.equal(Object.hasOwn(worker.jobs, "resume-ui-smoke"), false);
   assert.doesNotMatch(
     `${read(".github/workflows/_vercel-prebuilt.yml")}\n${read(
       ".github/workflows/vercel-preview-worker.yml",

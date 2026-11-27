@@ -22,9 +22,9 @@ const NUMERIC_ID_PATTERN = /^[1-9][0-9]*$/;
 const IDENTIFIER_PATTERN = /^[A-Za-z0-9._-]+$/;
 const DEPLOYMENT_ID_PATTERN = /^dpl_[A-Za-z0-9]+$/;
 // Every main target promotes and rolls back through the same two operations.
-const PROMOTABLE_TARGETS = Object.freeze(["reserve", "ui", "app"]);
-const PROTECTED_TARGETS = Object.freeze(["app", "reserve", "ui"]);
-const CANDIDATE_TARGETS = Object.freeze(["app", "reserve", "ui"]);
+const PROMOTABLE_TARGETS = Object.freeze(["reserve", "app"]);
+const PROTECTED_TARGETS = Object.freeze(["app", "reserve"]);
+const CANDIDATE_TARGETS = Object.freeze(["app", "reserve"]);
 const MODES = Object.freeze(["shadow", "active"]);
 const STATUSES = Object.freeze([
   "prepared",
@@ -107,7 +107,7 @@ const CURRENT_MAPPING_KEYS = Object.freeze([
   "deploymentId",
   "deploymentUrl",
 ]);
-const START_MAPPING_TARGETS = Object.freeze(["app", "reserve", "ui"]);
+const START_MAPPING_TARGETS = Object.freeze(["app", "reserve"]);
 const RECOVERY_PLAN_KEYS = Object.freeze([
   "decision",
   "reason",

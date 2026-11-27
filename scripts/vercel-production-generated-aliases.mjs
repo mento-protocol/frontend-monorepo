@@ -19,13 +19,6 @@ export const PRODUCTION_GENERATED_ALIAS_CONTRACTS = Object.freeze({
     generatedProjectSlug: "reservementoorg",
     generatedScopeSlug: "mentolabs",
   }),
-  ui: Object.freeze({
-    generatedGitMainAlias: "uimentoorg-git-main-mentolabs.vercel.app",
-    generatedProjectDefaultAlias: "uimentoorg.vercel.app",
-    generatedProjectAlias: "uimentoorg-mentolabs.vercel.app",
-    generatedProjectSlug: "uimentoorg",
-    generatedScopeSlug: "mentolabs",
-  }),
 });
 
 export const PRODUCTION_GENERATED_ALIAS_TOPOLOGY_MODES = Object.freeze({

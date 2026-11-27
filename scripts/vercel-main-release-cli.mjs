@@ -48,7 +48,7 @@ import {
 
 const SHA_PATTERN = /^[a-f0-9]{40}$/;
 const POSITIVE_ID_PATTERN = /^[1-9][0-9]*$/;
-const TARGETS = ["app", "reserve", "ui"];
+const TARGETS = ["app", "reserve"];
 const EXECUTION_DIAGNOSTIC_PHASES = Object.freeze({
   INPUT: "input",
   PREPLAN: "preplan",
@@ -61,7 +61,6 @@ const EXECUTION_DIAGNOSTIC_PHASES = Object.freeze({
   BASELINE_SOURCE_GIT: "baseline-source-git",
   BASELINE_PRIOR_APP: "baseline-prior-app",
   BASELINE_PRIOR_RESERVE: "baseline-prior-reserve",
-  BASELINE_PRIOR_UI: "baseline-prior-ui",
   BASELINE_PLANNER_RANGE: "baseline-planner-range",
   BASELINE_MANIFEST: "baseline-manifest",
   BASELINE_UNKNOWN: "baseline-unknown",
@@ -92,8 +91,6 @@ export const MAIN_RELEASE_EXECUTION_DIAGNOSTIC_CODES = Object.freeze({
     "main-release-execution-baseline-prior-app",
   [EXECUTION_DIAGNOSTIC_PHASES.BASELINE_PRIOR_RESERVE]:
     "main-release-execution-baseline-prior-reserve",
-  [EXECUTION_DIAGNOSTIC_PHASES.BASELINE_PRIOR_UI]:
-    "main-release-execution-baseline-prior-ui",
   [EXECUTION_DIAGNOSTIC_PHASES.BASELINE_PLANNER_RANGE]:
     "main-release-execution-baseline-planner-range",
   [EXECUTION_DIAGNOSTIC_PHASES.BASELINE_MANIFEST]:
@@ -134,7 +131,6 @@ export const MAIN_RELEASE_TERMINAL_ARTIFACT_DIAGNOSTIC_CODES = Object.freeze({
 const BASELINE_PRIOR_PHASE_BY_TARGET = Object.freeze({
   app: EXECUTION_DIAGNOSTIC_PHASES.BASELINE_PRIOR_APP,
   reserve: EXECUTION_DIAGNOSTIC_PHASES.BASELINE_PRIOR_RESERVE,
-  ui: EXECUTION_DIAGNOSTIC_PHASES.BASELINE_PRIOR_UI,
 });
 const OPTIONS = Object.freeze({
   "candidate-receipts": Object.freeze([
@@ -142,7 +138,6 @@ const OPTIONS = Object.freeze({
     "execution",
     "output",
     "reserve",
-    "ui",
   ]),
   execution: Object.freeze([
     "preplan",
@@ -169,7 +164,6 @@ const OPTIONS = Object.freeze({
     "output",
     "preplan",
     "reserve",
-    "ui",
   ]),
   materialize: Object.freeze(["output"]),
   selection: Object.freeze(["execution", "output"]),
@@ -179,7 +173,6 @@ const OPTIONS = Object.freeze({
     "execution",
     "output",
     "reserve-result",
-    "ui-result",
   ]),
   "terminal-artifacts": Object.freeze([
     "active-evidence-output",
@@ -727,7 +720,6 @@ export async function runMainReleaseCli({
       results: {
         app: options["app-result"],
         reserve: options["reserve-result"],
-        ui: options["ui-result"],
       },
       coordinatorResult: options["coordinator-result"],
       ...currentAttempt(env),
@@ -855,10 +847,7 @@ export async function runMainReleaseCli({
     nextUpstreamRunId: identity.upstreamRunId,
     candidateReleases: discovery.discovery.candidateReleases,
     currentMappings: Object.fromEntries(
-      ["reserve", "ui", "app"].map((target) => [
-        target,
-        currentMappings[target],
-      ]),
+      ["reserve", "app"].map((target) => [target, currentMappings[target]]),
     ),
     rollbackOnlyTargets: discovery.discovery.rollbackOnlyTargets,
   });
@@ -914,7 +903,7 @@ export async function runMainReleaseCli({
     planningSnapshotDigest: discovery.planningSnapshotDigest,
     rollbackOnlyTargets: discovery.discovery.rollbackOnlyTargets,
     projectIds: Object.fromEntries(
-      ["reserve", "ui", "app"].map((target) => [target, projectIds[target]]),
+      ["reserve", "app"].map((target) => [target, projectIds[target]]),
     ),
     mode,
     mainOwnershipMode,

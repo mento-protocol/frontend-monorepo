@@ -32,7 +32,6 @@ const scriptPath = fileURLToPath(
 const TARGET_ENVIRONMENTS = {
   app: ["preview", "production"],
   reserve: ["preview", "production"],
-  ui: ["preview", "production"],
 };
 
 function validValues(target, environment) {
@@ -95,7 +94,7 @@ test("app production semantics are ordinary and the retired v3 environment is go
     ),
     true,
   );
-  for (const target of ["app", "reserve", "ui"]) {
+  for (const target of ["app", "reserve"]) {
     assert.throws(
       () => getVercelBuildRequirements(target, "v3"),
       new RegExp(`Unsupported ${target} environment: v3`),
@@ -109,11 +108,11 @@ test("app production semantics are ordinary and the retired v3 environment is go
 });
 
 test("Sensitive variables have explicit #517 GitHub mappings", () => {
-  const requirements = ["app", "reserve", "ui"].flatMap((target) => [
+  const requirements = ["app", "reserve"].flatMap((target) => [
     ...getVercelBuildRequirements(target, "preview"),
     ...getVercelBuildRequirements(target, "production"),
   ]);
-  for (const target of ["app", "reserve", "ui"]) {
+  for (const target of ["app", "reserve"]) {
     assert.deepEqual(
       getVercelBuildRequirements(target, "preview")
         .filter((item) => item.ciClassification === "sensitive-non-exportable")
@@ -146,6 +145,18 @@ test("the retired governance target has no build contract", () => {
     );
   }
   assert.doesNotMatch(readFileSync(scriptPath, "utf8"), /ETHERSCAN_API_KEY/);
+});
+
+// The UI showcase is no longer a Vercel deployment target (ADR 0018), so its
+// build contract cannot be requested either. Its pixel VRT build keeps its own
+// CI-scoped storage URL outside this contract.
+test("the retired ui target has no build contract", () => {
+  for (const environment of ["preview", "production"]) {
+    assert.throws(
+      () => getVercelBuildRequirements("ui", environment),
+      /Unknown Vercel target: ui/,
+    );
+  }
 });
 
 test("production Sentry auth is required only for production semantics", () => {
@@ -371,12 +382,17 @@ test("missing Vercel-pulled files fail closed without exposing values", () => {
 
 test("root CLI validates the exact linked project directory", () => {
   const directory = mkdtempSync(join(tmpdir(), "vercel-env-cli-"));
-  const projectDirectory = join(directory, "apps", "ui.mento.org");
+  const projectDirectory = join(directory, "apps", "reserve.mento.org");
   try {
     mkdirSync(join(projectDirectory, ".vercel"), { recursive: true });
     writeFileSync(
       join(projectDirectory, ".vercel", ".env.preview.local"),
-      "NEXT_PUBLIC_STORAGE_URL=https://pulled.example\n",
+      [
+        "NEXT_PUBLIC_ANALYTICS_API_URL=https://analytics.example",
+        "NEXT_PUBLIC_STORAGE_URL=https://pulled.example",
+        "NEXT_PUBLIC_SENTRY_DSN_RESERVE=",
+        "",
+      ].join("\n"),
     );
     const output = execFileSync(
       process.execPath,
@@ -384,7 +400,7 @@ test("root CLI validates the exact linked project directory", () => {
         scriptPath,
         "check",
         "--target",
-        "ui",
+        "reserve",
         "--environment",
         "preview",
         "--project-directory",
@@ -400,7 +416,7 @@ test("root CLI validates the exact linked project directory", () => {
         },
       },
     );
-    assert.match(output, /verified for ui\/preview/);
+    assert.match(output, /verified for reserve\/preview/);
   } finally {
     rmSync(directory, { force: true, recursive: true });
   }
@@ -459,12 +475,6 @@ test("preview credential boundaries reject pulled sensitive values and cross-tar
     },
     {
       target: "reserve",
-      pulledValues: {},
-      explicitValues: { SENTRY_AUTH_TOKEN: secretValue },
-      expectedName: "SENTRY_AUTH_TOKEN",
-    },
-    {
-      target: "ui",
       pulledValues: {},
       explicitValues: { SENTRY_AUTH_TOKEN: secretValue },
       expectedName: "SENTRY_AUTH_TOKEN",

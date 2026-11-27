@@ -153,20 +153,32 @@ test("checked-in ownership is all GitHub and partitions deterministically", () =
       mode: "active",
       mainOwnershipMode: {
         app: "github",
-        reserve: "github",
-        ui: "shadow",
+        reserve: "shadow",
       },
     }),
     {
       mainOwnershipMode: {
         app: "github",
-        reserve: "github",
-        ui: "shadow",
+        reserve: "shadow",
       },
-      githubTargets: ["app", "reserve"],
-      shadowTargets: ["ui"],
+      githubTargets: ["app"],
+      shadowTargets: ["reserve"],
     },
   );
+});
+
+// ADR 0017 retired `governance` and ADR 0018 retired `ui`: neither is a main
+// target, a reviewed contract, or an ownership key any longer.
+test("main targets are exactly the current reviewed targets", () => {
+  assert.deepEqual(MAIN_DEPLOYMENT_TARGETS, ["app", "reserve"]);
+  assert.deepEqual(Object.keys(MAIN_TARGET_CONTRACTS).toSorted(), [
+    "app",
+    "reserve",
+  ]);
+  assert.deepEqual(Object.keys(CURRENT_MAIN_OWNERSHIP_MODE).toSorted(), [
+    "app",
+    "reserve",
+  ]);
 });
 
 test("all-active ownership makes every selected target mutation-eligible", () => {
@@ -238,7 +250,6 @@ test("mixed target-local rollback keeps staging separate from mutation", () => {
   assert.deepEqual(plan.mainOwnershipMode, {
     app: "github",
     reserve: "shadow",
-    ui: "github",
   });
   assert.throws(
     () =>
@@ -269,17 +280,17 @@ test("all-shadow ownership preserves staging while prohibiting mutation", () => 
         plannerOutput(
           "a".repeat(40),
           input.deploySha,
-          ["app", "ui"],
+          ["app", "reserve"],
           "affected-packages",
         ),
       ],
     ]),
   );
   const { plan } = runFixture(input, { planner });
-  assert.deepEqual(plan.plan, ["app", "ui"]);
-  assert.deepEqual(plan.stagedTargets, ["app", "ui"]);
+  assert.deepEqual(plan.plan, ["app", "reserve"]);
+  assert.deepEqual(plan.stagedTargets, ["app", "reserve"]);
   assert.deepEqual(plan.activeTargets, []);
-  assert.deepEqual(plan.shadowTargets, ["app", "ui"]);
+  assert.deepEqual(plan.shadowTargets, ["app", "reserve"]);
   assert.deepEqual(plan.mainOwnershipMode, ownershipMode("shadow"));
 });
 
@@ -287,7 +298,6 @@ test("ownership maps fail closed on missing, extra, or malformed target modes", 
   for (const mainOwnershipMode of [
     {
       app: "github",
-      reserve: "github",
     },
     {
       ...ownershipMode("github"),
@@ -295,7 +305,11 @@ test("ownership maps fail closed on missing, extra, or malformed target modes", 
     },
     {
       ...ownershipMode("github"),
-      ui: "active",
+      ui: "github",
+    },
+    {
+      ...ownershipMode("github"),
+      reserve: "active",
     },
     null,
   ]) {
@@ -318,7 +332,7 @@ test("global shadow mode rejects any GitHub-owned target", () => {
           app: "github",
         },
       }),
-    /requires all three targets to use shadow ownership/,
+    /requires both targets to use shadow ownership/,
   );
 });
 
@@ -331,7 +345,7 @@ test("groups distinct served bases, accumulates ranges, and unions targets in ca
         plannerOutput(
           "a".repeat(40),
           input.deploySha,
-          ["ui"],
+          ["reserve"],
           "affected-packages",
         ),
       ],
@@ -344,10 +358,6 @@ test("groups distinct served bases, accumulates ranges, and unions targets in ca
           "affected-packages",
         ),
       ],
-      [
-        "c".repeat(40),
-        plannerOutput("c".repeat(40), input.deploySha, [], "non-runtime-only"),
-      ],
     ]),
   );
   const { plan } = runFixture(input, { planner });
@@ -355,7 +365,6 @@ test("groups distinct served bases, accumulates ranges, and unions targets in ca
   assert.deepEqual(planner.calls, [
     { base: "a".repeat(40), head: input.deploySha },
     { base: "b".repeat(40), head: input.deploySha },
-    { base: "c".repeat(40), head: input.deploySha },
   ]);
   assert.deepEqual(
     plan.ranges.map(({ base, targets, deployments, reason }) => ({
@@ -368,7 +377,7 @@ test("groups distinct served bases, accumulates ranges, and unions targets in ca
       {
         base: "a".repeat(40),
         targets: ["app"],
-        deployments: ["ui"],
+        deployments: ["reserve"],
         reason: "affected-packages",
       },
       {
@@ -377,15 +386,9 @@ test("groups distinct served bases, accumulates ranges, and unions targets in ca
         deployments: ["app", "reserve"],
         reason: "affected-packages",
       },
-      {
-        base: "c".repeat(40),
-        targets: ["ui"],
-        deployments: [],
-        reason: "non-runtime-only",
-      },
     ],
   );
-  assert.deepEqual(plan.plan, ["app", "reserve", "ui"]);
+  assert.deepEqual(plan.plan, ["app", "reserve"]);
   assert.deepEqual(
     plan.priors.map(({ target, deploymentId, deploymentUrl, servedSha }) => ({
       target,
@@ -405,12 +408,6 @@ test("groups distinct served bases, accumulates ranges, and unions targets in ca
         deploymentId: "dpl_reserveB123",
         deploymentUrl: "https://reserve-main-b.vercel.app",
         servedSha: "b".repeat(40),
-      },
-      {
-        target: "ui",
-        deploymentId: "dpl_uiC123",
-        deploymentUrl: "https://ui-main-c.vercel.app",
-        servedSha: "c".repeat(40),
       },
     ],
   );
@@ -461,7 +458,7 @@ test("active mode excludes a current target selected by an older served range", 
         plannerOutput(
           "a".repeat(40),
           input.deploySha,
-          ["ui"],
+          ["reserve"],
           "affected-packages",
         ),
       ],
@@ -477,7 +474,7 @@ test("active mode excludes a current target selected by an older served range", 
     base: "a".repeat(40),
     head: input.deploySha,
     targets: ["app"],
-    deployments: ["ui"],
+    deployments: ["reserve"],
     reason: "affected-packages",
   });
 });
@@ -495,7 +492,7 @@ test("active mode keeps an older range's behind target while excluding its curre
         plannerOutput(
           "a".repeat(40),
           input.deploySha,
-          ["app", "ui"],
+          ["app", "reserve"],
           "affected-packages",
         ),
       ],
@@ -508,7 +505,7 @@ test("active mode keeps an older range's behind target while excluding its curre
   assert.deepEqual(plan.reasons, [
     { target: "app", reason: "affected-packages", base: "a".repeat(40) },
   ]);
-  assert.deepEqual(plan.ranges[0].deployments, ["app", "ui"]);
+  assert.deepEqual(plan.ranges[0].deployments, ["app", "reserve"]);
 });
 
 test("a valid non-runtime result for every served range is an explained no-op", () => {
@@ -518,7 +515,7 @@ test("a valid non-runtime result for every served range is an explained no-op", 
   const { plan } = runFixture(input);
   assert.deepEqual(plan.plan, []);
   assert.deepEqual(plan.reasons, []);
-  assert.equal(plan.ranges.length, 3);
+  assert.equal(plan.ranges.length, 2);
   assert.ok(plan.ranges.every((range) => range.reason === "non-runtime-only"));
 });
 
@@ -650,7 +647,7 @@ test("App priors are production-shaped and carry the project's other domains", (
 
   // Another main target's reviewed protected domain is the one alias condition
   // that still fails closed.
-  for (const alias of ["reserve.mento.org", "ui.mento.org"]) {
+  for (const alias of ["reserve.mento.org"]) {
     const crossed = fixture();
     crossed.mode = "active";
     crossed.mainOwnershipMode = ownershipMode("github");
@@ -736,7 +733,6 @@ for (const [name, mutate, expectedReason, expectedServedSha] of [
     input.mode = "active";
     input.mainOwnershipMode = ownershipMode("github");
     setTargetSha(input, "reserve", input.deploySha);
-    setTargetSha(input, "ui", input.deploySha);
     mutate(input);
     const { plan, planner } = runFixture(input);
     assert.deepEqual(plan.plan, ["app"]);
@@ -784,7 +780,6 @@ for (const [name, gitOptions, reason] of [
     input.mode = "active";
     input.mainOwnershipMode = ownershipMode("github");
     setTargetSha(input, "reserve", input.deploySha);
-    setTargetSha(input, "ui", input.deploySha);
     const git = createGitFixture(input, gitOptions);
     const { plan } = runFixture(input, { git });
     assert.deepEqual(plan.plan, ["app"]);
@@ -799,7 +794,6 @@ test("planner execution failure selects every target that uses that served base"
   input.mode = "active";
   input.mainOwnershipMode = ownershipMode("github");
   setTargetSha(input, "app", input.deploySha);
-  setTargetSha(input, "ui", input.deploySha);
   const planner = createPlannerFixture(
     new Map([["b".repeat(40), new Error("private fixture error")]]),
   );
@@ -830,7 +824,6 @@ for (const reason of [
     input.mode = "active";
     input.mainOwnershipMode = ownershipMode("github");
     setTargetSha(input, "app", input.deploySha);
-    setTargetSha(input, "ui", input.deploySha);
     const planner = createPlannerFixture(
       new Map([
         [
@@ -855,7 +848,6 @@ test("an unknowable affected set keeps current targets out of the active selecti
   input.mode = "active";
   input.mainOwnershipMode = ownershipMode("github");
   setTargetSha(input, "reserve", input.deploySha);
-  setTargetSha(input, "ui", input.deploySha);
   const planner = createPlannerFixture(
     new Map([
       [
@@ -903,7 +895,6 @@ for (const [name, response] of [
     input.mode = "active";
     input.mainOwnershipMode = ownershipMode("github");
     setTargetSha(input, "reserve", input.deploySha);
-    setTargetSha(input, "ui", input.deploySha);
     const planner = createPlannerFixture(new Map([["a".repeat(40), response]]));
     const { plan } = runFixture(input, { planner });
     assert.deepEqual(plan.plan, ["app"]);
@@ -917,7 +908,7 @@ for (const [name, response] of [
 
 test("shadow mode uses the first-parent delta when native Vercel already serves DEPLOY_SHA", () => {
   const input = fixture();
-  setTargetSha(input, "ui", input.deploySha);
+  setTargetSha(input, "reserve", input.deploySha);
   const planner = createPlannerFixture(
     new Map([
       [
@@ -925,27 +916,27 @@ test("shadow mode uses the first-parent delta when native Vercel already serves 
         plannerOutput(
           input.firstParent,
           input.deploySha,
-          ["ui"],
+          ["reserve"],
           "affected-packages",
         ),
       ],
     ]),
   );
   const { plan, git } = runFixture(input, { planner });
-  assert.deepEqual(plan.plan, ["ui"]);
-  assert.deepEqual(plan.stagedTargets, ["ui"]);
+  assert.deepEqual(plan.plan, ["reserve"]);
+  assert.deepEqual(plan.stagedTargets, ["reserve"]);
   assert.deepEqual(plan.activeTargets, []);
-  assert.deepEqual(plan.shadowTargets, ["ui"]);
+  assert.deepEqual(plan.shadowTargets, ["reserve"]);
   assert.deepEqual(plan.ranges.at(-1), {
     kind: "shadow-first-parent",
     base: input.firstParent,
     head: input.deploySha,
-    targets: ["ui"],
-    deployments: ["ui"],
+    targets: ["reserve"],
+    deployments: ["reserve"],
     reason: "affected-packages",
   });
   assert.deepEqual(plan.reasons.at(-1), {
-    target: "ui",
+    target: "reserve",
     reason: "shadow-native-already-current",
     base: input.firstParent,
   });
@@ -958,7 +949,7 @@ test("shadow mode uses the first-parent delta when native Vercel already serves 
 
 test("the shadow head-delta can select a target whose own served base differs", () => {
   const input = fixture();
-  setTargetSha(input, "ui", input.deploySha);
+  setTargetSha(input, "app", input.deploySha);
   const planner = createPlannerFixture(
     new Map([
       [
@@ -1023,7 +1014,7 @@ test("shadow mode selects a current target only through its first-parent range",
     kind: "shadow-first-parent",
     base: input.firstParent,
     head: input.deploySha,
-    targets: ["reserve", "ui"],
+    targets: ["reserve"],
     deployments: ["reserve"],
     reason: "affected-packages",
   });
@@ -1134,7 +1125,7 @@ test("rollback-only mappings force selection before SHA and path-aware planning"
   }
 });
 
-test("all-three first-cutover rollback priors use canonical target order", () => {
+test("both first-cutover rollback priors use canonical target order", () => {
   const input = fixture();
   input.mode = "active";
   input.mainOwnershipMode = ownershipMode("github");
@@ -1157,7 +1148,8 @@ test("rollback-only target input rejects unknown, duplicate, or noncanonical val
     undefined,
     ["unknown"],
     ["app", "app"],
-    ["ui", "app"],
+    ["reserve", "app"],
+    ["ui"],
     "app",
   ]) {
     assert.throws(
@@ -1223,11 +1215,10 @@ test("active mode applies the first-parent fallback only to already-current shad
   input.mode = "active";
   input.mainOwnershipMode = {
     app: "github",
-    reserve: "github",
-    ui: "shadow",
+    reserve: "shadow",
   };
   setTargetSha(input, "app", input.deploySha);
-  setTargetSha(input, "ui", input.deploySha);
+  setTargetSha(input, "reserve", input.deploySha);
   const planner = createPlannerFixture(
     new Map([
       [
@@ -1235,7 +1226,7 @@ test("active mode applies the first-parent fallback only to already-current shad
         plannerOutput(
           input.firstParent,
           input.deploySha,
-          ["app", "ui"],
+          ["app", "reserve"],
           "affected-packages",
         ),
       ],
@@ -1244,19 +1235,19 @@ test("active mode applies the first-parent fallback only to already-current shad
 
   const { plan, git } = runFixture(input, { planner });
 
-  assert.deepEqual(plan.plan, ["ui"]);
+  assert.deepEqual(plan.plan, ["reserve"]);
   assert.deepEqual(plan.activeTargets, []);
-  assert.deepEqual(plan.shadowTargets, ["ui"]);
+  assert.deepEqual(plan.shadowTargets, ["reserve"]);
   assert.deepEqual(plan.ranges.at(-1), {
     kind: "shadow-first-parent",
     base: input.firstParent,
     head: input.deploySha,
-    targets: ["ui"],
-    deployments: ["app", "ui"],
+    targets: ["reserve"],
+    deployments: ["app", "reserve"],
     reason: "affected-packages",
   });
   assert.deepEqual(plan.reasons.at(-1), {
-    target: "ui",
+    target: "reserve",
     reason: "shadow-native-already-current",
     base: input.firstParent,
   });
@@ -1267,7 +1258,7 @@ test("active mode applies the first-parent fallback only to already-current shad
   );
 });
 
-test("an unresolvable first parent selects all three only in shadow mode", () => {
+test("an unresolvable first parent selects every target only in shadow mode", () => {
   const input = fixture();
   setTargetSha(input, "app", input.deploySha);
   const git = createGitFixture(input, { firstParentError: true });
@@ -1275,29 +1266,31 @@ test("an unresolvable first parent selects all three only in shadow mode", () =>
   assert.deepEqual(plan.plan, MAIN_DEPLOYMENT_TARGETS);
   assert.equal(plan.ranges.at(-1).reason, "shadow-first-parent-unresolved");
   assert.deepEqual(
-    plan.reasons.slice(-3).map((reason) => reason.reason),
-    Array(3).fill("shadow-first-parent-unresolved"),
+    plan.reasons
+      .slice(-MAIN_DEPLOYMENT_TARGETS.length)
+      .map((reason) => reason.reason),
+    MAIN_DEPLOYMENT_TARGETS.map(() => "shadow-first-parent-unresolved"),
   );
 });
 
 test("a malformed shadow fallback plan selects its current-base target and keeps the required label", () => {
   const input = fixture();
-  setTargetSha(input, "ui", input.deploySha);
+  setTargetSha(input, "reserve", input.deploySha);
   const planner = createPlannerFixture(
     new Map([[input.firstParent, new Error("fixture planner failure")]]),
   );
   const { plan } = runFixture(input, { planner });
-  assert.deepEqual(plan.plan, ["ui"]);
+  assert.deepEqual(plan.plan, ["reserve"]);
   assert.equal(plan.ranges.at(-1).reason, "planner-execution-failed");
   assert.deepEqual(plan.reasons.at(-1), {
-    target: "ui",
+    target: "reserve",
     reason: "shadow-native-already-current",
     base: input.firstParent,
   });
 });
 
 test("ordinary served priors accept every finite reviewed generated-alias subset", () => {
-  for (const target of ["reserve", "ui"]) {
+  for (const target of ["reserve"]) {
     for (const generatedAliases of ordinaryGeneratedAliasSubsets(target)) {
       const input = fixture();
       input.priorStates[target].states[0].aliases = [
@@ -1315,7 +1308,7 @@ test("ordinary served priors accept every finite reviewed generated-alias subset
 });
 
 test("native git-main served priors remain selectable in active, shadow, and rollback-only planning", () => {
-  for (const target of ["reserve", "ui"]) {
+  for (const target of ["reserve"]) {
     for (const context of ["active", "shadow", "rollback-only"]) {
       const input = fixture();
       input.priorStates[target].states[0].aliases = [
@@ -1380,10 +1373,10 @@ const activationAmbiguities = [
   },
   {
     name: "unexpected protected alias",
-    target: "ui",
+    target: "reserve",
     code: "alias-set-ambiguous",
     mutate(input) {
-      input.priorStates.ui.states[0].alias = "unexpected.vercel.app";
+      input.priorStates.reserve.states[0].alias = "unexpected.vercel.app";
     },
   },
   {
@@ -1437,10 +1430,10 @@ const activationAmbiguities = [
   },
   {
     name: "wrong production environment",
-    target: "ui",
+    target: "reserve",
     code: "environment-identity-ambiguous",
     mutate(input) {
-      input.priorStates.ui.states[0].target = "preview";
+      input.priorStates.reserve.states[0].target = "preview";
     },
   },
   {
@@ -1506,10 +1499,11 @@ const activationAmbiguities = [
   },
   {
     name: "raw Vercel field",
-    target: "ui",
+    target: "reserve",
     code: "prior-state-forbidden-fields",
     mutate(input) {
-      input.priorStates.ui.states[0].protectionBypass = "secret-must-not-cross";
+      input.priorStates.reserve.states[0].protectionBypass =
+        "secret-must-not-cross";
     },
   },
 ];
@@ -1566,7 +1560,13 @@ test("invalid global input fails before any served-range planning", () => {
     {
       projectIds: {
         app: "prj_app123",
+      },
+    },
+    {
+      projectIds: {
+        app: "prj_app123",
         reserve: "prj_reserve123",
+        ui: "prj_ui123",
       },
     },
   ]) {

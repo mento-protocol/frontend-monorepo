@@ -26,12 +26,12 @@ const APP_PRIOR = Object.freeze({
   deploymentUrl: "https://app-prior.vercel.app",
 });
 const ORDINARY_CANDIDATE = Object.freeze({
-  deploymentId: "dpl_UiCandidate123",
-  deploymentUrl: "https://ui-candidate.vercel.app",
+  deploymentId: "dpl_ReserveCandidate123",
+  deploymentUrl: "https://reserve-candidate.vercel.app",
 });
 const ORDINARY_PRIOR = Object.freeze({
-  deploymentId: "dpl_UiPrior123",
-  deploymentUrl: "https://ui-prior.vercel.app",
+  deploymentId: "dpl_ReservePrior123",
+  deploymentUrl: "https://reserve-prior.vercel.app",
 });
 
 function runCommand(command, spawn, environment = {}) {
@@ -63,7 +63,7 @@ function mapping(alias, deployment, projectId = "prj_app123") {
 }
 
 test("reviewed target and alias order is literal and immutable", () => {
-  assert.deepEqual(MAIN_ACTIVE_PROMOTABLE_TARGETS, ["reserve", "ui", "app"]);
+  assert.deepEqual(MAIN_ACTIVE_PROMOTABLE_TARGETS, ["reserve", "app"]);
   // Every main target maps exactly one reviewed alias, App included, and
   // `vercel promote` carries it. No builder assigns an alias any more.
   assert.deepEqual(MAIN_TARGET_CONTRACTS.app.aliases, ["app.mento.org"]);
@@ -71,39 +71,37 @@ test("reviewed target and alias order is literal and immutable", () => {
   assert.equal(Object.isFrozen(MAIN_ACTIVE_PROMOTABLE_TARGETS), true);
 });
 
-test("ordinary promotion sequence is always reserve, ui", () => {
+test("promotion sequence is always reserve, app", () => {
   const sequence = buildMainActivePromotionSequence([
     {
-      target: "ui",
-      deploymentId: "dpl_UiCandidate123",
-      deploymentUrl: "https://ui-candidate.vercel.app",
+      target: "app",
+      ...APP_CANDIDATE,
     },
     {
       target: "reserve",
-      deploymentId: "dpl_ReserveCandidate123",
-      deploymentUrl: "https://reserve-candidate.vercel.app",
+      ...ORDINARY_CANDIDATE,
     },
   ]);
   assert.deepEqual(
     sequence.map(({ target }) => target),
-    ["reserve", "ui"],
+    ["reserve", "app"],
   );
   assert.deepEqual(
     sequence.map(({ arguments: argumentsList }) => argumentsList),
     [
       ["promote", "dpl_ReserveCandidate123", "--yes"],
-      ["promote", "dpl_UiCandidate123", "--yes"],
+      ["promote", "dpl_AppCandidate123", "--yes"],
     ],
   );
   assert.throws(
     () =>
       buildMainActivePromotionSequence([
         {
-          target: "ui",
+          target: "reserve",
           ...ORDINARY_CANDIDATE,
         },
         {
-          target: "ui",
+          target: "reserve",
           ...ORDINARY_CANDIDATE,
         },
       ]),
@@ -113,7 +111,7 @@ test("ordinary promotion sequence is always reserve, ui", () => {
 
 test("promotion builder accepts only an exact ordinary deployment identity", () => {
   const command = buildMainActivePromotionCommand({
-    target: "ui",
+    target: "reserve",
     ...ORDINARY_CANDIDATE,
   });
   assert.deepEqual(command.arguments, [
@@ -144,7 +142,7 @@ test("promotion builder accepts only an exact ordinary deployment identity", () 
   assert.throws(
     () =>
       buildMainActivePromotionCommand({
-        target: "ui",
+        target: "reserve",
         deploymentId: "latest",
         deploymentUrl: ORDINARY_CANDIDATE.deploymentUrl,
       }),
@@ -153,16 +151,16 @@ test("promotion builder accepts only an exact ordinary deployment identity", () 
   assert.throws(
     () =>
       buildMainActivePromotionCommand({
-        target: "ui",
+        target: "reserve",
         deploymentId: ORDINARY_CANDIDATE.deploymentId,
-        deploymentUrl: "https://ui-candidate.vercel.app/path",
+        deploymentUrl: "https://reserve-candidate.vercel.app/path",
       }),
     /deployment URL is malformed/i,
   );
   assert.throws(
     () =>
       buildMainActivePromotionCommand({
-        target: "ui",
+        target: "reserve",
         ...ORDINARY_CANDIDATE,
         token: TOKEN,
       }),
@@ -210,7 +208,7 @@ test("promote and rollback are wholesale deployment commands that name no alias"
 
 test("recovery builders use only captured exact prior identities", () => {
   const rollback = buildMainActiveRollbackCommand({
-    target: "ui",
+    target: "reserve",
     ...ORDINARY_PRIOR,
   });
   assert.deepEqual(rollback.arguments, [
@@ -289,7 +287,7 @@ test("the retired legacy target and bridge alias commands cannot re-enter", () =
 
 test("descriptor allowlist rejects token arguments and forged commands", () => {
   const command = buildMainActivePromotionCommand({
-    target: "ui",
+    target: "reserve",
     ...ORDINARY_CANDIDATE,
   });
   assert.throws(
@@ -329,7 +327,7 @@ test("descriptor allowlist rejects token arguments and forged commands", () => {
 test("runner sends the token only through a filtered process environment", () => {
   const calls = [];
   const command = buildMainActivePromotionCommand({
-    target: "ui",
+    target: "reserve",
     ...ORDINARY_CANDIDATE,
   });
   const result = runCommand(
@@ -379,7 +377,7 @@ test("runner sends the token only through a filtered process environment", () =>
 
 test("runner requires a canonical Vercel team ID before binding command scope", () => {
   const command = buildMainActivePromotionCommand({
-    target: "ui",
+    target: "reserve",
     ...ORDINARY_CANDIDATE,
   });
   let calls = 0;
@@ -406,7 +404,7 @@ test("runner requires a canonical Vercel team ID before binding command scope", 
 
 test("nonzero, timeout, and thrown execution outcomes stay unknown and redacted", () => {
   const command = buildMainActivePromotionCommand({
-    target: "ui",
+    target: "reserve",
     ...ORDINARY_CANDIDATE,
   });
   const rawFailure = `${TOKEN}: raw provider response`;
@@ -449,7 +447,7 @@ test("nonzero, timeout, and thrown execution outcomes stay unknown and redacted"
 test("missing token and malformed execution paths fail before spawning", () => {
   let calls = 0;
   const command = buildMainActivePromotionCommand({
-    target: "ui",
+    target: "reserve",
     ...ORDINARY_CANDIDATE,
   });
   assert.throws(
@@ -630,12 +628,12 @@ test("mapping classifier preserves prior, candidate, partial, and unexpected sta
 
 test("mapping verification accepts exact expected state and rejects partial or unexpected", async () => {
   const verified = await verifyMainActiveMapping({
-    target: "ui",
+    target: "reserve",
     priorDeployment: ORDINARY_PRIOR,
     candidateDeployment: ORDINARY_CANDIDATE,
     expectedMappingState: "candidate",
     captureMappings: async ([alias]) => [
-      mapping(alias, ORDINARY_CANDIDATE, "prj_ui123"),
+      mapping(alias, ORDINARY_CANDIDATE, "prj_reserve123"),
     ],
   });
   assert.equal(verified.mappingState, "candidate");

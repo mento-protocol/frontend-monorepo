@@ -734,7 +734,7 @@ test("every controller reconciliation binds selections to its immutable workflow
   }
 });
 
-test("worker is dispatch-only with strict identity inputs and three literal callers", () => {
+test("worker is dispatch-only with strict identity inputs and two literal callers", () => {
   assert.deepEqual(Object.keys(worker.on), ["workflow_dispatch"]);
   assert.deepEqual(Object.keys(worker.on.workflow_dispatch.inputs), [
     "pull_request_number",
@@ -755,11 +755,10 @@ test("worker is dispatch-only with strict identity inputs and three literal call
   const mappings = {
     app: ["app.mento.org", "apps/app.mento.org", "APP"],
     reserve: ["reserve.mento.org", "apps/reserve.mento.org", "RESERVE"],
-    ui: ["ui.mento.org", "apps/ui.mento.org", "UI"],
   };
   assert.deepEqual(
     Object.keys(worker.jobs).filter((name) => name.startsWith("deploy-")),
-    ["deploy-app-preview", "deploy-reserve-preview", "deploy-ui-preview"],
+    ["deploy-app-preview", "deploy-reserve-preview"],
   );
   for (const [
     target,
@@ -789,11 +788,15 @@ test("worker is dispatch-only with strict identity inputs and three literal call
   }
   const raw = read(workerPath);
   assert.doesNotMatch(raw, /\bmatrix\b|secrets:\s*inherit|SENTRY/);
-  // Governance is no longer a deployment target (ADR 0017): the worker names
-  // neither its project nor its explorer secret, and dispatches only the
-  // three remaining literal callers.
-  assert.doesNotMatch(raw, /ETHERSCAN_API_KEY|VERCEL_PROJECT_ID_GOVERNANCE/);
+  // Governance (ADR 0017) and UI (ADR 0018) are no longer deployment targets:
+  // the worker names neither project nor the governance explorer secret, and
+  // dispatches only the two remaining literal callers.
+  assert.doesNotMatch(
+    raw,
+    /ETHERSCAN_API_KEY|VERCEL_PROJECT_ID_GOVERNANCE|VERCEL_PROJECT_ID_UI/,
+  );
   assert.doesNotMatch(raw, /governance/i);
+  assert.doesNotMatch(raw, /\bui\.mento\.org\b|-ui-|== 'ui'/);
 });
 
 test("worker credentials are unreachable until trusted validation and named preflight pass", () => {
@@ -829,7 +832,6 @@ test("worker credentials are unreachable until trusted validation and named pref
   const projectSuffixByTarget = {
     app: "APP",
     reserve: "RESERVE",
-    ui: "UI",
   };
   for (const [target, projectSuffix] of Object.entries(projectSuffixByTarget)) {
     const preflight = worker.jobs[`validate-${target}-prerequisites`];
@@ -983,7 +985,7 @@ test("automatic workflow creates no implicit or Vercel-owned Deployment", () => 
   for (const job of Object.values(worker.jobs)) {
     assert.equal(Object.hasOwn(job, "environment"), false);
   }
-  for (const target of ["app", "reserve", "ui"]) {
+  for (const target of ["app", "reserve"]) {
     assert.match(
       worker.jobs[`deploy-${target}-preview`].with.deployment_idempotency_key,
       /inputs\.controller_key/,

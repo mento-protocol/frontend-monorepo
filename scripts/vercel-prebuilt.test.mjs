@@ -203,16 +203,16 @@ test("stable release and candidate IDs survive reruns but stay source-bound", ()
     ...input,
     target: "app",
   });
-  const uiCandidate = generateVercelMainCandidateDeploymentId({
+  const reserveCandidate = generateVercelMainCandidateDeploymentId({
     ...input,
-    target: "ui",
+    target: "reserve",
   });
   assert.equal(release, generateVercelMainReleaseId(input));
   assert.equal(
     appCandidate,
     generateVercelMainCandidateDeploymentId({ ...input, target: "app" }),
   );
-  assert.notEqual(appCandidate, uiCandidate);
+  assert.notEqual(appCandidate, reserveCandidate);
   assert.notEqual(
     release,
     generateVercelMainReleaseId({ ...input, upstreamRunId: "123456790" }),
@@ -232,6 +232,8 @@ test("stable release and candidate IDs survive reruns but stay source-bound", ()
 test("deployment ID input validation rejects mutable or malformed identity", () => {
   for (const overrides of [
     { target: "unknown" },
+    { target: "governance" },
+    { target: "ui" },
     { commitSha: "main" },
     { runId: "0" },
     { runAttempt: "retry" },

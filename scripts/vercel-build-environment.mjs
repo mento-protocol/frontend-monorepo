@@ -32,7 +32,6 @@ const ENVIRONMENT_SEMANTICS = {
 const TARGET_ENVIRONMENTS = {
   app: ["preview", "production"],
   reserve: ["preview", "production"],
-  ui: ["preview", "production"],
 };
 
 const TARGET_VARIABLES = {
@@ -54,7 +53,6 @@ const TARGET_VARIABLES = {
       githubScope: "vercel-cli-production environment; reserve build step only",
     }),
   ],
-  ui: [pullable("NEXT_PUBLIC_STORAGE_URL")],
 };
 
 const SENSITIVE_VARIABLE_NAMES = [

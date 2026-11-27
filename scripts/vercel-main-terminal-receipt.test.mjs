@@ -138,12 +138,11 @@ test("receipt shape is exactly the twenty-three reviewed keys", () => {
   );
 });
 
-test("affected operations admit exactly three targets and two operation types", () => {
+test("affected operations admit exactly two targets and two operation types", () => {
   const input = receiptInput("manual-intervention");
   const accepted = new Set();
   for (const [target, type, alias] of [
     ["reserve", "promote", null],
-    ["ui", "promote", null],
     ["app", "promote", null],
     ["app", "ordinary_rollback", null],
     ["reserve", "ordinary_rollback", null],
@@ -157,9 +156,8 @@ test("affected operations admit exactly three targets and two operation types", 
     accepted.add(type);
   }
   assert.equal(
-    [...accepted].filter((value) => ["reserve", "ui", "app"].includes(value))
-      .length,
-    3,
+    [...accepted].filter((value) => ["reserve", "app"].includes(value)).length,
+    2,
   );
   assert.equal(
     [...accepted].filter((value) =>
@@ -169,7 +167,7 @@ test("affected operations admit exactly three targets and two operation types", 
   );
   // Neither the retired legacy path, the retired App custom-environment
   // deploy, nor the retired transitional bridge alias operations may re-enter
-  // the receipt contract, nor may the retired Governance target. No
+  // the receipt contract, nor may the retired Governance and UI targets. No
   // operation may carry an alias at all.
   for (const [target, type, alias] of [
     ["legacy-app", "app_alias_restore", "v2-app.mento.org"],
@@ -182,6 +180,8 @@ test("affected operations admit exactly three targets and two operation types", 
     ["reserve", "ordinary_rollback", "reserve.mento.org"],
     ["governance", "promote", null],
     ["governance", "ordinary_rollback", null],
+    ["ui", "promote", null],
+    ["ui", "ordinary_rollback", null],
   ]) {
     assert.throws(
       () =>
@@ -402,7 +402,7 @@ test("current-release verification rejects journals, mutations, and incomplete p
       /journal conflicts/,
     ],
     ["mutation", { mutationCount: 1 }, /mutation count conflicts/],
-    ["rollback", { rollbackTargets: ["ui"] }, /forbids rollback targets/],
+    ["rollback", { rollbackTargets: ["reserve"] }, /forbids rollback targets/],
     [
       "operations",
       { affectedOperations: [affectedOperation()] },
@@ -612,7 +612,7 @@ test("manual intervention stays terminal and re-emits unsafe evidence on a final
     affectedOperations: [affectedOperation()],
     artifact: {
       failure: "alias mapping did not converge",
-      rollbackTargets: ["ui"],
+      rollbackTargets: ["reserve"],
     },
   });
   const receipt = createMainTerminalReceipt({
@@ -769,7 +769,7 @@ test("tampering, oversize output, and a future producer attempt fail closed", ()
 test("receipt rejects forbidden fields and noncanonical rollback target order", () => {
   const receipt = createMainTerminalReceipt({
     ...receiptInput("recovered"),
-    rollbackTargets: ["reserve", "ui"],
+    rollbackTargets: ["reserve", "app"],
   });
   const extra = { ...receipt, unexpected: true };
   assert.throws(() => assertMainTerminalReceipt(extra), /keys are missing/);
@@ -786,7 +786,7 @@ test("receipt rejects forbidden fields and noncanonical rollback target order", 
     () =>
       createMainTerminalReceipt({
         ...receiptInput("recovered"),
-        rollbackTargets: ["ui", "reserve"],
+        rollbackTargets: ["app", "reserve"],
       }),
     /not canonical/,
   );

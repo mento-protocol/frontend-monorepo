@@ -79,8 +79,8 @@ import {
 } from "./next-sharp-output-tracing.mjs";
 
 const SHA = "0123456789abcdef0123456789abcdef01234567";
-const DEPLOYMENT_ID = "m-ui-0123456789abcdef012";
-const DEPLOYMENT_URL = "https://ui-preview-abc.vercel.app";
+const DEPLOYMENT_ID = "m-reserve-0123456789abcdef012";
+const DEPLOYMENT_URL = "https://reserve-preview-abc.vercel.app";
 const REPOSITORY_ROOT = fileURLToPath(new URL("..", import.meta.url));
 const BUILD_ENVIRONMENT_SCRIPT = fileURLToPath(
   new URL("./vercel-build-environment.mjs", import.meta.url),
@@ -170,14 +170,14 @@ function writeSharpRuntimeArtifacts(
   );
 }
 
-function checkUiPreviewEnvironment(projectDirectory) {
+function checkReservePreviewEnvironment(projectDirectory) {
   return execFileSync(
     process.execPath,
     [
       BUILD_ENVIRONMENT_SCRIPT,
       "check",
       "--target",
-      "ui",
+      "reserve",
       "--environment",
       "preview",
       "--project-directory",
@@ -198,10 +198,10 @@ function checkUiPreviewEnvironment(projectDirectory) {
   );
 }
 
-function uploadFixture(logicalTarget = "ui") {
+function uploadFixture(logicalTarget = "reserve") {
   const target = PREBUILT_TARGETS[logicalTarget];
   const deploymentId =
-    logicalTarget === "ui"
+    logicalTarget === "reserve"
       ? DEPLOYMENT_ID
       : `m-${logicalTarget}-${"0".repeat(32)}`.slice(0, 32);
   const repoRoot = mkdtempSync(
@@ -276,14 +276,14 @@ function writeFunctionConfig(functionDirectory, extra = {}) {
     }),
   );
 }
-const CONTROLLER_KEY = `vercel-preview:v1:pr:519:target:ui:sha:${SHA}`;
+const CONTROLLER_KEY = `vercel-preview:v1:pr:519:target:reserve:sha:${SHA}`;
 const LOOKUP_STARTED_AT = 1_720_000_000_000;
 const LOOKUP_NOW = LOOKUP_STARTED_AT + 60_000;
 
 function automaticContract(overrides = {}) {
   return {
-    ...PREBUILT_TARGETS.ui,
-    githubEnvironment: "preview/ui/pr-519",
+    ...PREBUILT_TARGETS.reserve,
+    githubEnvironment: "preview/reserve/pr-519",
     vercelEnvironment: "preview",
     vercelTarget: "preview",
     deploymentMode: "preview",
@@ -292,7 +292,7 @@ function automaticContract(overrides = {}) {
     gitBranch: "feature/ui-preview",
     vercelOrgId: "team_example",
     vercelProjectId: "prj_example",
-    idempotencyKey: `vercel-preview:v1:pr:519:target:ui:sha:${SHA}`,
+    idempotencyKey: `vercel-preview:v1:pr:519:target:reserve:sha:${SHA}`,
     pullRequestNumber: "519",
     provenance: "preview-controller:v2",
     workflowRunUrl:
@@ -317,7 +317,7 @@ function defaultPulledEnvironment(logicalTarget) {
 }
 
 function pulledStagingFixture(
-  logicalTarget = "ui",
+  logicalTarget = "reserve",
   pulledEnvironment = defaultPulledEnvironment(logicalTarget),
 ) {
   const isolationRoot = realpathSync(
@@ -391,8 +391,8 @@ test("automatic preview contract binds PR, environment, provenance, and exact SH
   const automatic = automaticContract();
   assert.deepEqual(validatePrebuiltContract(automatic), automatic);
   for (const overrides of [
-    { githubEnvironment: "preview/ui/pr-520" },
-    { idempotencyKey: `vercel-preview:v1:pr:520:target:ui:sha:${SHA}` },
+    { githubEnvironment: "preview/reserve/pr-520" },
+    { idempotencyKey: `vercel-preview:v1:pr:520:target:reserve:sha:${SHA}` },
     { pullRequestNumber: "520" },
     { provenance: "unknown" },
     { deploymentMode: "staged-production" },
@@ -413,8 +413,8 @@ test("automatic preview contract binds PR, environment, provenance, and exact SH
   }
 });
 
-test("automatic preview contract accepts only the three literal target mappings", () => {
-  assert.deepEqual(Object.keys(PREBUILT_TARGETS), ["app", "reserve", "ui"]);
+test("automatic preview contract accepts only the two literal target mappings", () => {
+  assert.deepEqual(Object.keys(PREBUILT_TARGETS), ["app", "reserve"]);
   for (const target of Object.values(PREBUILT_TARGETS)) {
     const automatic = automaticContract({
       ...target,
@@ -428,9 +428,9 @@ test("automatic preview contract accepts only the three literal target mappings"
     assert.deepEqual(validatePrebuiltContract(automatic), automatic);
 
     const wrongTarget =
-      target.logicalTarget === "ui"
+      target.logicalTarget === "reserve"
         ? PREBUILT_TARGETS.app
-        : PREBUILT_TARGETS.ui;
+        : PREBUILT_TARGETS.reserve;
     for (const mismatched of [
       { workspacePackage: wrongTarget.workspacePackage },
       { expectedRootDirectory: wrongTarget.expectedRootDirectory },
@@ -444,7 +444,14 @@ test("automatic preview contract accepts only the three literal target mappings"
       );
     }
   }
-  for (const logicalTarget of ["unknown", "__proto__", "constructor"]) {
+  // Governance (ADR 0017) and UI (ADR 0018) are retired deployment targets.
+  for (const logicalTarget of [
+    "unknown",
+    "__proto__",
+    "constructor",
+    "governance",
+    "ui",
+  ]) {
     assert.throws(() =>
       validatePrebuiltContract(
         automaticContract({
@@ -1447,7 +1454,7 @@ test("materialized state is fail-closed after raw or derived tampering", () => {
   }
 });
 
-test("UI preview environment validation reads only trusted pull staging", () => {
+test("Reserve preview environment validation reads only trusted pull staging", () => {
   const fixture = pulledStagingFixture();
   try {
     const canonicalProject = join(
@@ -1456,7 +1463,7 @@ test("UI preview environment validation reads only trusted pull staging", () => 
       fixture.expectedRootDirectory,
     );
     mkdirSync(canonicalProject, { recursive: true });
-    assert.throws(() => checkUiPreviewEnvironment(canonicalProject));
+    assert.throws(() => checkReservePreviewEnvironment(canonicalProject));
 
     const stagingProject = join(
       fixture.stagingRoot,
@@ -1469,8 +1476,8 @@ test("UI preview environment validation reads only trusted pull staging", () => 
     );
     assert.equal(lstatSync(stagingEnvironment).mode & 0o777, 0o600);
     assert.match(
-      checkUiPreviewEnvironment(stagingProject),
-      /verified for ui\/preview/,
+      checkReservePreviewEnvironment(stagingProject),
+      /verified for reserve\/preview/,
     );
 
     const candidateProject = join(
@@ -1495,7 +1502,7 @@ test("UI preview environment validation reads only trusted pull staging", () => 
     assert.equal(lstatSync(candidateEnvironment).mode & 0o777, 0o600);
     chmodSync(candidateEnvironment, 0o000);
     if (process.getuid() !== 0) {
-      assert.throws(() => checkUiPreviewEnvironment(candidateProject));
+      assert.throws(() => checkReservePreviewEnvironment(candidateProject));
     }
   } finally {
     fixture.cleanup();
@@ -3639,16 +3646,21 @@ test("candidate execution is UID-isolated and hands upload to runner-owned state
   );
 });
 
-test("pulled project and prebuilt output bind the configured UI root and build ID", () => {
+test("pulled project and prebuilt output bind the configured Reserve root and build ID", () => {
   const directory = mkdtempSync(join(tmpdir(), "vercel-project-"));
-  const projectDirectory = join(directory, "apps", "ui.mento.org", ".vercel");
+  const projectDirectory = join(
+    directory,
+    "apps",
+    "reserve.mento.org",
+    ".vercel",
+  );
   const outputDirectory = join(projectDirectory, "output");
   try {
     mkdirSync(outputDirectory, { recursive: true });
     assert.deepEqual(
       materializeVercelRepoLink({
         repoRoot: directory,
-        expectedRootDirectory: "apps/ui.mento.org",
+        expectedRootDirectory: "apps/reserve.mento.org",
         vercelOrgId: "team_example",
         vercelProjectId: "prj_example",
       }),
@@ -3657,7 +3669,7 @@ test("pulled project and prebuilt output bind the configured UI root and build I
         projects: [
           {
             id: "prj_example",
-            directory: "apps/ui.mento.org",
+            directory: "apps/reserve.mento.org",
             orgId: "team_example",
           },
         ],
@@ -3668,7 +3680,7 @@ test("pulled project and prebuilt output bind the configured UI root and build I
       JSON.stringify({
         orgId: "team_example",
         projectId: "prj_example",
-        settings: { rootDirectory: "apps/ui.mento.org" },
+        settings: { rootDirectory: "apps/reserve.mento.org" },
       }),
     );
     writeFileSync(
@@ -3686,16 +3698,16 @@ test("pulled project and prebuilt output bind the configured UI root and build I
     assert.equal(
       assertPulledProject({
         repoRoot: directory,
-        expectedRootDirectory: "apps/ui.mento.org",
+        expectedRootDirectory: "apps/reserve.mento.org",
         vercelOrgId: "team_example",
         vercelProjectId: "prj_example",
       }).settings.rootDirectory,
-      "apps/ui.mento.org",
+      "apps/reserve.mento.org",
     );
     assert.equal(
       assertPrebuiltOutput({
         repoRoot: directory,
-        expectedRootDirectory: "apps/ui.mento.org",
+        expectedRootDirectory: "apps/reserve.mento.org",
         deploymentId: DEPLOYMENT_ID,
       }),
       outputDirectory,
@@ -3707,7 +3719,7 @@ test("pulled project and prebuilt output bind the configured UI root and build I
         projects: [
           {
             id: "prj_other",
-            directory: "apps/ui.mento.org",
+            directory: "apps/reserve.mento.org",
             orgId: "team_example",
           },
         ],
@@ -3717,11 +3729,21 @@ test("pulled project and prebuilt output bind the configured UI root and build I
       () =>
         assertPulledProject({
           repoRoot: directory,
-          expectedRootDirectory: "apps/ui.mento.org",
+          expectedRootDirectory: "apps/reserve.mento.org",
           vercelOrgId: "team_example",
           vercelProjectId: "prj_example",
         }),
       /does not match/,
+    );
+    assert.throws(
+      () =>
+        materializeVercelRepoLink({
+          repoRoot: directory,
+          expectedRootDirectory: "apps/ui.mento.org",
+          vercelOrgId: "team_example",
+          vercelProjectId: "prj_example",
+        }),
+      /not a fixed Vercel target root/,
     );
   } finally {
     rmSync(directory, { force: true, recursive: true });
@@ -3893,7 +3915,9 @@ test("upload guard binds every target to its literal root and project identity",
         fixture.outputDirectory,
       );
       const wrongTarget =
-        logicalTarget === "ui" ? PREBUILT_TARGETS.app : PREBUILT_TARGETS.ui;
+        logicalTarget === "reserve"
+          ? PREBUILT_TARGETS.app
+          : PREBUILT_TARGETS.reserve;
       assert.throws(
         () =>
           assertPrebuiltReadyForUpload({

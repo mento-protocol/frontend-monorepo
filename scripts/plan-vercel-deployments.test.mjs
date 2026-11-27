@@ -116,7 +116,6 @@ function appendFixtureChange(directory, path, message) {
 for (const [target, packageName] of [
   ["app", "app.mento.org"],
   ["reserve", "reserve.mento.org"],
-  ["ui", "ui.mento.org"],
 ]) {
   test(`plans only ${target} for an app-local build change`, () => {
     withFixture(`apps/${packageName}/app/page.tsx`, (fixture) => {
@@ -134,7 +133,10 @@ for (const [target, packageName] of [
   });
 }
 
-test("packages/ui affects all three deployments", () => {
+// Turbo still reports the ui workspace as affected, because the showcase
+// still builds in CI and runs pixel VRT. It is no longer a deployment target
+// (ADR 0018), so the planner maps only the deployable packages.
+test("packages/ui affects both deployments", () => {
   withFixture("packages/ui/src/button.tsx", (fixture) => {
     const plan = planVercelDeployments({
       repoRoot: fixture.directory,
@@ -207,6 +209,43 @@ test("a governance change alongside a shared package maps only deployable target
             "reserve.mento.org",
             "app.mento.org",
           ]),
+      });
+      assert.deepEqual(plan.deployments, ["app", "reserve"]);
+      assert.equal(plan.reason, "affected-packages");
+    },
+  );
+});
+
+test("a ui-only change plans no deployment", () => {
+  for (const path of [
+    "apps/ui.mento.org/app/page.tsx",
+    "apps/ui.mento.org/components/showcase.tsx",
+    "apps/ui.mento.org/package.json",
+    "apps/ui.mento.org/vercel.json",
+  ]) {
+    withFixture(path, (fixture) => {
+      const plan = planVercelDeployments({
+        repoRoot: fixture.directory,
+        base: fixture.base,
+        head: fixture.head,
+        runTurbo: () => assert.fail("Turbo must not run for a ui-only change"),
+      });
+      assert.deepEqual(plan.deployments, [], path);
+      assert.equal(plan.reason, "non-runtime-only", path);
+    });
+  }
+});
+
+test("a ui change alongside a shared package maps only deployable targets", () => {
+  withFixture(
+    ["apps/ui.mento.org/app/page.tsx", "packages/web3/src/config.ts"],
+    (fixture) => {
+      const plan = planVercelDeployments({
+        repoRoot: fixture.directory,
+        base: fixture.base,
+        head: fixture.head,
+        runTurbo: () =>
+          turboPlan(["ui.mento.org", "reserve.mento.org", "app.mento.org"]),
       });
       assert.deepEqual(plan.deployments, ["app", "reserve"]);
       assert.equal(plan.reason, "affected-packages");
@@ -428,7 +467,7 @@ test(
       );
       assert.deepEqual(
         planVercelDeployments({ repoRoot: directory, base, head }).deployments,
-        ["ui"],
+        [],
       );
 
       base = head;

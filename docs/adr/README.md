@@ -57,6 +57,7 @@ adds a high-signal surface without a numbered ADR.
 | [0015](0015-dependabot-agent-merges-at-all-clear.md)                  | The Dependabot preparation agent merges at ALL CLEAR under the claim gate; approval stays human; CodeRabbit findings are mandatory, its absence is not          |
 | [0016](0016-dependabot-review-tiers.md)                               | Only human-tier Dependabot PRs need a maintainer approval; automatic-tier PRs merge through the review bypass after an exact-head proof of the required checks. |
 | [0017](0017-retire-governance-from-vercel-deployment.md)              | Governance is retired from GitHub-owned Vercel deployment; four-target seals and preview journals stay readable through bounded rules                           |
+| [0018](0018-retire-ui-from-vercel-deployment.md)                      | UI is retired from GitHub-owned Vercel deployment; retired-era seals and preview journals stay readable through one generalized pair of rules                   |
 
 ### App
 

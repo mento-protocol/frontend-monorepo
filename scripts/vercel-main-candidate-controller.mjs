@@ -151,7 +151,7 @@ function canonicalPreplanMappings(value) {
 }
 
 function canonicalProjectIds(value) {
-  const targets = ["app", "reserve", "ui"];
+  const targets = ["app", "reserve"];
   exactKeys(value, targets, "Main pre-plan project IDs");
   return Object.fromEntries(
     targets.map((target) => {

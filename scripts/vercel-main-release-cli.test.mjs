@@ -62,8 +62,8 @@ import { createActiveDeploymentStateProof } from "./vercel-deployment-state.mjs"
 
 const SHA = "a".repeat(40);
 const PRIOR_SHA = "b".repeat(40);
-const TARGETS = ["app", "reserve", "ui"];
-const RELEASE_ORDER = ["reserve", "ui", "app"];
+const TARGETS = ["app", "reserve"];
+const RELEASE_ORDER = ["reserve", "app"];
 const RELEASE_CLI_PATH = fileURLToPath(
   new URL("./vercel-main-release-cli.mjs", import.meta.url),
 );
@@ -269,7 +269,6 @@ function discovery(
     projectIds: {
       app: "prj_app",
       reserve: "prj_reserve",
-      ui: "prj_ui",
     },
     discovery: {
       schema: "vercel-main-preplan-candidate-discovery:v2",
@@ -292,11 +291,9 @@ function environment(directory) {
     BUILD_AND_TEST_JOB_URL:
       "https://github.com/mento-protocol/frontend-monorepo/actions/runs/123/job/456",
     VERCEL_MAIN_MODE: "active",
-    MAIN_OWNERSHIP_MODE_JSON:
-      '{"app":"github","reserve":"github","ui":"github"}',
+    MAIN_OWNERSHIP_MODE_JSON: '{"app":"github","reserve":"github"}',
     VERCEL_PROJECT_ID_APP: "prj_app",
     VERCEL_PROJECT_ID_RESERVE: "prj_reserve",
-    VERCEL_PROJECT_ID_UI: "prj_ui",
     SOURCE_PATH: directory,
     GITHUB_OUTPUT: output,
     GITHUB_RUN_ID: "800",
@@ -413,12 +410,10 @@ function currentReleaseRuntimeSmoke(target) {
   const finalUrls = {
     app: "https://app.mento.org/pools",
     reserve: "https://reserve.mento.org/?tab=stablecoins",
-    ui: "https://ui.mento.org/form-components",
   };
   const interactions = {
     app: "real-production-wallet-list",
     reserve: "reserve-overview-data-and-supply-tab",
-    ui: "ui-search-navigation-and-checkbox",
   };
   return {
     deploy_sha: SHA,
@@ -442,7 +437,6 @@ function currentReleaseFixture() {
     candidateReceipts: {
       app: null,
       reserve: reserveReceipt,
-      ui: null,
     },
     appPreparation: null,
     runId: "800",
@@ -543,7 +537,6 @@ function currentReleaseFixture() {
     targetResults: {
       app: null,
       reserve: currentReleaseRuntimeSmoke("reserve"),
-      ui: null,
     },
     runId: "800",
     runAttempt: "3",
@@ -598,7 +591,6 @@ test("execution diagnostics use an exhaustive fixed allowlist", () => {
     "baseline-source-git": "main-release-execution-baseline-source-git",
     "baseline-prior-app": "main-release-execution-baseline-prior-app",
     "baseline-prior-reserve": "main-release-execution-baseline-prior-reserve",
-    "baseline-prior-ui": "main-release-execution-baseline-prior-ui",
     "baseline-planner-range": "main-release-execution-baseline-planner-range",
     "baseline-manifest": "main-release-execution-baseline-manifest",
     "baseline-unknown": "main-release-execution-baseline-unknown",
@@ -704,7 +696,7 @@ test("real execution failures report the phase reached by the entrypoint", async
     {
       phase: "project-census",
       mutateEnvironment(env) {
-        env.VERCEL_PROJECT_ID_UI = "prj_other";
+        env.VERCEL_PROJECT_ID_RESERVE = "prj_other";
       },
     },
     {
@@ -716,8 +708,7 @@ test("real execution failures report the phase reached by the entrypoint", async
     {
       phase: "manifest-assertion",
       mutateEnvironment(env) {
-        env.MAIN_OWNERSHIP_MODE_JSON =
-          '{"app":"shadow","reserve":"github","ui":"github"}';
+        env.MAIN_OWNERSHIP_MODE_JSON = '{"app":"shadow","reserve":"github"}';
       },
     },
     {
@@ -961,15 +952,19 @@ test("execution rejects same-release reuse that omits a fresh rollback-only targ
   );
   t.after(() => rmSync(directory, { recursive: true, force: true }));
 
-  for (const [name, stagedTargets, decision] of [
-    ["verify", ["reserve"], "verify-existing-release"],
-    ["resume", ["app", "reserve"], "resume-existing-release"],
+  // An interrupted prefix needs at least two staged targets, so with exactly
+  // two main targets only a complete single-target release can leave a fresh
+  // rollback-only target unstaged. Each target takes a turn as the omission.
+  for (const [name, stagedTargets, omittedTarget] of [
+    ["verify-reserve", ["reserve"], "app"],
+    ["verify-app", ["app"], "reserve"],
   ]) {
+    const decision = "verify-existing-release";
     const release = manifest(stagedTargets);
     const census = planningSnapshot(release, decision);
     const preplanValue = {
       ...preplan(release, decision),
-      rollbackOnlyTargets: ["ui"],
+      rollbackOnlyTargets: [omittedTarget],
     };
     await assert.rejects(
       runMainReleaseCli({
@@ -978,13 +973,13 @@ test("execution rejects same-release reuse that omits a fresh rollback-only targ
           census,
           preplanValue,
           discoveryValue: discovery(release, census, {
-            rollbackOnlyTargets: ["ui"],
+            rollbackOnlyTargets: [omittedTarget],
           }),
           suffix: `-${name}`,
         }),
         env: environment(directory),
       }),
-      /omits fresh rollback-only targets: ui/,
+      new RegExp(`omits fresh rollback-only targets: ${omittedTarget}$`),
       name,
     );
   }
@@ -1029,7 +1024,7 @@ test("only capture-new execution invokes the baseline planner", async (t) => {
     schema: "vercel-main-preplan-reconciliation:v2",
     decision: "capture-new-baseline",
     reason: "no-mapped-release-metadata",
-    rollbackOnlyTargets: ["app", "reserve", "ui"],
+    rollbackOnlyTargets: ["app", "reserve"],
     reconciliation: null,
     rollbackAuthorization: null,
   };
@@ -1041,14 +1036,14 @@ test("only capture-new execution invokes the baseline planner", async (t) => {
       preplanValue: capturePreplan,
       discoveryValue: discovery(release, census, {
         empty: true,
-        rollbackOnlyTargets: ["app", "reserve", "ui"],
+        rollbackOnlyTargets: ["app", "reserve"],
       }),
     }),
     env: environment(directory),
     baselineFactory: (options) => {
       captured += 1;
       assert.deepEqual(options.planningSnapshot, census);
-      assert.deepEqual(options.rollbackOnlyTargets, ["app", "reserve", "ui"]);
+      assert.deepEqual(options.rollbackOnlyTargets, ["app", "reserve"]);
       return { manifest: release };
     },
   });
@@ -1063,7 +1058,7 @@ test("capture-new execution accepts production generated-alias supersets", async
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const release = manifest(TARGETS, "123", TARGETS);
   const census = planningSnapshot(release);
-  for (const target of ["reserve", "ui"]) {
+  for (const target of ["reserve"]) {
     const aliases = PRODUCTION_PRIORS.priorStates[target].states[0].aliases;
     for (const state of census.states.filter(
       ({ projectName }) => projectName === `${target}.mento.org`,
@@ -1138,8 +1133,8 @@ test("execution rejects provider evidence that does not select the supplied rele
         ...baseDiscovery,
         projectIds: {
           ...baseDiscovery.projectIds,
-          reserve: baseDiscovery.projectIds.ui,
-          ui: baseDiscovery.projectIds.reserve,
+          app: baseDiscovery.projectIds.reserve,
+          reserve: baseDiscovery.projectIds.app,
         },
       },
       pattern: /provider discovery conflicts/,
@@ -1188,11 +1183,11 @@ test("execution rejects ownership and census drift", async (t) => {
   const census = planningSnapshot(release);
   const changedCensus = structuredClone(census);
   changedCensus.states.find(
-    ({ alias }) => alias === "ui.mento.org",
-  ).deploymentId = "dpl_changedUi123";
+    ({ alias }) => alias === "reserve.mento.org",
+  ).deploymentId = "dpl_changedReserve123";
   changedCensus.states.find(
-    ({ alias }) => alias === "ui.mento.org",
-  ).deploymentUrl = "https://changed-ui.vercel.app";
+    ({ alias }) => alias === "reserve.mento.org",
+  ).deploymentUrl = "https://changed-reserve.vercel.app";
   await assert.rejects(
     runMainReleaseCli({
       argv: executionArguments(directory, {
@@ -1208,7 +1203,7 @@ test("execution rejects ownership and census drift", async (t) => {
 
   const wrongOwnership = environment(directory);
   wrongOwnership.MAIN_OWNERSHIP_MODE_JSON =
-    '{"app":"shadow","reserve":"github","ui":"github"}';
+    '{"app":"shadow","reserve":"github"}';
   await assert.rejects(
     runMainReleaseCli({
       argv: executionArguments(directory, {
@@ -1236,7 +1231,7 @@ test("execution rejects ownership and census drift", async (t) => {
   );
 
   const wrongProjects = environment(directory);
-  wrongProjects.VERCEL_PROJECT_ID_UI = "prj_other";
+  wrongProjects.VERCEL_PROJECT_ID_RESERVE = "prj_other";
   await assert.rejects(
     runMainReleaseCli({
       argv: executionArguments(directory, {
@@ -1408,20 +1403,18 @@ test("candidate receipt materializer binds every selected job output to the exac
   const argv = ({
     app = "none",
     reserve = reserveEncoded,
-    ui = "none",
+    execution = executionPath,
     destination = output,
   } = {}) => [
     "candidate-receipts",
     "--app",
     app,
     "--execution",
-    executionPath,
+    execution,
     "--output",
     destination,
     "--reserve",
     reserve,
-    "--ui",
-    ui,
   ];
   // Every selected target, App included, hands over an exact staged receipt.
   await assert.rejects(
@@ -1443,7 +1436,6 @@ test("candidate receipt materializer binds every selected job output to the exac
   assert.deepEqual(complete, {
     app: appReceipt,
     reserve: reserveReceipt,
-    ui: null,
   });
   assert.deepEqual(JSON.parse(readFileSync(output, "utf8")), complete);
 
@@ -1464,12 +1456,10 @@ test("candidate receipt materializer binds every selected job output to the exac
         join(directory, "receipts-no-target.json"),
         "--reserve",
         "none",
-        "--ui",
-        "none",
       ],
       env: environment(directory),
     }),
-    { app: null, reserve: null, ui: null },
+    { app: null, reserve: null },
   );
 
   const divergentRelease = manifest(["app", "reserve"], "124");
@@ -1481,8 +1471,16 @@ test("candidate receipt materializer binds every selected job output to the exac
     },
     {
       name: "unselected-target-receipt",
-      ui: reserveEncoded,
-      pattern: /ui must have no receipt/,
+      execution: write(
+        directory,
+        "execution-reserve-only.json",
+        executionFor(manifest(["reserve"])),
+      ),
+      app: reserveEncoded,
+      reserve: encodeMainCandidateReceipt(
+        currentAttemptReceipt(manifest(["reserve"]), "reserve"),
+      ),
+      pattern: /app must have no receipt/,
     },
     {
       name: "malformed-encoding",
@@ -1516,7 +1514,7 @@ test("candidate receipt materializer binds every selected job output to the exac
         argv: argv({
           app: scenario.app ?? appEncoded,
           reserve: scenario.reserve ?? reserveEncoded,
-          ui: scenario.ui ?? "none",
+          execution: scenario.execution ?? executionPath,
           destination: join(directory, `receipts-invalid-${index}.json`),
         }),
         env: environment(directory),
@@ -1537,8 +1535,6 @@ test("candidate receipt materializer binds every selected job output to the exac
         join(directory, "receipts-empty.json"),
         "--reserve",
         "",
-        "--ui",
-        "none",
       ],
       env: environment(directory),
     }),
@@ -1605,7 +1601,6 @@ test("inherited recovery requires current-attempt receipts only for moved candid
   const argv = ({
     app = "none",
     reserve = encodeMainCandidateReceipt(reserveReceipt),
-    ui = "none",
     output = receiptOutput,
     preplanValue = preplanPath,
   } = {}) => [
@@ -1618,8 +1613,6 @@ test("inherited recovery requires current-attempt receipts only for moved candid
     preplanValue,
     "--reserve",
     reserve,
-    "--ui",
-    ui,
   ];
   const receipts = await runMainReleaseCli({
     argv: argv(),
@@ -1628,7 +1621,6 @@ test("inherited recovery requires current-attempt receipts only for moved candid
   assert.deepEqual(receipts, {
     app: null,
     reserve: reserveReceipt,
-    ui: null,
   });
   assert.deepEqual(JSON.parse(readFileSync(receiptOutput, "utf8")), receipts);
 
@@ -1978,8 +1970,6 @@ test("terminal stage-result materializer preserves literal coordinator-only fail
       "skipped",
       "--reserve-result",
       "success",
-      "--ui-result",
-      "skipped",
       "--coordinator-result",
       "failure",
       "--output",
@@ -1995,7 +1985,6 @@ test("terminal stage-result materializer preserves literal coordinator-only fail
     results: {
       app: "skipped",
       reserve: "success",
-      ui: "skipped",
     },
     coordinatorResult: "failure",
   });
@@ -2044,7 +2033,6 @@ test("terminal artifact CLI materializes a pre-journal preparation failure from 
         results: {
           app: "skipped",
           reserve: "failure",
-          ui: "skipped",
         },
         coordinatorResult: "skipped",
       }),
@@ -2104,7 +2092,6 @@ test("forward journal uses only asserted execution, fresh mappings, and current-
     projectIds: {
       app: execution.projection.projectIds.app,
       reserve: execution.projection.projectIds.reserve,
-      ui: execution.projection.projectIds.ui,
     },
   });
   const output = join(directory, "forward-journal.json");
@@ -2119,7 +2106,6 @@ test("forward journal uses only asserted execution, fresh mappings, and current-
       write(directory, "receipts.json", {
         app: null,
         reserve: null,
-        ui: null,
       }),
       "--output",
       output,
@@ -2131,7 +2117,6 @@ test("forward journal uses only asserted execution, fresh mappings, and current-
   assert.deepEqual(value.candidates, {
     app: null,
     reserve: null,
-    ui: null,
   });
   assert.deepEqual(JSON.parse(readFileSync(output, "utf8")), value);
   const outputs = readFileSync(join(directory, "github-output"), "utf8");
@@ -2148,7 +2133,6 @@ test("forward journal uses only asserted execution, fresh mappings, and current-
         write(directory, "receipts-forged.json", {
           app: { forged: true },
           reserve: null,
-          ui: null,
         }),
         "--output",
         join(directory, "forged-journal.json"),
@@ -2170,7 +2154,6 @@ test("a mixed App-only residual creates only an inherited recovery journal", asy
     projectIds: {
       app: "prj_app",
       reserve: "prj_reserve",
-      ui: "prj_ui",
     },
   });
   const movedAppAlias = release.originalPriors.app.aliases[0];
@@ -2260,7 +2243,7 @@ test("inherited recovery journal binds a partial prefix to current-attempt recei
     mkdtempSync(join(tmpdir(), "main-release-inherited-journal-")),
   );
   t.after(() => rmSync(directory, { recursive: true, force: true }));
-  const release = manifest(["reserve", "ui"], "122");
+  const release = manifest(["app", "reserve"], "122");
   const sameReleasePreplan = preplan(release);
   const currentMappings = Object.fromEntries(
     sameReleasePreplan.reconciliation.observedTargets.map(
@@ -2288,13 +2271,11 @@ test("inherited recovery journal binds a partial prefix to current-attempt recei
     projectIds: {
       app: "prj_app",
       reserve: "prj_reserve",
-      ui: "prj_ui",
     },
   });
   const candidateReceipts = {
-    app: null,
+    app: currentAttemptReceipt(release, "app"),
     reserve: currentAttemptReceipt(release, "reserve"),
-    ui: currentAttemptReceipt(release, "ui"),
   };
   const journalOutput = join(directory, "inherited-journal.json");
   const planOutput = join(directory, "inherited-plan.json");
@@ -2323,7 +2304,10 @@ test("inherited recovery journal binds a partial prefix to current-attempt recei
     result.journal.candidates.reserve.deploymentId,
     "dpl_reserveCandidate123",
   );
-  assert.equal(result.journal.candidates.ui.deploymentId, "dpl_uiCandidate123");
+  assert.equal(
+    result.journal.candidates.app.deploymentId,
+    "dpl_appCandidate123",
+  );
   assert.deepEqual(result.recoveryPlan.rollbackAuthority, {
     targets: ["reserve"],
     aliases: ["reserve.mento.org"],

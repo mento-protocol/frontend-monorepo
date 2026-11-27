@@ -2,15 +2,13 @@
   "mode": "shadow",
   "mainOwnershipMode": {
     "app": "shadow",
-    "reserve": "shadow",
-    "ui": "shadow"
+    "reserve": "shadow"
   },
   "deploySha": "dddddddddddddddddddddddddddddddddddddddd",
   "firstParent": "cccccccccccccccccccccccccccccccccccccccc",
   "projectIds": {
     "app": "prj_app123",
-    "reserve": "prj_reserve123",
-    "ui": "prj_ui123"
+    "reserve": "prj_reserve123"
   },
   "priorStates": {
     "app": {
@@ -65,34 +63,6 @@
             "reservementoorg-git-main-mentolabs.vercel.app",
             "reservementoorg-mentolabs.vercel.app",
             "reservementoorg.vercel.app"
-          ]
-        }
-      ]
-    },
-    "ui": {
-      "health": "passed",
-      "states": [
-        {
-          "alias": "ui.mento.org",
-          "deploymentId": "dpl_uiC123",
-          "deploymentUrl": "https://ui-main-c.vercel.app",
-          "creatorUsername": "fixture-author",
-          "projectId": "prj_ui123",
-          "projectName": "ui.mento.org",
-          "readyState": "READY",
-          "target": "production",
-          "customEnvironmentSlug": null,
-          "git": {
-            "org": "mento-protocol",
-            "repo": "frontend-monorepo",
-            "ref": "main",
-            "sha": "cccccccccccccccccccccccccccccccccccccccc"
-          },
-          "aliases": [
-            "ui.mento.org",
-            "uimentoorg-git-main-mentolabs.vercel.app",
-            "uimentoorg-mentolabs.vercel.app",
-            "uimentoorg.vercel.app"
           ]
         }
       ]
