@@ -7,7 +7,7 @@ import { useAtomValue } from "jotai";
 import { Button, cn, Logo } from "@mento-protocol/ui";
 import { ArrowUpRight, Moon, Sun } from "lucide-react";
 import { type AppTab, activeTabAtom } from "@/atoms/navigation";
-import { SQUID_SWAP_URL } from "@/lib/external-links";
+import { useSwapAggregator } from "@/hooks/use-swap-aggregator";
 import { useRef, useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -59,6 +59,7 @@ const tabs: { value: AppTab; label: string }[] = [
 export function Header() {
   const atomTab = useAtomValue(activeTabAtom);
   const pathname = usePathname();
+  const swapAggregator = useSwapAggregator();
   const navRef = useRef<HTMLElement>(null);
   const [indicatorStyle, setIndicatorStyle] = useState({ left: 0, width: 0 });
 
@@ -151,17 +152,20 @@ export function Header() {
                 {tab.label}
               </Link>
             ))}
-            {/* Swapping moved to Squid; this leaves the app, so it is a plain
-                external link rather than a tab. */}
+            {/* Swapping moved to an external aggregator chosen by the selected
+                chain; this leaves the app, so it is a plain external link
+                rather than a tab. */}
             <a
-              href={SQUID_SWAP_URL}
+              href={swapAggregator.url}
               target="_blank"
               rel="noopener noreferrer"
               className="pb-1 text-md font-medium gap-0.5 relative z-10 flex items-center text-muted-foreground transition-colors outline-none hover:text-foreground"
             >
               Swap
               <ArrowUpRight className="size-4" aria-hidden="true" />
-              <span className="sr-only">(opens Squid in a new tab)</span>
+              <span className="sr-only">
+                (opens {swapAggregator.name} in a new tab)
+              </span>
             </a>
             {/* Sliding underline indicator */}
             <div
