@@ -304,7 +304,10 @@ removes the RegExp API that glob 13 uses) and decode-uri-component. The two
 Vercel `sandbox` package-name false positives were renewed. The standalone CLI
 config also ignores the minimatch and glob advisories, because the root
 override mirror cannot move the Vercel builders across a major. All of these
-entries expire on 2026-11-30 together with the protobufjs batch.
+entries were re-audited on 2026-11-28. The remaining exceptions now expire
+on 2026-12-28. The application lockfile moves protobufjs 6.11.4 to 6.11.6,
+removing GHSA-xq3m-2v4x-88gg. Unfiltered scans no longer report the two
+image-size findings or the withdrawn picomatch advisory in either scope.
 
 ## When an override is the wrong instrument
 

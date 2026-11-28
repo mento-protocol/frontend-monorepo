@@ -1,6 +1,7 @@
 [[IgnoredVulns]]
 id = "GHSA-3gc7-fjrx-p6mg"
-reason = "bigint-buffer vulnerability is in transitive deps; no direct fix available"
+ignoreUntil = 2026-12-28T00:00:00Z
+reason = "bigint-buffer vulnerability is in transitive deps; no direct fix available https://github.com/advisories/GHSA-3gc7-fjrx-p6mg"
 
 [[IgnoredVulns]]
 id = "GHSA-848j-6mx2-7j84"
@@ -12,79 +13,45 @@ id = "GHSA-848j-6mx2-7j84"
 # and 6.6.1 (published 2024-11-13) is still the newest release on npm, so no
 # override target exists. Renewed for 90 days per the toml's renewal guidance.
 # TODO: Remove once upstream releases a patched version.
-ignoreUntil = 2026-11-30T00:00:00Z
-reason = "No upstream fix available for elliptic yet; every published version through the current 6.6.1 is affected, and it is pulled in via multiple independent chains (@cosmjs/crypto, @toruslabs/eccrypto, @walletconnect/utils, tiny-secp256k1)."
-
-[[IgnoredVulns]]
-id = "GHSA-5p2g-fcmc-qvqq"
-# image-size is reachable only through Metro's React Native build tooling. The
-# production web applications use Next.js/Vercel builds and never invoke Metro
-# or pass uploaded image bytes to this dependency. OSV lists no fixed release.
-# TODO: Remove when Metro replaces image-size or upstream publishes a fix.
-ignoreUntil = 2026-11-08T00:00:00Z
-reason = "No upstream fix exists; image-size is only a Metro build-time dependency in this Next.js-only repo, and Metro never parses user-controlled images here."
-
-[[IgnoredVulns]]
-id = "GHSA-w3rx-r6r6-pgpr"
-# Same image-size dependency and unreachable Metro-only execution path as the
-# adjacent advisory.
-ignoreUntil = 2026-11-08T00:00:00Z
-reason = "No upstream fix exists; image-size is only a Metro build-time dependency in this Next.js-only repo, and Metro never parses user-controlled images here."
+ignoreUntil = 2026-12-28T00:00:00Z
+reason = "No upstream fix available for elliptic yet; every published version through the current 6.6.1 is affected, and it is pulled in via multiple independent chains (@cosmjs/crypto, @toruslabs/eccrypto, @walletconnect/utils, tiny-secp256k1). https://github.com/advisories/GHSA-848j-6mx2-7j84"
 
 [[IgnoredVulns]]
 id = "GHSA-23c5-xmqv-rm74"
-reason = "minimatch ReDoS in transitive deps; pre-existing"
+ignoreUntil = 2026-12-28T00:00:00Z
+reason = "minimatch ReDoS in transitive deps; pre-existing https://github.com/advisories/GHSA-23c5-xmqv-rm74"
 
 [[IgnoredVulns]]
 id = "GHSA-3ppc-4f35-3m26"
-reason = "minimatch ReDoS in transitive deps; pre-existing"
+ignoreUntil = 2026-12-28T00:00:00Z
+reason = "minimatch ReDoS in transitive deps; pre-existing https://github.com/advisories/GHSA-3ppc-4f35-3m26"
 
 [[IgnoredVulns]]
 id = "GHSA-7r86-cg39-jmmj"
-reason = "minimatch ReDoS in transitive deps; pre-existing"
-
-[[IgnoredVulns]]
-id = "GHSA-xq3m-2v4x-88gg"
-# protobufjs 6.11.4 vulnerability. Pulled in via @confio/ics23@0.6.8 which is
-# deprecated/unmaintained and declares protobufjs ^6.8.8. Forcing it to 7.x is
-# a semver-major jump (dropped `long` dep, changed 64-bit integer handling)
-# that risks silently corrupting IBC/Cosmos proof parsing in the wormhole-connect
-# bridge stack used by app.mento.org. 7.x/8.x consumers are already covered by
-# the narrower pnpm overrides.
-# Renewed 2026-09-01 — the Wormhole Connect v6 upgrade did not clear the chain.
-# pnpm-lock.yaml still resolves protobufjs@6.11.4, whose only consumer is
-# @confio/ics23@0.6.8, reached through wormhole-connect v6 →
-# @wormhole-foundation/sdk-cosmwasm* 4.9.1 → @cosmjs/stargate@0.32.4. OSV lists
-# the first fix as 7.5.5, so no 6.x patch exists. Renewed for 90 days per the
-# toml's renewal guidance.
-# TODO: Re-evaluate at ignoreUntil — check whether @confio/ics23 has been
-# removed from the dep tree or a safe fix path exists upstream.
-ignoreUntil = 2026-11-30T00:00:00Z
-reason = "protobufjs 6.x advisory — no safe fix path; @confio/ics23@0.6.8 is deprecated and 7.x is an unsafe major jump for Cosmos proof parsing."
+ignoreUntil = 2026-12-28T00:00:00Z
+reason = "minimatch ReDoS in transitive deps; pre-existing https://github.com/advisories/GHSA-7r86-cg39-jmmj"
 
 [[IgnoredVulns]]
 id = "GHSA-f38q-mgvj-vph7"
 # New protobufjs schema-name shadowing advisory. 7.x/8.x consumers are covered
 # by pnpm overrides; the remaining 6.x instance is the same @confio/ics23
-# wormhole-connect chain documented above, where forcing 7.x is a semver-major
+# wormhole-connect chain, where forcing 7.x is a semver-major
 # jump with Cosmos proof parsing risk.
 # Renewed 2026-09-01 — chain unchanged after the Wormhole Connect v6 upgrade;
 # OSV lists the first fix as 7.6.3, so no 6.x patch exists.
-# TODO: Re-evaluate at ignoreUntil alongside GHSA-xq3m-2v4x-88gg.
-ignoreUntil = 2026-11-30T00:00:00Z
-reason = "protobufjs 6.x advisory — no safe fix path; remaining instance is @confio/ics23@0.6.8 via wormhole-connect, and 7.x is an unsafe major jump for Cosmos proof parsing."
+ignoreUntil = 2026-12-28T00:00:00Z
+reason = "protobufjs 6.x advisory — no safe fix path; remaining instance is @confio/ics23@0.6.8 via wormhole-connect, and 7.x is an unsafe major jump for Cosmos proof parsing. https://github.com/advisories/GHSA-f38q-mgvj-vph7"
 
 [[IgnoredVulns]]
 id = "GHSA-wcpc-wj8m-hjx6"
 # New protobufjs Any-expansion DoS advisory. 7.x/8.x consumers are covered by
 # pnpm overrides; the remaining 6.x instance is the same @confio/ics23
-# wormhole-connect chain documented above, where forcing 7.x is a semver-major
+# wormhole-connect chain, where forcing 7.x is a semver-major
 # jump with Cosmos proof parsing risk.
 # Renewed 2026-09-01 — chain unchanged after the Wormhole Connect v6 upgrade;
 # OSV lists the first fix as 7.6.1, so no 6.x patch exists.
-# TODO: Re-evaluate at ignoreUntil alongside GHSA-xq3m-2v4x-88gg.
-ignoreUntil = 2026-11-30T00:00:00Z
-reason = "protobufjs 6.x advisory — no safe fix path; remaining instance is @confio/ics23@0.6.8 via wormhole-connect, and 7.x is an unsafe major jump for Cosmos proof parsing."
+ignoreUntil = 2026-12-28T00:00:00Z
+reason = "protobufjs 6.x advisory — no safe fix path; remaining instance is @confio/ics23@0.6.8 via wormhole-connect, and 7.x is an unsafe major jump for Cosmos proof parsing. https://github.com/advisories/GHSA-wcpc-wj8m-hjx6"
 
 [[IgnoredVulns]]
 id = "GHSA-vcc3-ghjq-m6fr"
@@ -115,85 +82,53 @@ id = "GHSA-vcc3-ghjq-m6fr"
 #   2. Wait for @walletconnect/utils to move off query-string 7.x.
 # TODO: Re-evaluate at ignoreUntil — check whether @walletconnect/utils has
 # dropped query-string 7.x or a CommonJS-compatible fixed release exists.
-ignoreUntil = 2026-11-30T00:00:00Z
-reason = "No compatible fix: the only fixed decode-uri-component release (0.5.0) is ESM-only, and its sole consumer query-string@7.1.3 is CommonJS and require()s it, so an override throws TypeError at runtime; every query-string release still depends on an affected 0.4.x."
+ignoreUntil = 2026-12-28T00:00:00Z
+reason = "No compatible fix: the only fixed decode-uri-component release (0.5.0) is ESM-only, and its sole consumer query-string@7.1.3 is CommonJS and require()s it, so an override throws TypeError at runtime; every query-string release still depends on an affected 0.4.x. https://github.com/advisories/GHSA-vcc3-ghjq-m6fr"
 
-# ---------------------------------------------------------------------------
-# Batch added 2026-05-15 alongside the Trove Activity panel PR.
-# Existing osv-scanner.toml entries cover older transitive-dep advisories
-# from the same Wormhole dependency chain. Re-running the scanner surfaced
-# newer GHSAs across the same upstream packages. All entries in this batch use
-# ignoreUntil 2026-12-01 so the next audit catches them.
-#
-# The axios groups originally recorded in this batch were removed on
-# 2026-07-21 after the root override began enforcing >=1.18.0 and the lockfile
-# resolved 1.18.1, which clears every axios advisory without a suppression.
-#
-# REVISIT CHECKLIST — before the 2026-12-01 expiry:
-#
-#   1. Run `osv-scanner` WITHOUT this toml (e.g. temporarily rename it) to
-#      surface a fresh, unfiltered list of advisories. Compare against the
-#      ignores below — anything not in the fresh list is no longer
-#      reachable and the ignore can be deleted.
-#   2. For each per-package group below, check the upstream chain for a
-#      patched release that resolves the GHSAs:
-#        - protobufjs  → look for bumped protobufjs in wormhole-connect's
-#                         @cosmjs/* / @trezor/* sub-chains.
-#        - ip-address  → the HTML-emitting code path is confirmed unreachable
-#                         in this app. Delete the ignore when the upstream
-#                         chain finally bumps to a patched version.
-#   3. For any group where upstream has shipped a fix → drop the ignore and
-#      bump the dep (or wait for the catalog/lockfile refresh to pull it).
-#   4. For anything still genuinely unfixable, RENEW the ignoreUntil with a
-#      shorter window (default to 90 days) and a fresh justification.
-#
-# Owner: TODO — pick this up during the November 2026 dependency review.
-# ---------------------------------------------------------------------------
-
-# --- protobufjs: transitive via @wormhole-foundation/wormhole-connect → cosmjs / trezor chains ---
+# Re-audit the remaining protobufjs 6.x findings before expiry.
 
 [[IgnoredVulns]]
 id = "GHSA-2pr8-phx7-x9h3"
-ignoreUntil = 2026-12-01T00:00:00Z
-reason = "protobufjs DoS from crafted field names in generated toObject code; transitive via wormhole-connect → @cosmjs/* / @trezor/*; no direct fix available."
+ignoreUntil = 2026-12-28T00:00:00Z
+reason = "protobufjs DoS from crafted field names in generated toObject code; transitive via wormhole-connect → @cosmjs/* / @trezor/*; no direct fix available. https://github.com/advisories/GHSA-2pr8-phx7-x9h3"
 
 [[IgnoredVulns]]
 id = "GHSA-66ff-xgx4-vchm"
-ignoreUntil = 2026-12-01T00:00:00Z
-reason = "protobufjs code injection through bytes field defaults; transitive via wormhole-connect → @cosmjs/* / @trezor/*; no direct fix available."
+ignoreUntil = 2026-12-28T00:00:00Z
+reason = "protobufjs code injection through bytes field defaults; transitive via wormhole-connect → @cosmjs/* / @trezor/*; no direct fix available. https://github.com/advisories/GHSA-66ff-xgx4-vchm"
 
 [[IgnoredVulns]]
 id = "GHSA-685m-2w69-288q"
-ignoreUntil = 2026-12-01T00:00:00Z
-reason = "protobufjs DoS through unbounded recursion; transitive via wormhole-connect → @cosmjs/* / @trezor/*; no direct fix available."
+ignoreUntil = 2026-12-28T00:00:00Z
+reason = "protobufjs DoS through unbounded recursion; transitive via wormhole-connect → @cosmjs/* / @trezor/*; no direct fix available. https://github.com/advisories/GHSA-685m-2w69-288q"
 
 [[IgnoredVulns]]
 id = "GHSA-75px-5xx7-5xc7"
-ignoreUntil = 2026-12-01T00:00:00Z
-reason = "protobufjs code-generation gadget after prototype pollution; transitive via wormhole-connect → @cosmjs/* / @trezor/*; no direct fix available."
+ignoreUntil = 2026-12-28T00:00:00Z
+reason = "protobufjs code-generation gadget after prototype pollution; transitive via wormhole-connect → @cosmjs/* / @trezor/*; no direct fix available. https://github.com/advisories/GHSA-75px-5xx7-5xc7"
 
 [[IgnoredVulns]]
 id = "GHSA-fx83-v9x8-x52w"
-ignoreUntil = 2026-12-01T00:00:00Z
-reason = "protobufjs prototype injection in generated message constructors; transitive via wormhole-connect → @cosmjs/* / @trezor/*; no direct fix available."
+ignoreUntil = 2026-12-28T00:00:00Z
+reason = "protobufjs prototype injection in generated message constructors; transitive via wormhole-connect → @cosmjs/* / @trezor/*; no direct fix available. https://github.com/advisories/GHSA-fx83-v9x8-x52w"
 
 [[IgnoredVulns]]
 id = "GHSA-jvwf-75h9-cwgg"
-ignoreUntil = 2026-12-01T00:00:00Z
-reason = "protobufjs process-wide DoS through unsafe option paths; transitive via wormhole-connect → @cosmjs/* / @trezor/*; no direct fix available."
+ignoreUntil = 2026-12-28T00:00:00Z
+reason = "protobufjs process-wide DoS through unsafe option paths; transitive via wormhole-connect → @cosmjs/* / @trezor/*; no direct fix available. https://github.com/advisories/GHSA-jvwf-75h9-cwgg"
 
 [[IgnoredVulns]]
 id = "GHSA-q6x5-8v7m-xcrf"
-ignoreUntil = 2026-12-01T00:00:00Z
-reason = "@protobufjs/utf8 overlong UTF-8 decoding; transitive via wormhole-connect → @cosmjs/* / @trezor/*; no direct fix available."
+ignoreUntil = 2026-12-28T00:00:00Z
+reason = "@protobufjs/utf8 overlong UTF-8 decoding; transitive via wormhole-connect → @cosmjs/* / @trezor/*; no direct fix available. https://github.com/advisories/GHSA-q6x5-8v7m-xcrf"
 
 # --- New advisories surfaced 2026-05-19 (same transitive chains as the
 #     2026-05-15 batch above) ---
 
 [[IgnoredVulns]]
 id = "GHSA-jggg-4jg4-v7c6"
-ignoreUntil = 2026-12-01T00:00:00Z
-reason = "protobufjs DoS via unbounded recursive JSON descriptor expansion; transitive via wormhole-connect → @cosmjs/* / @trezor/* (affects both 6.11.4 and 7.5.5); no direct fix available."
+ignoreUntil = 2026-12-28T00:00:00Z
+reason = "protobufjs DoS via unbounded recursive JSON descriptor expansion; transitive via wormhole-connect → @cosmjs/* / @trezor/* (still affects 6.11.6); no direct fix available. https://github.com/advisories/GHSA-jggg-4jg4-v7c6"
 
 # --- Vercel Sandbox CLI package-name reuse ---
 # These advisories describe the legacy gf3/sandbox evaluator (last affected
@@ -203,13 +138,13 @@ reason = "protobufjs DoS via unbounded recursive JSON descriptor expansion; tran
 
 [[IgnoredVulns]]
 id = "GHSA-fm4j-4xhm-xpwx"
-ignoreUntil = 2026-11-30T00:00:00Z
-reason = "False positive from npm package-name reuse: advisory targets legacy gf3/sandbox <=0.8.2; sandbox@4.1.0 is Vercel's unrelated CLI (vercel/sandbox, required by vercel@59.10.0) and this repo never invokes its sandbox command. GitHub's record bounds both advisories to sandbox <1.0.0; OSV still matches 4.1.0."
+ignoreUntil = 2026-12-28T00:00:00Z
+reason = "False positive from npm package-name reuse: advisory targets legacy gf3/sandbox <=0.8.2; sandbox@4.1.0 is Vercel's unrelated CLI (vercel/sandbox, required by vercel@59.10.0) and this repo never invokes its sandbox command. GitHub's record bounds both advisories to sandbox <1.0.0; OSV still matches 4.1.0. https://github.com/advisories/GHSA-fm4j-4xhm-xpwx"
 
 [[IgnoredVulns]]
 id = "GHSA-gc25-3vc5-2jf9"
-ignoreUntil = 2026-11-30T00:00:00Z
-reason = "False positive from npm package-name reuse: advisory targets legacy gf3/sandbox <=0.8.2; sandbox@4.1.0 is Vercel's unrelated CLI (vercel/sandbox, required by vercel@59.10.0) and this repo never invokes its sandbox command. GitHub's record bounds both advisories to sandbox <1.0.0; OSV still matches 4.1.0."
+ignoreUntil = 2026-12-28T00:00:00Z
+reason = "False positive from npm package-name reuse: advisory targets legacy gf3/sandbox <=0.8.2; sandbox@4.1.0 is Vercel's unrelated CLI (vercel/sandbox, required by vercel@59.10.0) and this repo never invokes its sandbox command. GitHub's record bounds both advisories to sandbox <1.0.0; OSV still matches 4.1.0. https://github.com/advisories/GHSA-gc25-3vc5-2jf9"
 
 # --- Advisories surfaced 2026-10-13..2026-10-31 without a compatible fix ---
 # Everything with a usable fix is handled by pnpm.overrides instead. These
@@ -218,22 +153,15 @@ reason = "False positive from npm package-name reuse: advisory targets legacy gf
 
 [[IgnoredVulns]]
 id = "GHSA-g3hv-75wg-m249"
-ignoreUntil = 2026-11-30T00:00:00Z
-reason = "minimatch globparts DoS; every release below 11.0.1 is affected. Locked 3.1.5 stays because its consumers have no release on minimatch 10+ (eslint-plugin-react 7.37.5 is latest and requires ^3.1.2; the latest @vercel/backends, 24.0.1, still pins ts-morph 12.0.0; test-exclude 6 via babel-plugin-istanbul 6). 10.2.6 cannot be forced to 11 without glob 14, because 11 removes makeRe, the AST class and RegExp sets. All match repository-controlled patterns at build or deploy time."
+ignoreUntil = 2026-12-28T00:00:00Z
+reason = "minimatch globparts DoS; every release below 11.0.1 is affected. Locked 3.1.5 stays because its consumers have no release on minimatch 10+ (eslint-plugin-react 7.37.5 is latest and requires ^3.1.2; the latest @vercel/backends, 24.0.1, still pins ts-morph 12.0.0; test-exclude 6 via babel-plugin-istanbul 6). 10.2.6 cannot be forced to 11 without glob 14, because 11 removes makeRe, the AST class and RegExp sets. All match repository-controlled patterns at build or deploy time. https://github.com/advisories/GHSA-g3hv-75wg-m249"
 
 [[IgnoredVulns]]
 id = "GHSA-3g3m-2fjr-6pw4"
-ignoreUntil = 2026-11-30T00:00:00Z
-reason = "glob AbortSignal cancellation bypass; fixed only in 14.0.2. Locked 13.0.6 is build and test tooling only: @vercel/nft (vercel devDependency), @sentry/bundler-plugins (source-map upload at build), rimraf 3 and test-exclude 6. None passes an AbortSignal to glob."
+ignoreUntil = 2026-12-28T00:00:00Z
+reason = "glob AbortSignal cancellation bypass; fixed only in 14.0.2. Locked 13.0.6 is build and test tooling only: @vercel/nft (vercel devDependency), @sentry/bundler-plugins (source-map upload at build), rimraf 3 and test-exclude 6. None passes an AbortSignal to glob. https://github.com/advisories/GHSA-3g3m-2fjr-6pw4"
 
 [[IgnoredVulns]]
 id = "GHSA-qr28-fpjm-wq7f"
-ignoreUntil = 2026-11-30T00:00:00Z
-reason = "decode-uri-component quadratic DoS; fixed only in 0.5.1, which is ESM-only like 0.5.0 and breaks query-string@7.1.3's require() in WalletConnect. Same consumer and analysis as GHSA-vcc3-ghjq-m6fr above."
-
-# --- Advisory widened 2026-11-17 without a fixed release ---
-
-[[IgnoredVulns]]
-id = "GHSA-fc5q-39xc-vjpf"
-ignoreUntil = 2026-11-30T00:00:00Z
-reason = "picomatch extglob ReDoS; GitHub widened the range to <=4.0.7 on 2026-11-17 and lists no fixed release, so the 4.0.4 override has nothing to move to. Every consumer is build, test or deploy tooling (vite, vitest, rollup plugins, @vercel/nft, knip, jest-util, micromatch, anymatch, fdir, tinyglobby) matching repository-controlled globs; no shipped app passes user input to picomatch. Raise the override as soon as a fixed release exists."
+ignoreUntil = 2026-12-28T00:00:00Z
+reason = "decode-uri-component quadratic DoS; fixed only in 0.5.1, which is ESM-only like 0.5.0 and breaks query-string@7.1.3's require() in WalletConnect. Same consumer and analysis as GHSA-vcc3-ghjq-m6fr above. https://github.com/advisories/GHSA-qr28-fpjm-wq7f"

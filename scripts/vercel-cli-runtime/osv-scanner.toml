@@ -6,13 +6,13 @@
 
 [[IgnoredVulns]]
 id = "GHSA-fm4j-4xhm-xpwx"
-ignoreUntil = 2026-11-30T00:00:00Z
-reason = "False positive from npm package-name reuse: advisory targets legacy gf3/sandbox <=0.8.2; sandbox@4.1.0 is Vercel's unrelated CLI (vercel/sandbox, required by vercel@59.10.0) and this repo never invokes its sandbox command. GitHub's record bounds both advisories to sandbox <1.0.0; OSV still matches 4.1.0."
+ignoreUntil = 2026-12-28T00:00:00Z
+reason = "False positive from npm package-name reuse: advisory targets legacy gf3/sandbox <=0.8.2; sandbox@4.1.0 is Vercel's unrelated CLI (vercel/sandbox, required by vercel@59.10.0) and this repo never invokes its sandbox command. GitHub's record bounds both advisories to sandbox <1.0.0; OSV still matches 4.1.0. https://github.com/advisories/GHSA-fm4j-4xhm-xpwx"
 
 [[IgnoredVulns]]
 id = "GHSA-gc25-3vc5-2jf9"
-ignoreUntil = 2026-11-30T00:00:00Z
-reason = "False positive from npm package-name reuse: advisory targets legacy gf3/sandbox <=0.8.2; sandbox@4.1.0 is Vercel's unrelated CLI (vercel/sandbox, required by vercel@59.10.0) and this repo never invokes its sandbox command. GitHub's record bounds both advisories to sandbox <1.0.0; OSV still matches 4.1.0."
+ignoreUntil = 2026-12-28T00:00:00Z
+reason = "False positive from npm package-name reuse: advisory targets legacy gf3/sandbox <=0.8.2; sandbox@4.1.0 is Vercel's unrelated CLI (vercel/sandbox, required by vercel@59.10.0) and this repo never invokes its sandbox command. GitHub's record bounds both advisories to sandbox <1.0.0; OSV still matches 4.1.0. https://github.com/advisories/GHSA-gc25-3vc5-2jf9"
 
 # --- Build-tool advisories without a compatible fix ---
 # Vercel's builders lock minimatch 3.1.5/10.2.6 and glob 13.0.6. Their only
@@ -22,15 +22,10 @@ reason = "False positive from npm package-name reuse: advisory targets legacy gf
 
 [[IgnoredVulns]]
 id = "GHSA-g3hv-75wg-m249"
-ignoreUntil = 2026-11-30T00:00:00Z
-reason = "minimatch globparts DoS; every release below 11.0.1 is affected. Locked 3.1.5 comes from ts-morph 12, which the latest @vercel/backends (24.0.1) still pins; 10.2.6 cannot move to 11 without glob 14, because 11 removes makeRe, the AST class and RegExp sets. Both match repository-controlled patterns at deploy time."
+ignoreUntil = 2026-12-28T00:00:00Z
+reason = "minimatch globparts DoS; every release below 11.0.1 is affected. Locked 3.1.5 comes from ts-morph 12, which the latest @vercel/backends (24.0.1) still pins; 10.2.6 cannot move to 11 without glob 14, because 11 removes makeRe, the AST class and RegExp sets. Both match repository-controlled patterns at deploy time. https://github.com/advisories/GHSA-g3hv-75wg-m249"
 
 [[IgnoredVulns]]
 id = "GHSA-3g3m-2fjr-6pw4"
-ignoreUntil = 2026-11-30T00:00:00Z
-reason = "glob AbortSignal cancellation bypass; fixed only in 14.0.2. Locked 13.0.6 comes from @vercel/nft, which traces our own build output and passes no caller AbortSignal."
-
-[[IgnoredVulns]]
-id = "GHSA-fc5q-39xc-vjpf"
-ignoreUntil = 2026-11-30T00:00:00Z
-reason = "picomatch extglob ReDoS; GitHub widened the range to <=4.0.7 on 2026-11-17 and lists no fixed release. Locked 4.0.4 comes from @vercel/nft, @rollup/pluginutils and micromatch, which match repository-controlled globs at deploy time. Raise the root override mirror as soon as a fixed release exists."
+ignoreUntil = 2026-12-28T00:00:00Z
+reason = "glob AbortSignal cancellation bypass; fixed only in 14.0.2. Locked 13.0.6 comes from @vercel/nft, which traces our own build output and passes no caller AbortSignal. https://github.com/advisories/GHSA-3g3m-2fjr-6pw4"
